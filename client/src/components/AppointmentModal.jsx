@@ -11,13 +11,15 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
   const [practitioners, setPractitioners] = useState([]);
   const [clients, setClients] = useState([]);
   const [services, setServices] = useState([]);
+  const [locations, setLocations] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   const [form, setForm] = useState({
     practitioner_id: '',
     client_id: '',
-    location: '',
+    location_type: 'home',
+    location_id: '',
     title: '',
     start_time: `${defaultDate}T09:00`,
     end_time: `${defaultDate}T10:00`,
@@ -31,15 +33,17 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
       api.get('/practitioners').then(r => r.data),
       api.get('/clients').then(r => r.data),
       api.get('/services').then(r => r.data),
-    ]).then(([p, c, s]) => {
-      setPractitioners(p); setClients(c); setServices(s);
+      api.get('/locations').then(r => r.data),
+    ]).then(([p, c, s, l]) => {
+      setPractitioners(p); setClients(c); setServices(s); setLocations(l);
     });
 
     if (editing) {
       setForm({
         practitioner_id: appointment.practitioner_id,
         client_id: appointment.client_id,
-        location: appointment.location || '',
+        location_type: appointment.location_id ? 'clinic' : 'home',
+        location_id: appointment.location_id || '',
         title: appointment.title || '',
         start_time: appointment.start_time?.slice(0, 16),
         end_time: appointment.end_time?.slice(0, 16),
@@ -81,6 +85,7 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
         ...form,
         practitioner_id: Number(form.practitioner_id),
         client_id: Number(form.client_id),
+        location_id: form.location_type === 'clinic' && form.location_id ? Number(form.location_id) : null,
         items: form.items.map(i => ({
           ...i,
           service_id:     i.service_id ? Number(i.service_id) : null,
@@ -148,8 +153,24 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">Location</label>
-            <input className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-              value={form.location} onChange={e => setField('location', e.target.value)} placeholder="e.g. Home visit, Clinic" />
+            <div className="flex gap-3 mt-1">
+              {['home', 'clinic'].map(type => (
+                <label key={type} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                  <input type="radio" name="location_type" value={type}
+                    checked={form.location_type === type}
+                    onChange={() => setField('location_type', type)}
+                    className="accent-indigo-600" />
+                  {type === 'home' ? 'Client Home' : 'Clinic'}
+                </label>
+              ))}
+            </div>
+            {form.location_type === 'clinic' && (
+              <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mt-1"
+                value={form.location_id} onChange={e => setField('location_id', e.target.value)}>
+                <option value="">Select clinic…</option>
+                {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            )}
           </div>
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">Status</label>

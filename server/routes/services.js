@@ -7,18 +7,19 @@ router.get('/', auth, (req, res) => {
 });
 
 router.post('/', auth, (req, res) => {
-  const { name, description, default_rate, unit, default_duration } = req.body;
-  const result = db.prepare(
-    'INSERT INTO services (name, description, default_rate, unit, default_duration) VALUES (?, ?, ?, ?, ?)'
-  ).run(name, description||null, default_rate, unit||'hour', default_duration||60);
+  const { name, description, code, default_rate, unit, default_duration, travel_rate_per_hour, km_rate } = req.body;
+  const result = db.prepare(`
+    INSERT INTO services (name, description, code, default_rate, unit, default_duration, travel_rate_per_hour, km_rate)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(name, description||null, code||null, default_rate, unit||'hour', default_duration||60, travel_rate_per_hour||null, km_rate||null);
   res.status(201).json(db.prepare('SELECT * FROM services WHERE id = ?').get(result.lastInsertRowid));
 });
 
 router.patch('/:id', auth, (req, res) => {
-  const { name, description, default_rate, unit, default_duration } = req.body;
-  db.prepare(
-    'UPDATE services SET name=?, description=?, default_rate=?, unit=?, default_duration=? WHERE id=?'
-  ).run(name, description||null, default_rate, unit||'hour', default_duration||60, req.params.id);
+  const { name, description, code, default_rate, unit, default_duration, travel_rate_per_hour, km_rate } = req.body;
+  db.prepare(`
+    UPDATE services SET name=?, description=?, code=?, default_rate=?, unit=?, default_duration=?, travel_rate_per_hour=?, km_rate=? WHERE id=?
+  `).run(name, description||null, code||null, default_rate, unit||'hour', default_duration||60, travel_rate_per_hour||null, km_rate||null, req.params.id);
   res.json(db.prepare('SELECT * FROM services WHERE id = ?').get(req.params.id));
 });
 

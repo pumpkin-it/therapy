@@ -37,7 +37,12 @@ router.get('/:id', auth, (req, res) => {
     FROM invoices i JOIN clients c ON c.id = i.client_id WHERE i.id=?
   `).get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Not found' });
-  inv.items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id=?').all(req.params.id);
+  inv.items = db.prepare(`
+    SELECT ii.*, s.code FROM invoice_items ii
+    LEFT JOIN appointment_items ai ON ai.id = ii.appointment_item_id
+    LEFT JOIN services s ON s.id = ai.service_id
+    WHERE ii.invoice_id=?
+  `).all(req.params.id);
   res.json(inv);
 });
 
@@ -48,7 +53,12 @@ router.get('/:id/pdf', auth, async (req, res) => {
     FROM invoices i JOIN clients c ON c.id=i.client_id WHERE i.id=?
   `).get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Not found' });
-  inv.items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id=?').all(req.params.id);
+  inv.items = db.prepare(`
+    SELECT ii.*, s.code FROM invoice_items ii
+    LEFT JOIN appointment_items ai ON ai.id = ii.appointment_item_id
+    LEFT JOIN services s ON s.id = ai.service_id
+    WHERE ii.invoice_id=?
+  `).all(req.params.id);
 
   const settings = getSettings();
   const pdf = await generateInvoicePdf({
@@ -149,7 +159,12 @@ router.post('/:id/send', auth, async (req, res) => {
   if (!inv) return res.status(404).json({ error: 'Not found' });
   if (!inv.client_email) return res.status(422).json({ error: 'Client has no email address' });
 
-  inv.items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id=?').all(req.params.id);
+  inv.items = db.prepare(`
+    SELECT ii.*, s.code FROM invoice_items ii
+    LEFT JOIN appointment_items ai ON ai.id = ii.appointment_item_id
+    LEFT JOIN services s ON s.id = ai.service_id
+    WHERE ii.invoice_id=?
+  `).all(req.params.id);
   const settings = getSettings();
 
   const pdf = await generateInvoicePdf({

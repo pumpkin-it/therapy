@@ -5,9 +5,14 @@ import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
+import SearchSelect from '../components/ui/SearchSelect';
 
 const FUNDING_COLOR = { NDIS: 'blue', Medicare: 'green', Private: 'purple' };
-const EMPTY = { first_name:'', last_name:'', email:'', phone:'', date_of_birth:'', address:'', ndis_number:'', funding_type:'', funds_manager_id:'', notes:'' };
+const EMPTY = {
+  first_name: '', last_name: '', email: '', phone: '', date_of_birth: '',
+  address: '', ndis_number: '', funding_type: '', funds_manager_id: '',
+  plan_start_date: '', plan_end_date: '', notes: '',
+};
 
 function ClientModal({ client, onClose, onSaved }) {
   const [form, setForm] = useState(client || EMPTY);
@@ -15,19 +20,46 @@ function ClientModal({ client, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  useEffect(() => {
-    api.get('/funds-managers').then(r => setFundsManagers(r.data));
-  }, []);
+  const loadFMs = () => api.get('/funds-managers').then(r => setFundsManagers(r.data));
+  useEffect(() => { loadFMs(); }, []);
+
+  const handleAddFM = async name => {
+    const res = await api.post('/funds-managers', { name, email: '' });
+    await loadFMs();
+    return { value: res.data.id, label: res.data.name };
+  };
+
+  const fmOptions = fundsManagers.map(fm => ({
+    value: fm.id,
+    label: fm.email ? `${fm.name} — ${fm.email}` : fm.name,
+  }));
 
   const save = async () => {
     setSaving(true);
     try {
-      const payload = { ...form, funds_manager_id: form.funds_manager_id || null };
+      const payload = {
+        ...form,
+        funds_manager_id: form.funds_manager_id || null,
+        plan_start_date: form.funding_type === 'NDIS' ? (form.plan_start_date || null) : null,
+        plan_end_date:   form.funding_type === 'NDIS' ? (form.plan_end_date   || null) : null,
+      };
       if (client) await api.patch(`/clients/${client.id}`, payload);
       else        await api.post('/clients', payload);
       onSaved();
     } finally { setSaving(false); }
   };
+
+  const dateInput = (label, key) => (
+    <div className="space-y-1">
+      <label className="block text-sm font-medium text-gray-700">{label}</label>
+      <input
+        type="date"
+        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        value={form[key]}
+        onChange={e => { set(key, e.target.value); e.target.blur(); }}
+      />
+    </div>
+  );
 
   return (
     <Modal title={client ? 'Edit Client' : 'Add Client'} onClose={onClose} wide>
@@ -36,23 +68,34 @@ function ClientModal({ client, onClose, onSaved }) {
         <Input label="Last name"  value={form.last_name}  onChange={e => set('last_name', e.target.value)} />
         <Input label="Email"      value={form.email}      onChange={e => set('email', e.target.value)} type="email" />
         <Input label="Phone"      value={form.phone}      onChange={e => set('phone', e.target.value)} />
-        <Input label="Date of birth" value={form.date_of_birth} onChange={e => set('date_of_birth', e.target.value)} type="date" />
+        {dateInput('Date of birth', 'date_of_birth')}
         <div className="space-y-1">
           <label className="block text-sm font-medium text-gray-700">Funding type</label>
           <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
             value={form.funding_type} onChange={e => set('funding_type', e.target.value)}>
             <option value="">Select…</option>
-            {['NDIS','Medicare','Private','Other'].map(f => <option key={f}>{f}</option>)}
+            {['NDIS', 'Medicare', 'Private', 'Other'].map(f => <option key={f}>{f}</option>)}
           </select>
         </div>
         <Input label="NDIS number" value={form.ndis_number} onChange={e => set('ndis_number', e.target.value)} />
+
+        {form.funding_type === 'NDIS' && (
+          <>
+            {dateInput('Plan start date', 'plan_start_date')}
+            {dateInput('Plan end date', 'plan_end_date')}
+          </>
+        )}
+
         <div className="col-span-2 space-y-1">
           <label className="block text-sm font-medium text-gray-700">Funds manager</label>
-          <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            value={form.funds_manager_id || ''} onChange={e => set('funds_manager_id', e.target.value)}>
-            <option value="">None</option>
-            {fundsManagers.map(fm => <option key={fm.id} value={fm.id}>{fm.name} — {fm.email}</option>)}
-          </select>
+          <SearchSelect
+            options={fmOptions}
+            value={form.funds_manager_id}
+            onChange={v => set('funds_manager_id', v)}
+            placeholder="None"
+            onAddNew={handleAddFM}
+            addNewLabel="Add funds manager"
+          />
         </div>
         <div className="col-span-2">
           <Input label="Address" value={form.address} onChange={e => set('address', e.target.value)} />
@@ -103,7 +146,7 @@ export default function Clients() {
         <table className="min-w-full divide-y divide-gray-100">
           <thead className="bg-gray-50">
             <tr>
-              {['Name','Contact','Funding','Funds Manager',''].map(h => (
+              {['Name', 'Contact', 'Funding', 'Funds Manager', ''].map(h => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
               ))}
             </tr>

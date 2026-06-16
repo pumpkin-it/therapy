@@ -39,19 +39,19 @@ router.get('/:id', auth, (req, res) => {
 });
 
 router.post('/', auth, (req, res) => {
-  const { first_name, last_name, email, phone, date_of_birth, address, ndis_number, funding_type, funds_manager_id, notes } = req.body;
+  const { first_name, last_name, email, phone, date_of_birth, address, ndis_number, funding_type, funds_manager_id, plan_start_date, plan_end_date, notes } = req.body;
   const result = db.prepare(`
-    INSERT INTO clients (first_name, last_name, email, phone, date_of_birth, address, ndis_number, funding_type, funds_manager_id, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, funding_type||null, funds_manager_id||null, notes||null);
+    INSERT INTO clients (first_name, last_name, email, phone, date_of_birth, address, ndis_number, funding_type, funds_manager_id, plan_start_date, plan_end_date, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, funding_type||null, funds_manager_id||null, plan_start_date||null, plan_end_date||null, notes||null);
   res.status(201).json(db.prepare(`${CLIENT_SELECT} WHERE c.id = ?`).get(result.lastInsertRowid));
 });
 
 router.patch('/:id', auth, (req, res) => {
-  const { first_name, last_name, email, phone, date_of_birth, address, ndis_number, funding_type, funds_manager_id, notes } = req.body;
+  const { first_name, last_name, email, phone, date_of_birth, address, ndis_number, funding_type, funds_manager_id, plan_start_date, plan_end_date, notes } = req.body;
   db.prepare(`
-    UPDATE clients SET first_name=?, last_name=?, email=?, phone=?, date_of_birth=?, address=?, ndis_number=?, funding_type=?, funds_manager_id=?, notes=? WHERE id=?
-  `).run(first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, funding_type||null, funds_manager_id||null, notes||null, req.params.id);
+    UPDATE clients SET first_name=?, last_name=?, email=?, phone=?, date_of_birth=?, address=?, ndis_number=?, funding_type=?, funds_manager_id=?, plan_start_date=?, plan_end_date=?, notes=? WHERE id=?
+  `).run(first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, funding_type||null, funds_manager_id||null, plan_start_date||null, plan_end_date||null, notes||null, req.params.id);
   res.json(db.prepare(`${CLIENT_SELECT} WHERE c.id = ?`).get(req.params.id));
 });
 

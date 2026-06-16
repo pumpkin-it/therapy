@@ -6,7 +6,7 @@ import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { currency } from '../lib/utils';
 
-const EMPTY = { name:'', description:'', default_rate:0, unit:'hour', default_duration:60 };
+const EMPTY = { name:'', description:'', code:'', default_rate:0, unit:'hour', default_duration:60, travel_rate_per_hour:'', km_rate:'' };
 
 function ServiceModal({ service, onClose, onSaved }) {
   const [form, setForm] = useState(service || EMPTY);
@@ -25,8 +25,11 @@ function ServiceModal({ service, onClose, onSaved }) {
   return (
     <Modal title={service ? 'Edit Service' : 'Add Service'} onClose={onClose}>
       <div className="space-y-3">
-        <Input label="Service name" value={form.name} onChange={e => set('name', e.target.value)} />
-        <Input label="Description"  value={form.description} onChange={e => set('description', e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Service name" value={form.name} onChange={e => set('name', e.target.value)} />
+          <Input label="Code" value={form.code} onChange={e => set('code', e.target.value)} placeholder="e.g. NDIS-001" />
+        </div>
+        <Input label="Description" value={form.description} onChange={e => set('description', e.target.value)} />
         <div className="grid grid-cols-2 gap-3">
           <Input label="Default rate ($)" type="number" step="0.01" value={form.default_rate}
             onChange={e => set('default_rate', parseFloat(e.target.value))} />
@@ -43,6 +46,12 @@ function ServiceModal({ service, onClose, onSaved }) {
         </div>
         <Input label="Default duration (minutes)" type="number" value={form.default_duration}
           onChange={e => set('default_duration', parseInt(e.target.value))} />
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Travel rate ($/hr)" type="number" step="0.01" value={form.travel_rate_per_hour}
+            onChange={e => set('travel_rate_per_hour', e.target.value)} placeholder="Optional" />
+          <Input label="KM rate ($/km)" type="number" step="0.01" value={form.km_rate}
+            onChange={e => set('km_rate', e.target.value)} placeholder="Optional" />
+        </div>
       </div>
       <div className="flex justify-end gap-2 mt-5">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>

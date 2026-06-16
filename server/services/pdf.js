@@ -37,7 +37,8 @@ function generateInvoicePdf(data) {
     const tableY = doc.y + 24;
     doc.rect(50, tableY, W, 18).fill('#f3f4f6');
     doc.fillColor('#111').font('Helvetica-Bold').fontSize(8.5);
-    doc.text('Description',  55, tableY + 4, { width: 235 });
+    doc.text('Code',         55, tableY + 4, { width: 60 });
+    doc.text('Description', 120, tableY + 4, { width: 170 });
     doc.text('Qty',         295, tableY + 4, { width: 55, align: 'right' });
     doc.text('Rate',        355, tableY + 4, { width: 70, align: 'right' });
     doc.text('Amount',      430, tableY + 4, { width: 65, align: 'right' });
@@ -45,7 +46,8 @@ function generateInvoicePdf(data) {
     let rowY = tableY + 20;
     doc.font('Helvetica').fontSize(9);
     for (const item of data.items) {
-      doc.fillColor('#111').text(item.description, 55, rowY, { width: 235 });
+      doc.fillColor('#111').text(item.code || '', 55, rowY, { width: 60 });
+      doc.text(item.description, 120, rowY, { width: 170 });
       doc.text(String(item.quantity), 295, rowY, { width: 55, align: 'right' });
       doc.text(`$${Number(item.unit_rate).toFixed(2)}`, 355, rowY, { width: 70, align: 'right' });
       doc.text(`$${Number(item.line_total).toFixed(2)}`, 430, rowY, { width: 65, align: 'right' });

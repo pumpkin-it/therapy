@@ -132,6 +132,23 @@ try { db.exec(`
   )
 `); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN funds_manager_id INTEGER REFERENCES funds_managers(id)`); } catch {}
+try { db.exec(`ALTER TABLE clients ADD COLUMN plan_start_date TEXT`); } catch {}
+try { db.exec(`ALTER TABLE clients ADD COLUMN plan_end_date TEXT`); } catch {}
+
+try { db.exec(`ALTER TABLE services ADD COLUMN code TEXT`); } catch {}
+try { db.exec(`ALTER TABLE services ADD COLUMN travel_rate_per_hour REAL`); } catch {}
+try { db.exec(`ALTER TABLE services ADD COLUMN km_rate REAL`); } catch {}
+
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS locations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    address TEXT NOT NULL,
+    active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec(`ALTER TABLE appointments ADD COLUMN location_id INTEGER REFERENCES locations(id)`); } catch {}
 
 // Seed default settings
 const defaults = {

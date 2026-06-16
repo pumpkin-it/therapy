@@ -4,6 +4,7 @@ import Calendar from './pages/Calendar';
 import Clients from './pages/Clients';
 import Practitioners from './pages/Practitioners';
 import FundsManagers from './pages/FundsManagers';
+import Locations from './pages/Locations';
 import Services from './pages/Services';
 import Invoices from './pages/Invoices';
 import Settings from './pages/Settings';
@@ -19,6 +20,7 @@ export default function App() {
             <Route path="/clients"       element={<Clients />} />
             <Route path="/practitioners" element={<Practitioners />} />
             <Route path="/funds-managers" element={<FundsManagers />} />
+            <Route path="/locations"      element={<Locations />} />
             <Route path="/services"      element={<Services />} />
             <Route path="/invoices"      element={<Invoices />} />
             <Route path="/settings"      element={<Settings />} />

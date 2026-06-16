@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { CalendarDays, Users, UserCog, Layers, FileText, Settings, Stethoscope, Wallet } from 'lucide-react';
+import { CalendarDays, Users, UserCog, Layers, FileText, Settings, Stethoscope, Wallet, MapPin } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 const nav = [
@@ -7,6 +7,7 @@ const nav = [
   { to: '/clients',        label: 'Clients',        icon: Users },
   { to: '/practitioners',  label: 'Practitioners',  icon: UserCog },
   { to: '/funds-managers', label: 'Funds Managers', icon: Wallet },
+  { to: '/locations',      label: 'Locations',      icon: MapPin },
   { to: '/services',       label: 'Services',       icon: Layers },
   { to: '/invoices',       label: 'Invoices',       icon: FileText },
   { to: '/settings',       label: 'Settings',       icon: Settings },
