@@ -14,19 +14,48 @@ const EMPTY = {
   plan_start_date: '', plan_end_date: '', notes: '',
 };
 
+function AddFundsManagerModal({ initialName, onClose, onSaved }) {
+  const [name, setName] = useState(initialName);
+  const [email, setEmail] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const res = await api.post('/funds-managers', { name, email });
+      onSaved(res.data);
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <Modal title="Add Funds Manager" onClose={onClose}>
+      <div className="space-y-3">
+        <Input label="Name" value={name} onChange={e => setName(e.target.value)} />
+        <Input label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} />
+      </div>
+      <div className="flex justify-end gap-2 mt-5">
+        <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        <Button onClick={save} disabled={saving || !name}>{saving ? 'Saving…' : 'Add'}</Button>
+      </div>
+    </Modal>
+  );
+}
+
 function ClientModal({ client, onClose, onSaved }) {
   const [form, setForm] = useState(client || EMPTY);
   const [fundsManagers, setFundsManagers] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [addFMName, setAddFMName] = useState(null); // triggers AddFundsManagerModal
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const loadFMs = () => api.get('/funds-managers').then(r => setFundsManagers(r.data));
   useEffect(() => { loadFMs(); }, []);
 
-  const handleAddFM = async name => {
-    const res = await api.post('/funds-managers', { name, email: '' });
-    await loadFMs();
-    return { value: res.data.id, label: res.data.name };
+  const handleAddFM = name => {
+    // Return a promise that resolves once the modal completes
+    return new Promise(resolve => {
+      setAddFMName({ name, resolve });
+    });
   };
 
   const fmOptions = fundsManagers.map(fm => ({
@@ -62,6 +91,7 @@ function ClientModal({ client, onClose, onSaved }) {
   );
 
   return (
+    <>
     <Modal title={client ? 'Edit Client' : 'Add Client'} onClose={onClose} wide>
       <div className="grid grid-cols-2 gap-3">
         <Input label="First name" value={form.first_name} onChange={e => set('first_name', e.target.value)} />
@@ -111,6 +141,20 @@ function ClientModal({ client, onClose, onSaved }) {
         <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
       </div>
     </Modal>
+
+    {addFMName && (
+      <AddFundsManagerModal
+        initialName={addFMName.name}
+        onClose={() => setAddFMName(null)}
+        onSaved={async fm => {
+          await loadFMs();
+          set('funds_manager_id', fm.id);
+          addFMName.resolve({ value: fm.id, label: fm.email ? `${fm.name} — ${fm.email}` : fm.name });
+          setAddFMName(null);
+        }}
+      />
+    )}
+    </>
   );
 }
 

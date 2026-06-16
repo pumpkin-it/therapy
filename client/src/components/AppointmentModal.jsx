@@ -141,7 +141,16 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">Start</label>
             <input type="datetime-local" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-              value={form.start_time} onChange={e => setField('start_time', e.target.value)} />
+              value={form.start_time} onChange={e => {
+                const start = e.target.value;
+                setField('start_time', start);
+                if (start) {
+                  const end = new Date(new Date(start).getTime() + 60 * 60 * 1000);
+                  const pad = n => String(n).padStart(2, '0');
+                  const endStr = `${end.getFullYear()}-${pad(end.getMonth()+1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}`;
+                  setField('end_time', endStr);
+                }
+              }} />
           </div>
           <div className="space-y-1">
             <label className="text-sm font-medium text-gray-700">End</label>
