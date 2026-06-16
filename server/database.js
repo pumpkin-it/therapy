@@ -149,6 +149,16 @@ try { db.exec(`
   )
 `); } catch {}
 try { db.exec(`ALTER TABLE appointments ADD COLUMN location_id INTEGER REFERENCES locations(id)`); } catch {}
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS case_notes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    practitioner_id INTEGER REFERENCES practitioners(id),
+    note TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
 
 // Seed default settings
 const defaults = {

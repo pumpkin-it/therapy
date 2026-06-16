@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Search, Plus, ChevronRight } from 'lucide-react';
+import { Search, Plus, ChevronRight, FileText, Pencil, Trash2 } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -41,7 +42,70 @@ function AddFundsManagerModal({ initialName, onClose, onSaved }) {
   );
 }
 
+function CaseNotesTab({ clientId }) {
+  const [notes, setNotes] = useState([]);
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
+
+  const load = () => api.get(`/case-notes?client_id=${clientId}`).then(r => setNotes(r.data));
+  useEffect(() => { if (clientId) load(); }, [clientId]);
+
+  const saveEdit = async id => {
+    await api.patch(`/case-notes/${id}`, { note: editText });
+    setEditingId(null);
+    load();
+  };
+
+  const remove = async id => {
+    if (!confirm('Delete this note?')) return;
+    await api.delete(`/case-notes/${id}`);
+    load();
+  };
+
+  if (!clientId) return <p className="text-sm text-gray-400 py-4 text-center">Save the client first to view notes.</p>;
+
+  return (
+    <div className="space-y-3 py-1">
+      {notes.length === 0 && (
+        <p className="text-sm text-gray-400 py-6 text-center">No case notes yet. Add them from the calendar when editing an appointment.</p>
+      )}
+      {notes.map(n => (
+        <div key={n.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+          {editingId === n.id ? (
+            <div className="space-y-2">
+              <textarea rows={3} className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm resize-none"
+                value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
+              <div className="flex gap-2 justify-end">
+                <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
+                <Button size="sm" onClick={() => saveEdit(n.id)}>Save</Button>
+              </div>
+            </div>
+          ) : (
+            <div className="group flex gap-2">
+              <div className="flex-1">
+                <p className="text-sm text-gray-800 whitespace-pre-wrap">{n.note}</p>
+                <p className="text-xs text-gray-400 mt-1.5">
+                  {n.practitioner_name && <span className="font-medium">{n.practitioner_name} · </span>}
+                  {n.appointment_time && <span>{format(parseISO(n.appointment_time), 'd MMM yyyy')} · </span>}
+                  {format(parseISO(n.created_at), 'd MMM yyyy h:mm a')}
+                </p>
+              </div>
+              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                <button onClick={() => { setEditingId(n.id); setEditText(n.note); }}
+                  className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
+                <button onClick={() => remove(n.id)}
+                  className="text-red-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ClientModal({ client, onClose, onSaved }) {
+  const [tab, setTab] = useState('details');
   const [form, setForm] = useState(client || EMPTY);
   const [fundsManagers, setFundsManagers] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -92,54 +156,78 @@ function ClientModal({ client, onClose, onSaved }) {
 
   return (
     <>
-    <Modal title={client ? 'Edit Client' : 'Add Client'} onClose={onClose} wide>
-      <div className="grid grid-cols-2 gap-3">
-        <Input label="First name" value={form.first_name} onChange={e => set('first_name', e.target.value)} />
-        <Input label="Last name"  value={form.last_name}  onChange={e => set('last_name', e.target.value)} />
-        <Input label="Email"      value={form.email}      onChange={e => set('email', e.target.value)} type="email" />
-        <Input label="Phone"      value={form.phone}      onChange={e => set('phone', e.target.value)} />
-        {dateInput('Date of birth', 'date_of_birth')}
-        <div className="space-y-1">
-          <label className="block text-sm font-medium text-gray-700">Funding type</label>
-          <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-            value={form.funding_type} onChange={e => set('funding_type', e.target.value)}>
-            <option value="">Select…</option>
-            {['NDIS', 'Medicare', 'Private', 'Other'].map(f => <option key={f}>{f}</option>)}
-          </select>
+    <Modal title={client ? `${client.first_name} ${client.last_name}` : 'Add Client'} onClose={onClose} wide>
+      {/* Tabs — only show when editing an existing client */}
+      {client && (
+        <div className="flex border-b border-gray-200 mb-4 -mt-1">
+          {[['details', 'Details'], ['notes', 'Case Notes']].map(([id, label]) => (
+            <button key={id} onClick={() => setTab(id)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                tab === id ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}>
+              {label}
+            </button>
+          ))}
         </div>
-        <Input label="NDIS number" value={form.ndis_number} onChange={e => set('ndis_number', e.target.value)} />
+      )}
 
-        {form.funding_type === 'NDIS' && (
-          <>
-            {dateInput('Plan start date', 'plan_start_date')}
-            {dateInput('Plan end date', 'plan_end_date')}
-          </>
-        )}
+      {tab === 'details' && (
+        <>
+        <div className="grid grid-cols-2 gap-3 max-h-[60vh] overflow-y-auto pr-1">
+          <Input label="First name" value={form.first_name} onChange={e => set('first_name', e.target.value)} />
+          <Input label="Last name"  value={form.last_name}  onChange={e => set('last_name', e.target.value)} />
+          <Input label="Email"      value={form.email}      onChange={e => set('email', e.target.value)} type="email" />
+          <Input label="Phone"      value={form.phone}      onChange={e => set('phone', e.target.value)} />
+          {dateInput('Date of birth', 'date_of_birth')}
+          <div className="space-y-1">
+            <label className="block text-sm font-medium text-gray-700">Funding type</label>
+            <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              value={form.funding_type} onChange={e => set('funding_type', e.target.value)}>
+              <option value="">Select…</option>
+              {['NDIS', 'Medicare', 'Private', 'Other'].map(f => <option key={f}>{f}</option>)}
+            </select>
+          </div>
+          <Input label="NDIS number" value={form.ndis_number} onChange={e => set('ndis_number', e.target.value)} />
 
-        <div className="col-span-2 space-y-1">
-          <label className="block text-sm font-medium text-gray-700">Funds manager</label>
-          <SearchSelect
-            options={fmOptions}
-            value={form.funds_manager_id}
-            onChange={v => set('funds_manager_id', v)}
-            placeholder="None"
-            onAddNew={handleAddFM}
-            addNewLabel="Add funds manager"
-          />
+          {form.funding_type === 'NDIS' && (
+            <>
+              {dateInput('Plan start date', 'plan_start_date')}
+              {dateInput('Plan end date', 'plan_end_date')}
+            </>
+          )}
+
+          <div className="col-span-2 space-y-1">
+            <label className="block text-sm font-medium text-gray-700">Funds manager</label>
+            <SearchSelect
+              options={fmOptions}
+              value={form.funds_manager_id}
+              onChange={v => set('funds_manager_id', v)}
+              placeholder="None"
+              onAddNew={handleAddFM}
+              addNewLabel="Add funds manager"
+            />
+          </div>
+          <div className="col-span-2">
+            <Input label="Address" value={form.address} onChange={e => set('address', e.target.value)} />
+          </div>
+          <div className="col-span-2 space-y-1">
+            <label className="block text-sm font-medium text-gray-700">Notes</label>
+            <textarea rows={2} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none"
+              value={form.notes} onChange={e => set('notes', e.target.value)} />
+          </div>
         </div>
-        <div className="col-span-2">
-          <Input label="Address" value={form.address} onChange={e => set('address', e.target.value)} />
+        <div className="flex justify-end gap-2 mt-5">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
         </div>
-        <div className="col-span-2 space-y-1">
-          <label className="block text-sm font-medium text-gray-700">Notes</label>
-          <textarea rows={2} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none"
-            value={form.notes} onChange={e => set('notes', e.target.value)} />
+        </>
+      )}
+
+      {tab === 'notes' && (
+        <div className="max-h-[60vh] overflow-y-auto pr-1">
+          <CaseNotesTab clientId={client?.id} />
         </div>
-      </div>
-      <div className="flex justify-end gap-2 mt-5">
-        <Button variant="secondary" onClick={onClose}>Cancel</Button>
-        <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
-      </div>
+      )}
     </Modal>
 
     {addFMName && (

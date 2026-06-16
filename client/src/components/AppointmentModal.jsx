@@ -1,10 +1,108 @@
 import { useState, useEffect } from 'react';
+import { format, parseISO } from 'date-fns';
 import api from '../lib/api';
 import Modal from './ui/Modal';
 import Button from './ui/Button';
-import { Trash2, Plus } from 'lucide-react';
+import { Trash2, Plus, FileText, Pencil } from 'lucide-react';
 
 const EMPTY_ITEM = { service_id: '', description: '', quantity: 1, unit_rate: 0, travel_time_min: '', travel_km: '', prep_time_min: '' };
+
+function CaseNotesSection({ appointmentId, clientId, practitionerId }) {
+  const [notes, setNotes] = useState([]);
+  const [draft, setDraft] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const load = () => {
+    if (!appointmentId) return;
+    api.get(`/case-notes?appointment_id=${appointmentId}`).then(r => setNotes(r.data));
+  };
+
+  useEffect(() => { load(); }, [appointmentId]);
+
+  const addNote = async () => {
+    if (!draft.trim()) return;
+    setSaving(true);
+    try {
+      await api.post('/case-notes', {
+        appointment_id: appointmentId,
+        client_id: clientId,
+        practitioner_id: practitionerId || null,
+        note: draft.trim(),
+      });
+      setDraft('');
+      load();
+    } finally { setSaving(false); }
+  };
+
+  const saveEdit = async id => {
+    await api.patch(`/case-notes/${id}`, { note: editText });
+    setEditingId(null);
+    load();
+  };
+
+  const remove = async id => {
+    if (!confirm('Delete this note?')) return;
+    await api.delete(`/case-notes/${id}`);
+    load();
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
+        <FileText className="h-4 w-4 text-indigo-400" />
+        Case Notes
+      </div>
+
+      {notes.map(n => (
+        <div key={n.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+          {editingId === n.id ? (
+            <div className="space-y-2">
+              <textarea rows={3} className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm resize-none"
+                value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
+              <div className="flex gap-2 justify-end">
+                <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
+                <Button size="sm" onClick={() => saveEdit(n.id)}>Save</Button>
+              </div>
+            </div>
+          ) : (
+            <div className="group flex gap-2">
+              <div className="flex-1">
+                <p className="text-sm text-gray-800 whitespace-pre-wrap">{n.note}</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  {n.practitioner_name && <span>{n.practitioner_name} · </span>}
+                  {format(parseISO(n.created_at), 'd MMM yyyy h:mm a')}
+                </p>
+              </div>
+              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                <button onClick={() => { setEditingId(n.id); setEditText(n.note); }}
+                  className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
+                <button onClick={() => remove(n.id)}
+                  className="text-red-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+
+      <div className="space-y-1.5">
+        <textarea
+          rows={3}
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          placeholder="Add a case note…"
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+        />
+        <div className="flex justify-end">
+          <Button size="sm" onClick={addNote} disabled={saving || !draft.trim()}>
+            {saving ? 'Saving…' : 'Add note'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function AppointmentModal({ appointment, defaultDate, onClose, onSaved }) {
   const editing = !!appointment;
@@ -67,7 +165,6 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
   const setItem = (idx, k, v) => setForm(f => {
     const items = [...f.items];
     items[idx] = { ...items[idx], [k]: v };
-    // Auto-fill rate from service
     if (k === 'service_id' && v) {
       const svc = services.find(s => s.id === Number(v));
       if (svc) {
@@ -88,12 +185,12 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
         location_id: form.location_type === 'clinic' && form.location_id ? Number(form.location_id) : null,
         items: form.items.map(i => ({
           ...i,
-          service_id:     i.service_id ? Number(i.service_id) : null,
-          quantity:       Number(i.quantity),
-          unit_rate:      Number(i.unit_rate),
-          travel_time_min: i.travel_time_min ? Number(i.travel_time_min) : null,
-          travel_km:      i.travel_km ? Number(i.travel_km) : null,
-          prep_time_min:  i.prep_time_min ? Number(i.prep_time_min) : null,
+          service_id:      i.service_id ? Number(i.service_id) : null,
+          quantity:        Number(i.quantity),
+          unit_rate:       Number(i.unit_rate),
+          travel_time_min: form.location_type === 'home' && i.travel_time_min ? Number(i.travel_time_min) : null,
+          travel_km:       form.location_type === 'home' && i.travel_km ? Number(i.travel_km) : null,
+          prep_time_min:   i.prep_time_min ? Number(i.prep_time_min) : null,
         })),
       };
       if (editing) {
@@ -114,6 +211,8 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
     await api.patch(`/appointments/${appointment.id}/status`, { status: 'cancelled' });
     onSaved();
   };
+
+  const isHome = form.location_type === 'home';
 
   return (
     <Modal title={editing ? 'Edit Appointment' : 'New Appointment'} onClose={onClose} wide>
@@ -147,8 +246,7 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
                 if (start) {
                   const end = new Date(new Date(start).getTime() + 60 * 60 * 1000);
                   const pad = n => String(n).padStart(2, '0');
-                  const endStr = `${end.getFullYear()}-${pad(end.getMonth()+1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}`;
-                  setField('end_time', endStr);
+                  setField('end_time', `${end.getFullYear()}-${pad(end.getMonth()+1)}-${pad(end.getDate())}T${pad(end.getHours())}:${pad(end.getMinutes())}`);
                 }
               }} />
           </div>
@@ -218,7 +316,7 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
                       value={item.description} onChange={e => setItem(idx, 'description', e.target.value)} />
                   </div>
                 </div>
-                <div className="grid grid-cols-4 gap-2">
+                <div className={`grid gap-2 ${isHome ? 'grid-cols-4' : 'grid-cols-2'}`}>
                   <div className="space-y-1">
                     <label className="text-xs text-gray-500">Qty</label>
                     <input type="number" step="0.25" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
@@ -229,16 +327,20 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
                     <input type="number" step="0.01" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
                       value={item.unit_rate} onChange={e => setItem(idx, 'unit_rate', e.target.value)} />
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-gray-500">Travel (min)</label>
-                    <input type="number" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                      value={item.travel_time_min} onChange={e => setItem(idx, 'travel_time_min', e.target.value)} placeholder="—" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-gray-500">Travel (km)</label>
-                    <input type="number" step="0.1" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                      value={item.travel_km} onChange={e => setItem(idx, 'travel_km', e.target.value)} placeholder="—" />
-                  </div>
+                  {isHome && (
+                    <>
+                      <div className="space-y-1">
+                        <label className="text-xs text-gray-500">Travel (min)</label>
+                        <input type="number" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                          value={item.travel_time_min} onChange={e => setItem(idx, 'travel_time_min', e.target.value)} placeholder="—" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs text-gray-500">Travel (km)</label>
+                        <input type="number" step="0.1" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                          value={item.travel_km} onChange={e => setItem(idx, 'travel_km', e.target.value)} placeholder="—" />
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="space-y-1 w-32">
@@ -264,10 +366,20 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
         </div>
 
         <div className="space-y-1">
-          <label className="text-sm font-medium text-gray-700">Notes</label>
+          <label className="text-sm font-medium text-gray-700">Appointment Notes</label>
           <textarea rows={2} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none"
             value={form.notes} onChange={e => setField('notes', e.target.value)} />
         </div>
+
+        {editing && (
+          <div className="border-t border-gray-100 pt-4">
+            <CaseNotesSection
+              appointmentId={appointment.id}
+              clientId={appointment.client_id}
+              practitionerId={form.practitioner_id}
+            />
+          </div>
+        )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
       </div>
