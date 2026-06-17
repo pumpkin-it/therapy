@@ -57,7 +57,7 @@ function AddFundsManagerModal({ initialName, onClose, onSaved }) {
 
 const EMPTY_PERIOD = { funding_type: '', funds_manager_id: '', start_date: '', end_date: '' };
 
-function FundingTab({ clientId }) {
+function FundingTab({ clientId, ndisNumber, onNdisChange }) {
   const [periods, setPeriods] = useState([]);
   const [fundsManagers, setFundsManagers] = useState([]);
   const [editing, setEditing] = useState(null); // null | 'new' | period obj
@@ -116,6 +116,15 @@ function FundingTab({ clientId }) {
 
   return (
     <div className="space-y-3">
+      <div className="space-y-1">
+        <label className="block text-sm font-medium text-gray-700">Client ID</label>
+        <input
+          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          value={ndisNumber || ''}
+          onChange={e => onNdisChange(e.target.value)}
+          placeholder="e.g. NDIS participant number"
+        />
+      </div>
       {periods.length === 0 && !editing && (
         <p className="text-sm text-gray-400 py-4 text-center">No funding periods added yet.</p>
       )}
@@ -349,7 +358,6 @@ function ClientModal({ client, onClose, onSaved }) {
               <Input label="Email"      value={form.email}      onChange={e => set('email', e.target.value)} type="email" />
               <Input label="Phone"      value={form.phone}      onChange={e => set('phone', e.target.value)} />
               {dateInput('Date of birth', form.date_of_birth, v => set('date_of_birth', v))}
-              <Input label="NDIS number" value={form.ndis_number} onChange={e => set('ndis_number', e.target.value)} />
               <div className="col-span-2">
                 <Input label="Address" value={form.address} onChange={e => set('address', e.target.value)} />
               </div>
@@ -372,12 +380,12 @@ function ClientModal({ client, onClose, onSaved }) {
           </div>
         )}
 
-        {tab === 'funding' && <FundingTab clientId={client?.id} />}
+        {tab === 'funding' && <FundingTab clientId={client?.id} ndisNumber={form.ndis_number} onNdisChange={v => set('ndis_number', v)} />}
         {tab === 'medical' && <MedicalTab form={form} set={set} />}
         {tab === 'notes'   && <CaseNotesTab clientId={client?.id} />}
       </div>
 
-      {(tab === 'details' || tab === 'medical' || !client) && (
+      {(tab === 'details' || tab === 'funding' || tab === 'medical' || !client) && (
         <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
