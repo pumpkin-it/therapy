@@ -149,6 +149,26 @@ try { db.exec(`
   )
 `); } catch {}
 try { db.exec(`ALTER TABLE appointments ADD COLUMN location_id INTEGER REFERENCES locations(id)`); } catch {}
+
+// Emergency contact + medical info
+try { db.exec(`ALTER TABLE clients ADD COLUMN emergency_contact_name TEXT`); } catch {}
+try { db.exec(`ALTER TABLE clients ADD COLUMN emergency_contact_phone TEXT`); } catch {}
+try { db.exec(`ALTER TABLE clients ADD COLUMN emergency_contact_relationship TEXT`); } catch {}
+try { db.exec(`ALTER TABLE clients ADD COLUMN diagnosis TEXT`); } catch {}
+try { db.exec(`ALTER TABLE clients ADD COLUMN allergies TEXT`); } catch {}
+try { db.exec(`ALTER TABLE clients ADD COLUMN regular_medication TEXT`); } catch {}
+
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS funding_periods (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    funding_type TEXT NOT NULL,
+    funds_manager_id INTEGER REFERENCES funds_managers(id),
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS case_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

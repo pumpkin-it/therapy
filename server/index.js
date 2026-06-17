@@ -21,7 +21,8 @@ app.use('/api/appointments',  require('./routes/appointments'));
 app.use('/api/invoices',       require('./routes/invoices'));
 app.use('/api/funds-managers', require('./routes/fundsManagers'));
 app.use('/api/locations',      require('./routes/locations'));
-app.use('/api/case-notes',    require('./routes/caseNotes'));
+app.use('/api/case-notes',      require('./routes/caseNotes'));
+app.use('/api/funding-periods', require('./routes/fundingPeriods'));
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 

@@ -3,9 +3,21 @@ const db = require('../database');
 const auth = require('../middleware/auth');
 
 const CLIENT_SELECT = `
-  SELECT c.*, fm.name AS funds_manager_name, fm.email AS funds_manager_email
+  SELECT c.*,
+    fp_active.funding_type AS active_funding_type,
+    fp_active.start_date AS active_period_start,
+    fp_active.end_date AS active_period_end,
+    fm_active.name AS active_funds_manager_name,
+    fm_legacy.name AS funds_manager_name, fm_legacy.email AS funds_manager_email
   FROM clients c
-  LEFT JOIN funds_managers fm ON fm.id = c.funds_manager_id
+  LEFT JOIN funding_periods fp_active ON fp_active.id = (
+    SELECT id FROM funding_periods
+    WHERE client_id = c.id
+      AND DATE(start_date) <= DATE('now') AND DATE(end_date) >= DATE('now')
+    ORDER BY start_date DESC LIMIT 1
+  )
+  LEFT JOIN funds_managers fm_active ON fm_active.id = fp_active.funds_manager_id
+  LEFT JOIN funds_managers fm_legacy ON fm_legacy.id = c.funds_manager_id
 `;
 
 router.get('/', auth, (req, res) => {
@@ -39,19 +51,42 @@ router.get('/:id', auth, (req, res) => {
 });
 
 router.post('/', auth, (req, res) => {
-  const { first_name, last_name, email, phone, date_of_birth, address, ndis_number, funding_type, funds_manager_id, plan_start_date, plan_end_date, notes } = req.body;
+  const {
+    first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes,
+    emergency_contact_name, emergency_contact_phone, emergency_contact_relationship,
+    diagnosis, allergies, regular_medication,
+  } = req.body;
   const result = db.prepare(`
-    INSERT INTO clients (first_name, last_name, email, phone, date_of_birth, address, ndis_number, funding_type, funds_manager_id, plan_start_date, plan_end_date, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, funding_type||null, funds_manager_id||null, plan_start_date||null, plan_end_date||null, notes||null);
+    INSERT INTO clients (first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes,
+      emergency_contact_name, emergency_contact_phone, emergency_contact_relationship,
+      diagnosis, allergies, regular_medication)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, notes||null,
+    emergency_contact_name||null, emergency_contact_phone||null, emergency_contact_relationship||null,
+    diagnosis||null, allergies||null, regular_medication||null,
+  );
   res.status(201).json(db.prepare(`${CLIENT_SELECT} WHERE c.id = ?`).get(result.lastInsertRowid));
 });
 
 router.patch('/:id', auth, (req, res) => {
-  const { first_name, last_name, email, phone, date_of_birth, address, ndis_number, funding_type, funds_manager_id, plan_start_date, plan_end_date, notes } = req.body;
+  const {
+    first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes,
+    emergency_contact_name, emergency_contact_phone, emergency_contact_relationship,
+    diagnosis, allergies, regular_medication,
+  } = req.body;
   db.prepare(`
-    UPDATE clients SET first_name=?, last_name=?, email=?, phone=?, date_of_birth=?, address=?, ndis_number=?, funding_type=?, funds_manager_id=?, plan_start_date=?, plan_end_date=?, notes=? WHERE id=?
-  `).run(first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, funding_type||null, funds_manager_id||null, plan_start_date||null, plan_end_date||null, notes||null, req.params.id);
+    UPDATE clients SET
+      first_name=?, last_name=?, email=?, phone=?, date_of_birth=?, address=?, ndis_number=?, notes=?,
+      emergency_contact_name=?, emergency_contact_phone=?, emergency_contact_relationship=?,
+      diagnosis=?, allergies=?, regular_medication=?
+    WHERE id=?
+  `).run(
+    first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, notes||null,
+    emergency_contact_name||null, emergency_contact_phone||null, emergency_contact_relationship||null,
+    diagnosis||null, allergies||null, regular_medication||null,
+    req.params.id,
+  );
   res.json(db.prepare(`${CLIENT_SELECT} WHERE c.id = ?`).get(req.params.id));
 });
 
