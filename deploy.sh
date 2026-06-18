@@ -25,7 +25,6 @@ $AWS s3 cp /tmp/therapy-deploy.tar.gz s3://$BUCKET/therapy-deploy.tar.gz
 
 PRESIGN=$($AWS s3 presign s3://$BUCKET/therapy-deploy.tar.gz --expires-in 3600)
 DB_BACKUP_KEY="therapy-db-backups/pm-${TIMESTAMP}.db"
-DB_BACKUP_PRESIGN=$($AWS s3 presign "s3://$BUCKET/$DB_BACKUP_KEY" --expires-in 3600 --query-string-params "x-amz-acl=private" 2>/dev/null || $AWS s3 presign "s3://$BUCKET/$DB_BACKUP_KEY" --expires-in 3600)
 
 echo "=== Deploying to EC2 ==="
 CMD_ID=$($AWS ssm send-command \
@@ -33,7 +32,7 @@ CMD_ID=$($AWS ssm send-command \
   --document-name "AWS-RunShellScript" \
   --parameters "commands=[
     \"echo '--- Backing up database to S3 ($DB_BACKUP_KEY) ---'\",
-    \"curl -s -X PUT --upload-file /opt/therapy/server/pm.db '$DB_BACKUP_PRESIGN' && echo 'S3 backup ok' || echo 'S3 backup failed (non-fatal)'\",
+    \"aws s3 cp /opt/therapy/server/pm.db s3://$BUCKET/$DB_BACKUP_KEY && echo 'S3 backup ok' || echo 'S3 backup failed (non-fatal)'\",
     \"cp /opt/therapy/server/pm.db /opt/therapy/server/pm.db.bak\",
     \"echo '--- Downloading package ---'\",
     \"curl -s -o /tmp/therapy-deploy.tar.gz '$PRESIGN'\",
