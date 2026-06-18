@@ -3,10 +3,13 @@ const db = require('../database');
 const auth = require('../middleware/auth');
 
 router.get('/', auth, (req, res) => {
-  const { active } = req.query;
+  const { active, role } = req.query;
   const activeFilter = active === 'all' ? null : active === '0' ? 0 : 1;
-  const where = activeFilter !== null ? 'WHERE active = ?' : '';
-  const params = activeFilter !== null ? [activeFilter] : [];
+  const conditions = [];
+  const params = [];
+  if (activeFilter !== null) { conditions.push('active = ?'); params.push(activeFilter); }
+  if (role) { conditions.push('role = ?'); params.push(role); }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
   const rows = db.prepare(`SELECT * FROM practitioners ${where} ORDER BY last_name, first_name`).all(...params);
   res.json(rows);
 });

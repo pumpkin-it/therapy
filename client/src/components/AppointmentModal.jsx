@@ -189,7 +189,7 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
 
   useEffect(() => {
     Promise.all([
-      api.get('/practitioners').then(r => r.data),
+      api.get('/practitioners?role=practitioner').then(r => r.data),
       api.get('/clients').then(r => r.data),
       api.get('/services').then(r => r.data),
       api.get('/locations').then(r => r.data),

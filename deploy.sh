@@ -4,6 +4,7 @@ set -e
 AWS=/Users/peterchen/Library/Python/3.9/bin/aws
 INSTANCE=i-07cb866fad56e0586
 BUCKET=pumpkinit
+TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 
 echo "=== Building frontend ==="
 npm run build --prefix client
@@ -23,14 +24,16 @@ echo "=== Uploading package ==="
 $AWS s3 cp /tmp/therapy-deploy.tar.gz s3://$BUCKET/therapy-deploy.tar.gz
 
 PRESIGN=$($AWS s3 presign s3://$BUCKET/therapy-deploy.tar.gz --expires-in 3600)
-BACKUP_PRESIGN=$($AWS s3 presign "s3://$BUCKET/therapy-db-backup-$(date +%Y%m%d-%H%M%S).db" --expires-in 3600 2>/dev/null || echo "")
+DB_BACKUP_KEY="therapy-db-backups/pm-${TIMESTAMP}.db"
+DB_BACKUP_PRESIGN=$($AWS s3 presign "s3://$BUCKET/$DB_BACKUP_KEY" --expires-in 3600 --query-string-params "x-amz-acl=private" 2>/dev/null || $AWS s3 presign "s3://$BUCKET/$DB_BACKUP_KEY" --expires-in 3600)
 
 echo "=== Deploying to EC2 ==="
 CMD_ID=$($AWS ssm send-command \
   --instance-ids $INSTANCE \
   --document-name "AWS-RunShellScript" \
   --parameters "commands=[
-    \"echo '--- Backing up database ---'\",
+    \"echo '--- Backing up database to S3 ($DB_BACKUP_KEY) ---'\",
+    \"curl -s -X PUT --upload-file /opt/therapy/server/pm.db '$DB_BACKUP_PRESIGN' && echo 'S3 backup ok' || echo 'S3 backup failed (non-fatal)'\",
     \"cp /opt/therapy/server/pm.db /opt/therapy/server/pm.db.bak\",
     \"echo '--- Downloading package ---'\",
     \"curl -s -o /tmp/therapy-deploy.tar.gz '$PRESIGN'\",
@@ -52,3 +55,12 @@ $AWS ssm get-command-invocation \
   --instance-id $INSTANCE \
   --query '[Status,StandardOutputContent,StandardErrorContent]' \
   --output text
+
+echo ""
+echo "=== Syncing to GitHub ==="
+git add -A
+git diff --cached --stat
+git commit -m "Deploy $TIMESTAMP" \
+  -m "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>" 2>/dev/null || echo "(nothing new to commit)"
+git push origin main
+echo "=== Deploy complete ==="
