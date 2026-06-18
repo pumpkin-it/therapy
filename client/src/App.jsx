@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Sidebar from './components/layout/Sidebar';
 import Calendar from './pages/Calendar';
 import Clients from './pages/Clients';
+import ClientDetail from './pages/ClientDetail';
 import Practitioners from './pages/Practitioners';
 import FundsManagers from './pages/FundsManagers';
 import Locations from './pages/Locations';
@@ -18,6 +19,7 @@ export default function App() {
           <Routes>
             <Route path="/calendar"      element={<Calendar />} />
             <Route path="/clients"       element={<Clients />} />
+            <Route path="/clients/:id"   element={<ClientDetail />} />
             <Route path="/practitioners" element={<Practitioners />} />
             <Route path="/funds-managers" element={<FundsManagers />} />
             <Route path="/locations"      element={<Locations />} />

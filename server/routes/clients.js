@@ -21,19 +21,19 @@ const CLIENT_SELECT = `
 `;
 
 router.get('/', auth, (req, res) => {
-  const { search } = req.query;
-  let rows;
+  const { search, active } = req.query;
+  // active=0 → inactive only, active=1 → active only (default), active=all → both
+  const activeFilter = active === 'all' ? null : active === '0' ? 0 : 1;
+  const whereParts = [];
+  const params = [];
+  if (activeFilter !== null) { whereParts.push('c.active = ?'); params.push(activeFilter); }
   if (search) {
     const q = `%${search}%`;
-    rows = db.prepare(`
-      ${CLIENT_SELECT}
-      WHERE c.active = 1
-      AND (c.first_name LIKE ? OR c.last_name LIKE ? OR c.email LIKE ? OR c.ndis_number LIKE ?)
-      ORDER BY c.last_name, c.first_name
-    `).all(q, q, q, q);
-  } else {
-    rows = db.prepare(`${CLIENT_SELECT} WHERE c.active = 1 ORDER BY c.last_name, c.first_name`).all();
+    whereParts.push('(c.first_name LIKE ? OR c.last_name LIKE ? OR c.email LIKE ? OR c.ndis_number LIKE ?)');
+    params.push(q, q, q, q);
   }
+  const where = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+  const rows = db.prepare(`${CLIENT_SELECT} ${where} ORDER BY c.last_name, c.first_name`).all(...params);
   res.json(rows);
 });
 
@@ -52,18 +52,18 @@ router.get('/:id', auth, (req, res) => {
 
 router.post('/', auth, (req, res) => {
   const {
-    first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes,
-    emergency_contact_name, emergency_contact_phone, emergency_contact_relationship,
+    first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes, alert,
+    emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
     diagnosis, allergies, regular_medication,
   } = req.body;
   const result = db.prepare(`
-    INSERT INTO clients (first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes,
-      emergency_contact_name, emergency_contact_phone, emergency_contact_relationship,
+    INSERT INTO clients (first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes, alert,
+      emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
       diagnosis, allergies, regular_medication)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, notes||null,
-    emergency_contact_name||null, emergency_contact_phone||null, emergency_contact_relationship||null,
+    first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, notes||null, alert||null,
+    emergency_contact_name||null, emergency_contact_phone||null, emergency_contact_relationship||null, emergency_contact_email||null,
     diagnosis||null, allergies||null, regular_medication||null,
   );
   res.status(201).json(db.prepare(`${CLIENT_SELECT} WHERE c.id = ?`).get(result.lastInsertRowid));
@@ -71,23 +71,28 @@ router.post('/', auth, (req, res) => {
 
 router.patch('/:id', auth, (req, res) => {
   const {
-    first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes,
-    emergency_contact_name, emergency_contact_phone, emergency_contact_relationship,
+    first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes, alert,
+    emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
     diagnosis, allergies, regular_medication,
   } = req.body;
   db.prepare(`
     UPDATE clients SET
-      first_name=?, last_name=?, email=?, phone=?, date_of_birth=?, address=?, ndis_number=?, notes=?,
-      emergency_contact_name=?, emergency_contact_phone=?, emergency_contact_relationship=?,
+      first_name=?, last_name=?, email=?, phone=?, date_of_birth=?, address=?, ndis_number=?, notes=?, alert=?,
+      emergency_contact_name=?, emergency_contact_phone=?, emergency_contact_relationship=?, emergency_contact_email=?,
       diagnosis=?, allergies=?, regular_medication=?
     WHERE id=?
   `).run(
-    first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, notes||null,
-    emergency_contact_name||null, emergency_contact_phone||null, emergency_contact_relationship||null,
+    first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, notes||null, alert||null,
+    emergency_contact_name||null, emergency_contact_phone||null, emergency_contact_relationship||null, emergency_contact_email||null,
     diagnosis||null, allergies||null, regular_medication||null,
     req.params.id,
   );
   res.json(db.prepare(`${CLIENT_SELECT} WHERE c.id = ?`).get(req.params.id));
+});
+
+router.patch('/:id/active', auth, (req, res) => {
+  db.prepare('UPDATE clients SET active=? WHERE id=?').run(req.body.active ? 1 : 0, req.params.id);
+  res.json({ ok: true });
 });
 
 router.delete('/:id', auth, (req, res) => {

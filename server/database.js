@@ -164,11 +164,36 @@ try { db.exec(`
     client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
     funding_type TEXT NOT NULL,
     funds_manager_id INTEGER REFERENCES funds_managers(id),
+    client_identifier TEXT,
     start_date TEXT NOT NULL,
     end_date TEXT NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `); } catch {}
+try { db.exec(`ALTER TABLE funding_periods ADD COLUMN client_identifier TEXT`); } catch {}
+try { db.exec(`ALTER TABLE services ADD COLUMN gst_rate REAL`); } catch {}
+try { db.exec(`ALTER TABLE practitioners ADD COLUMN provider_number TEXT`); } catch {}
+try { db.exec(`ALTER TABLE appointments ADD COLUMN late_cancel_pct REAL`); } catch {}
+try { db.exec(`ALTER TABLE appointments ADD COLUMN late_cancel_billable INTEGER DEFAULT 0`); } catch {}
+try { db.exec(`ALTER TABLE practitioners ADD COLUMN role TEXT DEFAULT 'practitioner'`); } catch {}
+try { db.exec(`ALTER TABLE clients ADD COLUMN emergency_contact_email TEXT`); } catch {}
+try { db.exec(`ALTER TABLE appointment_items ADD COLUMN notes_min INTEGER`); } catch {}
+try { db.exec(`ALTER TABLE clients ADD COLUMN alert TEXT`); } catch {}
+try { db.exec(`ALTER TABLE appointments ADD COLUMN location_other TEXT`); } catch {}
+try { db.exec(`ALTER TABLE appointment_items ADD COLUMN item_notes TEXT`); } catch {}
+try { db.exec(`ALTER TABLE services ADD COLUMN notes_rate REAL`); } catch {}
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS client_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    size INTEGER,
+    mime_type TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS case_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -187,7 +212,7 @@ const defaults = {
   practice_phone: '',
   practice_address: '',
   practice_abn: '',
-  smtp_host: '',
+  smtp_host: 'smtp.office365.com',
   smtp_port: '587',
   smtp_secure: '0',
   smtp_user: '',
@@ -196,6 +221,16 @@ const defaults = {
   smtp_from_email: '',
   invoice_counter: '1',
   tax_rate: '0.1',
+  graph_tenant_id: '',
+  graph_client_id: '',
+  graph_client_secret: '',
+  graph_mailbox: '',
+  role_permissions: JSON.stringify({
+    owner:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:true },
+    admin:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:false },
+    practitioner: { calendar:true, clients:true, users:false, funds_managers:false, locations:true, services:true, invoices:false, settings:false },
+    finance:      { calendar:false, clients:true, users:false, funds_managers:true, locations:false, services:true, invoices:true, settings:false },
+  }),
 };
 
 const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');

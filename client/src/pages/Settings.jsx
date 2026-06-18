@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { Upload, X, Plus, Trash2 } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
@@ -6,15 +7,72 @@ import Input from '../components/ui/Input';
 export default function Settings() {
   const [form, setForm] = useState({});
   const [saved, setSaved] = useState(false);
+  const [logoUrl, setLogoUrl] = useState(null);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const logoInputRef = useRef();
+
+  const [cancelTiers, setCancelTiers] = useState([]);
+
+  const SECTIONS = [
+    { key: 'calendar',      label: 'Calendar' },
+    { key: 'clients',       label: 'Clients' },
+    { key: 'users',         label: 'Users' },
+    { key: 'funds_managers',label: 'Funds Managers' },
+    { key: 'locations',     label: 'Locations' },
+    { key: 'services',      label: 'Services' },
+    { key: 'invoices',      label: 'Invoices' },
+    { key: 'settings',      label: 'Settings' },
+  ];
+  const ROLE_LABELS = { owner: 'Owner', admin: 'Admin', practitioner: 'Practitioner', finance: 'Finance' };
+  const DEFAULT_PERMS = {
+    owner:        { calendar:true,  clients:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  settings:true  },
+    admin:        { calendar:true,  clients:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  settings:false },
+    practitioner: { calendar:true,  clients:true,  users:false, funds_managers:false, locations:true,  services:true,  invoices:false, settings:false },
+    finance:      { calendar:false, clients:true,  users:false, funds_managers:true,  locations:false, services:true,  invoices:true,  settings:false },
+  };
+  const [perms, setPerms] = useState(DEFAULT_PERMS);
 
   useEffect(() => {
-    api.get('/settings').then(r => setForm(r.data));
+    api.get('/settings').then(r => {
+      setForm(r.data);
+      try { setCancelTiers(JSON.parse(r.data.cancellation_policy || '[]')); } catch { setCancelTiers([]); }
+      try { setPerms(JSON.parse(r.data.role_permissions || '{}')); } catch {}
+    });
+    api.get('/settings/logo', { responseType: 'blob' })
+      .then(r => setLogoUrl(URL.createObjectURL(r.data)))
+      .catch(() => setLogoUrl(null));
   }, []);
+
+  const uploadLogo = async (file) => {
+    if (!file) return;
+    // Show local preview immediately
+    setLogoUrl(URL.createObjectURL(file));
+    setLogoUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('logo', file);
+      await api.post('/settings/logo', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+    } catch {
+      setLogoUrl(null);
+    } finally { setLogoUploading(false); }
+  };
+
+  const removeLogo = async () => {
+    await api.delete('/settings/logo');
+    setLogoUrl(null);
+  };
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  const setTier = (i, k, v) => setCancelTiers(ts => ts.map((t, idx) => idx === i ? { ...t, [k]: v } : t));
+  const addTier = () => setCancelTiers(ts => [...ts, { days: '', percent: '' }]);
+  const removeTier = i => setCancelTiers(ts => ts.filter((_, idx) => idx !== i));
+
   const save = async () => {
-    await api.patch('/settings', form);
+    const sorted = [...cancelTiers]
+      .filter(t => t.days !== '' && t.percent !== '')
+      .sort((a, b) => Number(a.days) - Number(b.days));
+    await api.patch('/settings', { ...form, cancellation_policy: JSON.stringify(sorted), role_permissions: JSON.stringify(perms) });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -39,29 +97,102 @@ export default function Settings() {
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
-        <h2 className="font-semibold text-gray-900">Email (SMTP)</h2>
-        <p className="text-sm text-gray-500">Used for sending invoices directly to clients.</p>
-        <div className="grid grid-cols-2 gap-3">
-          {field('SMTP host',   'smtp_host')}
-          {field('Port',        'smtp_port', 'number')}
-          {field('Username',    'smtp_user')}
-          {field('Password',    'smtp_pass', 'password')}
-          {field('From name',   'smtp_from_name')}
-          {field('From email',  'smtp_from_email', 'email')}
+        <h2 className="font-semibold text-gray-900">Practice Logo</h2>
+        <p className="text-sm text-gray-500">Used on invoices and emails. Max 2 MB.</p>
+        <div className="flex items-center gap-4">
+          {logoUrl
+            ? <img src={logoUrl} alt="Logo" className="h-16 max-w-[200px] object-contain rounded border border-gray-200 p-1" />
+            : <div className="h-16 w-32 rounded border-2 border-dashed border-gray-300 flex items-center justify-center text-xs text-gray-400">No logo</div>
+          }
+          <div className="flex flex-col gap-2">
+            <input ref={logoInputRef} type="file" accept="image/*" className="hidden"
+              onChange={e => uploadLogo(e.target.files[0])} />
+            <Button variant="secondary" size="sm" onClick={() => logoInputRef.current.click()} disabled={logoUploading}>
+              <Upload className="h-3.5 w-3.5" /> {logoUploading ? 'Uploading…' : logoUrl ? 'Replace logo' : 'Upload logo'}
+            </Button>
+            {logoUrl && (
+              <Button variant="ghost" size="sm" onClick={removeLogo}>
+                <X className="h-3.5 w-3.5 text-red-400" /> Remove
+              </Button>
+            )}
+          </div>
         </div>
-        <label className="flex items-center gap-2 text-sm text-gray-700">
-          <input type="checkbox"
-            checked={form.smtp_secure === '1'}
-            onChange={e => set('smtp_secure', e.target.checked ? '1' : '0')} />
-          Use TLS / SSL
-        </label>
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
-        <h2 className="font-semibold text-gray-900">Invoicing</h2>
-        <div className="grid grid-cols-2 gap-3">
-          {field('GST rate (e.g. 0.1 for 10%)', 'tax_rate', 'number')}
+        <div>
+          <h2 className="font-semibold text-gray-900">Late Cancellation Policy</h2>
+          <p className="text-sm text-gray-500 mt-1">Define tiers by how many days before the appointment the cancellation occurs. Tiers are sorted automatically — the shortest window takes priority.</p>
         </div>
+        <div className="space-y-2">
+          {cancelTiers.length === 0 && (
+            <p className="text-sm text-gray-400">No tiers set — all cancellations are free.</p>
+          )}
+          {cancelTiers.map((tier, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="text-sm text-gray-600 shrink-0">Within</span>
+              <input type="number" min="1" placeholder="days"
+                className="w-20 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                value={tier.days} onChange={e => setTier(i, 'days', e.target.value)} />
+              <span className="text-sm text-gray-600 shrink-0">days, charge</span>
+              <input type="number" min="0" max="100" placeholder="%"
+                className="w-20 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                value={tier.percent} onChange={e => setTier(i, 'percent', e.target.value)} />
+              <span className="text-sm text-gray-600 shrink-0">%</span>
+              <button onClick={() => removeTier(i)} className="ml-1 text-gray-400 hover:text-red-500">
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+        <Button variant="secondary" size="sm" onClick={addTier}>
+          <Plus className="h-3.5 w-3.5" /> Add tier
+        </Button>
+      </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+        <div>
+          <h2 className="font-semibold text-gray-900">Role Permissions</h2>
+          <p className="text-sm text-gray-500 mt-1">Control which sections each role can access.</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr>
+                <th className="text-left font-medium text-gray-500 pb-2 pr-4 w-36">Section</th>
+                {Object.keys(ROLE_LABELS).map(role => (
+                  <th key={role} className="text-center font-medium text-gray-700 pb-2 px-3 min-w-[90px]">
+                    {ROLE_LABELS[role]}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {SECTIONS.map(sec => (
+                <tr key={sec.key}>
+                  <td className="py-2 pr-4 text-gray-700">{sec.label}</td>
+                  {Object.keys(ROLE_LABELS).map(role => {
+                    const checked = perms[role]?.[sec.key] ?? false;
+                    const isOwner = role === 'owner';
+                    return (
+                      <td key={role} className="py-2 px-3 text-center">
+                        <input type="checkbox"
+                          className="h-4 w-4 accent-indigo-600"
+                          checked={isOwner ? true : checked}
+                          disabled={isOwner}
+                          onChange={e => setPerms(p => ({
+                            ...p,
+                            [role]: { ...p[role], [sec.key]: e.target.checked }
+                          }))} />
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-xs text-gray-400">Owner always has full access and cannot be restricted.</p>
       </section>
 
       <div className="flex items-center gap-3">

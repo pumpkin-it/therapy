@@ -3,7 +3,11 @@ const db = require('../database');
 const auth = require('../middleware/auth');
 
 router.get('/', auth, (req, res) => {
-  const rows = db.prepare('SELECT * FROM practitioners WHERE active = 1 ORDER BY last_name, first_name').all();
+  const { active } = req.query;
+  const activeFilter = active === 'all' ? null : active === '0' ? 0 : 1;
+  const where = activeFilter !== null ? 'WHERE active = ?' : '';
+  const params = activeFilter !== null ? [activeFilter] : [];
+  const rows = db.prepare(`SELECT * FROM practitioners ${where} ORDER BY last_name, first_name`).all(...params);
   res.json(rows);
 });
 
@@ -14,19 +18,24 @@ router.get('/:id', auth, (req, res) => {
 });
 
 router.post('/', auth, (req, res) => {
-  const { first_name, last_name, title, email, phone, color } = req.body;
+  const { first_name, last_name, title, email, phone, color, provider_number, role } = req.body;
   const result = db.prepare(
-    'INSERT INTO practitioners (first_name, last_name, title, email, phone, color) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1');
+    'INSERT INTO practitioners (first_name, last_name, title, email, phone, color, provider_number, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', provider_number || null, role || 'practitioner');
   res.status(201).json(db.prepare('SELECT * FROM practitioners WHERE id = ?').get(result.lastInsertRowid));
 });
 
 router.patch('/:id', auth, (req, res) => {
-  const { first_name, last_name, title, email, phone, color } = req.body;
+  const { first_name, last_name, title, email, phone, color, provider_number, role } = req.body;
   db.prepare(
-    'UPDATE practitioners SET first_name=?, last_name=?, title=?, email=?, phone=?, color=? WHERE id=?'
-  ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', req.params.id);
+    'UPDATE practitioners SET first_name=?, last_name=?, title=?, email=?, phone=?, color=?, provider_number=?, role=? WHERE id=?'
+  ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', provider_number || null, role || 'practitioner', req.params.id);
   res.json(db.prepare('SELECT * FROM practitioners WHERE id = ?').get(req.params.id));
+});
+
+router.patch('/:id/active', auth, (req, res) => {
+  db.prepare('UPDATE practitioners SET active=? WHERE id=?').run(req.body.active ? 1 : 0, req.params.id);
+  res.json({ ok: true });
 });
 
 router.delete('/:id', auth, (req, res) => {

@@ -2,6 +2,10 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
+
+const uploadsDir = path.join(__dirname, '../uploads');
+if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -23,6 +27,17 @@ app.use('/api/funds-managers', require('./routes/fundsManagers'));
 app.use('/api/locations',      require('./routes/locations'));
 app.use('/api/case-notes',      require('./routes/caseNotes'));
 app.use('/api/funding-periods', require('./routes/fundingPeriods'));
+app.use('/api/client-files',   require('./routes/clientFiles'));
+
+// Logo is public; all other uploads require auth
+app.get('/uploads/logo', (req, res) => {
+  const logoPath = path.join(__dirname, '../uploads/logo');
+  if (!fs.existsSync(logoPath)) return res.status(404).end();
+  res.sendFile(logoPath);
+});
+app.use('/uploads', require('./middleware/auth'), (req, res, next) => {
+  express.static(path.join(__dirname, '../uploads'))(req, res, next);
+});
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 

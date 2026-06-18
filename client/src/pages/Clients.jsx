@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Search, Plus, ChevronRight, Pencil, Trash2, AlertTriangle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, Plus, ChevronRight, Pencil, Trash2, AlertTriangle, Bell } from 'lucide-react';
 import { format, parseISO, isWithinInterval, parseISO as parse } from 'date-fns';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
@@ -8,11 +9,11 @@ import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import SearchSelect from '../components/ui/SearchSelect';
 
-const FUNDING_COLOR = { NDIS: 'blue', Medicare: 'green', Private: 'purple', Other: 'gray' };
+const FUNDING_COLOR = { NDIS: 'blue', Medicare: 'green', Private: 'purple', 'Aged Care': 'orange', Other: 'gray' };
 
 const EMPTY_CLIENT = {
   first_name: '', last_name: '', email: '', phone: '', date_of_birth: '',
-  address: '', ndis_number: '', notes: '',
+  address: '', ndis_number: '', notes: '', alert: '',
   emergency_contact_name: '', emergency_contact_phone: '', emergency_contact_relationship: '',
   diagnosis: '', allergies: '', regular_medication: '',
 };
@@ -55,9 +56,9 @@ function AddFundsManagerModal({ initialName, onClose, onSaved }) {
 
 // ─── Funding tab ──────────────────────────────────────────────────────────────
 
-const EMPTY_PERIOD = { funding_type: '', funds_manager_id: '', start_date: '', end_date: '' };
+const EMPTY_PERIOD = { funding_type: '', funds_manager_id: '', client_identifier: '', start_date: '', end_date: '' };
 
-function FundingTab({ clientId, ndisNumber, onNdisChange }) {
+function FundingTab({ clientId }) {
   const [periods, setPeriods] = useState([]);
   const [fundsManagers, setFundsManagers] = useState([]);
   const [editing, setEditing] = useState(null); // null | 'new' | period obj
@@ -84,7 +85,7 @@ function FundingTab({ clientId, ndisNumber, onNdisChange }) {
   };
 
   const openAdd = () => { setEditing('new'); setForm(EMPTY_PERIOD); setOverlapWarning(''); };
-  const openEdit = p => { setEditing(p); setForm({ funding_type: p.funding_type, funds_manager_id: p.funds_manager_id || '', start_date: p.start_date, end_date: p.end_date }); setOverlapWarning(''); };
+  const openEdit = p => { setEditing(p); setForm({ funding_type: p.funding_type, funds_manager_id: p.funds_manager_id || '', client_identifier: p.client_identifier || '', start_date: p.start_date, end_date: p.end_date }); setOverlapWarning(''); };
   const cancel = () => { setEditing(null); setOverlapWarning(''); };
 
   const save = async () => {
@@ -116,15 +117,6 @@ function FundingTab({ clientId, ndisNumber, onNdisChange }) {
 
   return (
     <div className="space-y-3">
-      <div className="space-y-1">
-        <label className="block text-sm font-medium text-gray-700">Client ID</label>
-        <input
-          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          value={ndisNumber || ''}
-          onChange={e => onNdisChange(e.target.value)}
-          placeholder="e.g. NDIS participant number"
-        />
-      </div>
       {periods.length === 0 && !editing && (
         <p className="text-sm text-gray-400 py-4 text-center">No funding periods added yet.</p>
       )}
@@ -142,6 +134,9 @@ function FundingTab({ clientId, ndisNumber, onNdisChange }) {
               </p>
               {p.funds_manager_name && (
                 <p className="text-xs text-gray-500">Funds manager: {p.funds_manager_name}</p>
+              )}
+              {p.client_identifier && (
+                <p className="text-xs text-gray-500">Client ID: {p.client_identifier}</p>
               )}
             </div>
             <div className="flex gap-1 shrink-0">
@@ -184,6 +179,12 @@ function FundingTab({ clientId, ndisNumber, onNdisChange }) {
                   addNewLabel="Add funds manager"
                 />
               ) : null}
+            </div>
+            <div className="col-span-2 space-y-1">
+              <label className="block text-sm font-medium text-gray-700">Client ID <span className="text-gray-400">(optional)</span></label>
+              <input className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                value={form.client_identifier} onChange={e => set('client_identifier', e.target.value)}
+                placeholder="e.g. NDIS participant number" />
             </div>
             {dateInput('Start date', form.start_date, v => set('start_date', v))}
             {dateInput('End date', form.end_date, v => set('end_date', v))}
@@ -380,12 +381,12 @@ function ClientModal({ client, onClose, onSaved }) {
           </div>
         )}
 
-        {tab === 'funding' && <FundingTab clientId={client?.id} ndisNumber={form.ndis_number} onNdisChange={v => set('ndis_number', v)} />}
+        {tab === 'funding' && <FundingTab clientId={client?.id} />}
         {tab === 'medical' && <MedicalTab form={form} set={set} />}
         {tab === 'notes'   && <CaseNotesTab clientId={client?.id} />}
       </div>
 
-      {(tab === 'details' || tab === 'funding' || tab === 'medical' || !client) && (
+      {(tab === 'details' || tab === 'medical' || !client) && (
         <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
@@ -398,14 +399,21 @@ function ClientModal({ client, onClose, onSaved }) {
 // ─── Clients list ─────────────────────────────────────────────────────────────
 
 export default function Clients() {
+  const navigate = useNavigate();
   const [clients, setClients] = useState([]);
   const [search, setSearch] = useState('');
-  const [modal, setModal] = useState(null);
+  const [activeFilter, setActiveFilter] = useState('1');
+  const [addModal, setAddModal] = useState(false);
 
-  const load = (q = '') => api.get(`/clients${q ? `?search=${q}` : ''}`).then(r => setClients(r.data));
-  useEffect(() => { load(); }, []);
+  const load = (q = '', af = activeFilter) => {
+    const params = new URLSearchParams();
+    if (q) params.set('search', q);
+    params.set('active', af);
+    api.get(`/clients?${params}`).then(r => setClients(r.data));
+  };
+  useEffect(() => { load(search, activeFilter); }, [activeFilter]);
   useEffect(() => {
-    const t = setTimeout(() => load(search), 300);
+    const t = setTimeout(() => load(search, activeFilter), 300);
     return () => clearTimeout(t);
   }, [search]);
 
@@ -413,13 +421,21 @@ export default function Clients() {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Clients</h1>
-        <Button onClick={() => setModal({})}><Plus className="h-4 w-4" /> Add client</Button>
+        <Button onClick={() => setAddModal(true)}><Plus className="h-4 w-4" /> Add client</Button>
       </div>
 
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-        <input className="w-full rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          placeholder="Search name, email or NDIS…" value={search} onChange={e => setSearch(e.target.value)} />
+      <div className="flex items-center gap-2">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <input className="w-64 rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            placeholder="Search name, email…" value={search} onChange={e => setSearch(e.target.value)} />
+        </div>
+        <select value={activeFilter} onChange={e => setActiveFilter(e.target.value)}
+          className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700">
+          <option value="1">Active</option>
+          <option value="0">Inactive</option>
+          <option value="all">All</option>
+        </select>
       </div>
 
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
@@ -439,8 +455,13 @@ export default function Clients() {
               const fundingType = c.active_funding_type || c.funding_type;
               const fundsManager = c.active_funds_manager_name || c.funds_manager_name;
               return (
-                <tr key={c.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setModal(c)}>
-                  <td className="px-4 py-3 font-medium text-gray-900">{c.last_name}, {c.first_name}</td>
+                <tr key={c.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/clients/${c.id}`)}>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-900">{c.last_name}, {c.first_name}</span>
+                      {c.alert && <Bell className="h-3.5 w-3.5 text-amber-500 shrink-0" title={c.alert} />}
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-sm text-gray-600">
                     <div>{c.email}</div>
                     <div className="text-gray-400">{c.phone}</div>
@@ -461,11 +482,11 @@ export default function Clients() {
         </table>
       </div>
 
-      {modal !== null && (
+      {addModal && (
         <ClientModal
-          client={modal.id ? modal : null}
-          onClose={() => setModal(null)}
-          onSaved={() => { setModal(null); load(search); }}
+          client={null}
+          onClose={() => setAddModal(false)}
+          onSaved={async () => { setAddModal(false); load(search); }}
         />
       )}
     </div>
