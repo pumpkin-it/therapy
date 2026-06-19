@@ -327,33 +327,37 @@ const EMPTY_FORM = {
 export default function ClientDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [client, setClient] = useState(null);
+  const isNew = id === 'new';
+  const [client, setClient] = useState(isNew ? {} : null);
   const [tab, setTab] = useState('details');
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  const load = () => api.get(`/clients/${id}`).then(r => {
-    setClient(r.data);
-    setForm({
-      first_name: r.data.first_name || '',
-      last_name:  r.data.last_name  || '',
-      email:      r.data.email      || '',
-      phone:      r.data.phone      || '',
-      date_of_birth: r.data.date_of_birth || '',
-      address:    r.data.address    || '',
-      ndis_number: r.data.ndis_number || '',
-      notes:      r.data.notes      || '',
-      alert:      r.data.alert      || '',
-      emergency_contact_name:         r.data.emergency_contact_name         || '',
-      emergency_contact_phone:        r.data.emergency_contact_phone        || '',
-      emergency_contact_relationship: r.data.emergency_contact_relationship || '',
-      emergency_contact_email:        r.data.emergency_contact_email        || '',
-      diagnosis:         r.data.diagnosis         || '',
-      allergies:         r.data.allergies         || '',
-      regular_medication: r.data.regular_medication || '',
+  const load = () => {
+    if (isNew) return;
+    api.get(`/clients/${id}`).then(r => {
+      setClient(r.data);
+      setForm({
+        first_name: r.data.first_name || '',
+        last_name:  r.data.last_name  || '',
+        email:      r.data.email      || '',
+        phone:      r.data.phone      || '',
+        date_of_birth: r.data.date_of_birth || '',
+        address:    r.data.address    || '',
+        ndis_number: r.data.ndis_number || '',
+        notes:      r.data.notes      || '',
+        alert:      r.data.alert      || '',
+        emergency_contact_name:         r.data.emergency_contact_name         || '',
+        emergency_contact_phone:        r.data.emergency_contact_phone        || '',
+        emergency_contact_relationship: r.data.emergency_contact_relationship || '',
+        emergency_contact_email:        r.data.emergency_contact_email        || '',
+        diagnosis:         r.data.diagnosis         || '',
+        allergies:         r.data.allergies         || '',
+        regular_medication: r.data.regular_medication || '',
+      });
     });
-  });
+  };
 
   useEffect(() => { load(); }, [id]);
 
@@ -362,23 +366,23 @@ export default function ClientDetail() {
   const save = async () => {
     setSaving(true);
     try {
-      await api.patch(`/clients/${id}`, form);
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-      load();
+      if (isNew) {
+        const res = await api.post('/clients', form);
+        navigate(`/clients/${res.data.id}`, { replace: true });
+      } else {
+        await api.patch(`/clients/${id}`, form);
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+        load();
+      }
     } finally { setSaving(false); }
   };
 
   if (!client) return <div className="p-6 text-gray-400">Loading…</div>;
 
-  const TABS = [
-    ['details', 'Details'],
-    ['funding', 'Funding'],
-    ['medical', 'Medical'],
-    ['notes', 'Case Notes'],
-    ['files', 'Files'],
-    ['calendar', 'Calendar'],
-  ];
+  const TABS = isNew
+    ? [['details', 'Details'], ['medical', 'Medical']]
+    : [['details', 'Details'], ['funding', 'Funding'], ['medical', 'Medical'], ['notes', 'Case Notes'], ['files', 'Files'], ['calendar', 'Calendar']];
 
   return (
     <div className="space-y-5 max-w-4xl">
@@ -389,19 +393,23 @@ export default function ClientDetail() {
         </button>
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <h1 className={`text-2xl font-semibold ${client.active === 0 ? 'text-gray-400' : ''}`}>{client.first_name} {client.last_name}</h1>
-            {client.active === 0 && <span className="text-xs bg-gray-100 text-gray-500 rounded-full px-2 py-0.5 font-medium">Inactive</span>}
+            <h1 className={`text-2xl font-semibold ${client.active === 0 ? 'text-gray-400' : ''}`}>
+              {isNew ? 'New Client' : `${client.first_name} ${client.last_name}`}
+            </h1>
+            {!isNew && client.active === 0 && <span className="text-xs bg-gray-100 text-gray-500 rounded-full px-2 py-0.5 font-medium">Inactive</span>}
           </div>
-          {client.active_funding_type && (
+          {!isNew && client.active_funding_type && (
             <Badge color={FUNDING_COLOR[client.active_funding_type] || 'gray'} className="mt-0.5">{client.active_funding_type}</Badge>
           )}
         </div>
-        <button
-          onClick={async () => { await api.patch(`/clients/${id}/active`, { active: client.active === 0 ? 1 : 0 }); load(); }}
-          className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors ${client.active === 0 ? 'border-green-300 text-green-700 hover:bg-green-50' : 'border-red-200 text-red-500 hover:bg-red-50'}`}
-        >
-          {client.active === 0 ? <><UserCheck className="h-4 w-4" /> Reactivate</> : <><UserX className="h-4 w-4" /> Deactivate</>}
-        </button>
+        {!isNew && (
+          <button
+            onClick={async () => { await api.patch(`/clients/${id}/active`, { active: client.active === 0 ? 1 : 0 }); load(); }}
+            className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors ${client.active === 0 ? 'border-green-300 text-green-700 hover:bg-green-50' : 'border-red-200 text-red-500 hover:bg-red-50'}`}
+          >
+            {client.active === 0 ? <><UserCheck className="h-4 w-4" /> Reactivate</> : <><UserX className="h-4 w-4" /> Deactivate</>}
+          </button>
+        )}
       </div>
 
       {/* Alert banner */}
@@ -489,7 +497,7 @@ export default function ClientDetail() {
       {(tab === 'details' || tab === 'medical') && tab !== 'calendar' && (
         <div className="flex justify-end gap-2">
           <Button onClick={save} disabled={saving}>
-            {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save changes'}
+            {saving ? 'Saving…' : saved ? '✓ Saved' : isNew ? 'Create client' : 'Save changes'}
           </Button>
         </div>
       )}

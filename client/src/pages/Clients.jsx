@@ -403,7 +403,6 @@ export default function Clients() {
   const [clients, setClients] = useState([]);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState('1');
-  const [addModal, setAddModal] = useState(false);
 
   const load = (q = '', af = activeFilter) => {
     const params = new URLSearchParams();
@@ -421,7 +420,7 @@ export default function Clients() {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Clients</h1>
-        <Button onClick={() => setAddModal(true)}><Plus className="h-4 w-4" /> Add client</Button>
+        <Button onClick={() => navigate('/clients/new')}><Plus className="h-4 w-4" /> Add client</Button>
       </div>
 
       <div className="flex items-center gap-2">
@@ -482,13 +481,6 @@ export default function Clients() {
         </table>
       </div>
 
-      {addModal && (
-        <ClientModal
-          client={null}
-          onClose={() => setAddModal(false)}
-          onSaved={async () => { setAddModal(false); load(search); }}
-        />
-      )}
     </div>
   );
 }
