@@ -50,10 +50,10 @@ app.use((err, _req, res, _next) => {
 
 app.listen(PORT, () => {
   console.log(`Therapy API running on :${PORT}`);
-  // Generate recurring appointments on startup, then every hour
+  // Generate recurring appointments on startup, then once daily
   const { generateAll } = require('./routes/recurringSeries');
   try { generateAll(); } catch (e) { console.error('Recurring generation error:', e.message); }
   setInterval(() => {
     try { generateAll(); } catch (e) { console.error('Recurring generation error:', e.message); }
-  }, 60 * 60 * 1000);
+  }, 24 * 60 * 60 * 1000);
 });
