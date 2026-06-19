@@ -488,26 +488,24 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
                     </>
                   )}
                 </div>
-                <div className="flex items-end gap-2">
-                  <div className="w-32 space-y-1">
-                    <label className="text-xs text-gray-500">Notes (min)</label>
-                    <input type="number" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                      value={item.notes_min} onChange={e => setItem(idx, 'notes_min', e.target.value)} placeholder="—" />
-                  </div>
-                  <div className="pb-0.5">
-                    <span className="text-sm font-medium text-gray-700">
-                      ${(Number(item.quantity) * Number(item.unit_rate)).toFixed(2)}
-                    </span>
-                  </div>
+                <div className="flex items-end justify-between">
+                  <span className="text-sm text-gray-500">
+                    ${(Number(item.quantity) * Number(item.unit_rate)).toFixed(2)}
+                  </span>
                   {form.items.length > 1 && (
                     <button onClick={() => setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))}
-                      className="pb-0.5 text-red-400 hover:text-red-600">
+                      className="text-red-400 hover:text-red-600">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   )}
                 </div>
               </div>
             ))}
+          </div>
+          <div className="flex justify-end pt-2 border-t border-gray-100 mt-2">
+            <span className="text-sm font-semibold text-gray-900">
+              Session total: ${form.items.reduce((sum, i) => sum + Number(i.quantity || 0) * Number(i.unit_rate || 0), 0).toFixed(2)}
+            </span>
           </div>
         </div>
 
