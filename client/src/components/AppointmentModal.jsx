@@ -489,12 +489,17 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
                   )}
                 </div>
                 <div className="flex items-end justify-between">
-                  <span className="text-sm text-gray-500">
+                  <div className="w-28 space-y-1">
+                    <label className="text-xs text-gray-500">Notes (min)</label>
+                    <input type="number" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                      value={item.notes_min} onChange={e => setItem(idx, 'notes_min', e.target.value)} placeholder="—" />
+                  </div>
+                  <span className="text-sm text-gray-500 pb-1">
                     ${(Number(item.quantity) * Number(item.unit_rate)).toFixed(2)}
                   </span>
                   {form.items.length > 1 && (
                     <button onClick={() => setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))}
-                      className="text-red-400 hover:text-red-600">
+                      className="pb-1 text-red-400 hover:text-red-600">
                       <Trash2 className="h-4 w-4" />
                     </button>
                   )}
