@@ -238,12 +238,36 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
     setEndTime(`${pad(end.getHours())}:${pad(end.getMinutes())}`);
   };
 
+  const sessionHours = (() => {
+    const s = joinDT(startDate, startTime);
+    const e = joinDT(endDate, endTime);
+    if (!s || !e) return 1;
+    return Math.max((new Date(e) - new Date(s)) / 3600000, 0);
+  })();
+
+  // Sync predefined service item quantities when session duration changes
+  useEffect(() => {
+    setForm(f => {
+      const hasServiceItems = f.items.some(i => i.service_id);
+      if (!hasServiceItems) return f;
+      return { ...f, items: f.items.map(i => i.service_id ? { ...i, quantity: sessionHours } : i) };
+    });
+  }, [sessionHours]);
+
   const setItem = (idx, k, v) => setForm(f => {
     const items = [...f.items];
     items[idx] = { ...items[idx], [k]: v };
     if (k === 'service_id' && v) {
       const svc = services.find(s => s.id === Number(v));
-      if (svc) { items[idx].description = svc.name; items[idx].unit_rate = svc.default_rate; }
+      if (svc) {
+        items[idx].description = svc.name;
+        items[idx].unit_rate = svc.default_rate;
+        items[idx].quantity = sessionHours;
+      }
+    }
+    if (k === 'service_id' && !v) {
+      items[idx].quantity = 1;
+      items[idx].unit_rate = 0;
     }
     return { ...f, items };
   });
@@ -462,32 +486,54 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
                       value={item.description} onChange={e => setItem(idx, 'description', e.target.value)} />
                   </div>
                 </div>
-                <div className={`grid gap-2 ${isHome ? 'grid-cols-4' : 'grid-cols-2'}`}>
-                  <div className="space-y-1">
-                    <label className="text-xs text-gray-500">Qty</label>
-                    <input type="number" step="0.25" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                      value={item.quantity} onChange={e => setItem(idx, 'quantity', e.target.value)} />
+                {item.service_id ? (
+                  <div className="flex items-center gap-4 text-sm text-gray-600">
+                    <span>${Number(item.unit_rate).toFixed(2)}/hr</span>
+                    <span>×</span>
+                    <span>{sessionHours.toFixed(2)} hrs</span>
+                    {isHome && (
+                      <>
+                        <div className="space-y-1">
+                          <label className="text-xs text-gray-500">Travel (min)</label>
+                          <input type="number" className="w-20 rounded border border-gray-300 px-2 py-1.5 text-sm"
+                            value={item.travel_time_min} onChange={e => setItem(idx, 'travel_time_min', e.target.value)} placeholder="—" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-gray-500">Travel (km)</label>
+                          <input type="number" step="0.1" className="w-20 rounded border border-gray-300 px-2 py-1.5 text-sm"
+                            value={item.travel_km} onChange={e => setItem(idx, 'travel_km', e.target.value)} placeholder="—" />
+                        </div>
+                      </>
+                    )}
                   </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-gray-500">Rate ($)</label>
-                    <input type="number" step="0.01" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                      value={item.unit_rate} onChange={e => setItem(idx, 'unit_rate', e.target.value)} />
+                ) : (
+                  <div className={`grid gap-2 ${isHome ? 'grid-cols-4' : 'grid-cols-2'}`}>
+                    <div className="space-y-1">
+                      <label className="text-xs text-gray-500">Qty</label>
+                      <input type="number" step="0.25" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                        value={item.quantity} onChange={e => setItem(idx, 'quantity', e.target.value)} />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-gray-500">Rate ($)</label>
+                      <input type="number" step="0.01" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                        value={item.unit_rate} onChange={e => setItem(idx, 'unit_rate', e.target.value)} />
+                    </div>
+                    {isHome && (
+                      <>
+                        <div className="space-y-1">
+                          <label className="text-xs text-gray-500">Travel (min)</label>
+                          <input type="number" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                            value={item.travel_time_min} onChange={e => setItem(idx, 'travel_time_min', e.target.value)} placeholder="—" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-gray-500">Travel (km)</label>
+                          <input type="number" step="0.1" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                            value={item.travel_km} onChange={e => setItem(idx, 'travel_km', e.target.value)} placeholder="—" />
+                        </div>
+                      </>
+                    )}
                   </div>
-                  {isHome && (
-                    <>
-                      <div className="space-y-1">
-                        <label className="text-xs text-gray-500">Travel (min)</label>
-                        <input type="number" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                          value={item.travel_time_min} onChange={e => setItem(idx, 'travel_time_min', e.target.value)} placeholder="—" />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-gray-500">Travel (km)</label>
-                        <input type="number" step="0.1" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                          value={item.travel_km} onChange={e => setItem(idx, 'travel_km', e.target.value)} placeholder="—" />
-                      </div>
-                    </>
-                  )}
-                </div>
+                )}
                 <div className="flex items-end justify-between">
                   <div className="w-28 space-y-1">
                     <label className="text-xs text-gray-500">Notes (min)</label>
