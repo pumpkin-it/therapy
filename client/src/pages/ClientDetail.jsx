@@ -380,9 +380,10 @@ export default function ClientDetail() {
 
   if (!client) return <div className="p-6 text-gray-400">Loading…</div>;
 
-  const TABS = isNew
-    ? [['details', 'Details'], ['medical', 'Medical']]
-    : [['details', 'Details'], ['funding', 'Funding'], ['medical', 'Medical'], ['notes', 'Case Notes'], ['files', 'Files'], ['calendar', 'Calendar']];
+  const TABS = [
+    ['details', 'Details'], ['funding', 'Funding'], ['medical', 'Medical'],
+    ['notes', 'Case Notes'], ['files', 'Files'], ['calendar', 'Calendar'],
+  ];
 
   return (
     <div className="space-y-5 max-w-4xl">
@@ -487,14 +488,14 @@ export default function ClientDetail() {
           </div>
         )}
 
-        {tab === 'funding'   && <FundingTab  clientId={id} />}
-        {tab === 'notes'     && <CaseNotesTab clientId={id} />}
-        {tab === 'files'     && <FilesTab     clientId={id} />}
-        {tab === 'calendar'  && <EmbeddedCalendar clientId={id} />}
+        {tab === 'funding'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to manage funding.</p> : <FundingTab  clientId={id} />)}
+        {tab === 'notes'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to add notes.</p> : <CaseNotesTab clientId={id} />)}
+        {tab === 'files'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to upload files.</p> : <FilesTab     clientId={id} />)}
+        {tab === 'calendar'  && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view calendar.</p> : <EmbeddedCalendar clientId={id} />)}
       </div>
 
       {/* Save bar */}
-      {(tab === 'details' || tab === 'medical') && tab !== 'calendar' && (
+      {(isNew || tab === 'details' || tab === 'medical') && (
         <div className="flex justify-end gap-2">
           <Button onClick={save} disabled={saving}>
             {saving ? 'Saving…' : saved ? '✓ Saved' : isNew ? 'Create client' : 'Save changes'}
