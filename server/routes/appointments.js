@@ -107,14 +107,21 @@ router.post('/', auth, (req, res) => {
     return r.lastInsertRowid;
   };
 
-  if (recurrence?.freq && recurrence?.until) {
-    const until = new Date(recurrence.until + 'T23:59');
+  if (recurrence?.freq && (recurrence.until || recurrence.occurrences)) {
+    const until = recurrence.until ? new Date(recurrence.until + 'T23:59') : null;
+    const maxCount = recurrence.occurrences ? Number(recurrence.occurrences) : 999;
+    const allowedDays = recurrence.days?.length ? recurrence.days : null; // 0=Sun..6=Sat
     let st = start_time, et = end_time;
     const ids = [];
-    while (new Date(st) <= until) {
-      ids.push(createOne(st, et));
+
+    while (ids.length < maxCount) {
+      if (until && new Date(st) > until) break;
+      if (!allowedDays || allowedDays.includes(new Date(st).getDay())) {
+        ids.push(createOne(st, et));
+      }
       st = addInterval(st, recurrence.freq);
       et = addInterval(et, recurrence.freq);
+      if (ids.length === 0 && new Date(st) > new Date(start_time).getTime() + 365 * 86400000) break;
     }
     return res.status(201).json({ recurring: true, count: ids.length, ids });
   }

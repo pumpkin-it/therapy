@@ -184,7 +184,7 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
     late_cancel_billable: false,
   });
 
-  const [recurrence, setRecurrence] = useState({ enabled: false, freq: 'weekly', until: '' });
+  const [recurrence, setRecurrence] = useState({ enabled: false, freq: 'weekly', days: [], endType: 'on', until: '', occurrences: '' });
   const [lateCancelConfirm, setLateCancelConfirm] = useState(null); // null | { daysUntil, tier }
 
   useEffect(() => {
@@ -292,7 +292,12 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
           travel_km:       form.location_type === 'home' && i.travel_km ? Number(i.travel_km) : null,
           notes_min:       i.notes_min ? Number(i.notes_min) : null,
         })),
-        recurrence: recurrence.enabled ? { freq: recurrence.freq, until: recurrence.until } : null,
+        recurrence: recurrence.enabled ? {
+          freq: recurrence.freq,
+          days: recurrence.days.length ? recurrence.days : undefined,
+          until: recurrence.endType === 'on' ? recurrence.until : undefined,
+          occurrences: recurrence.endType === 'after' ? Number(recurrence.occurrences) : undefined,
+        } : null,
       };
       if (editing) {
         await api.patch(`/appointments/${appointment.id}`, payload);
@@ -432,17 +437,26 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
 
         {/* Recurring (new appointments only) */}
         {!editing && (
-          <div className="rounded-lg border border-gray-200 p-3 space-y-2">
-            <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
-              <input type="checkbox" className="accent-indigo-600"
-                checked={recurrence.enabled} onChange={e => setRecurrence(r => ({ ...r, enabled: e.target.checked }))} />
-              <RefreshCw className="h-3.5 w-3.5 text-indigo-400" /> Recurring appointment
+          <div className="rounded-lg border border-gray-200 p-4 space-y-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <button type="button" onClick={() => setRecurrence(r => {
+                if (!r.enabled && startDate) {
+                  const dayOfWeek = new Date(startDate).getDay();
+                  return { ...r, enabled: true, days: [dayOfWeek] };
+                }
+                return { ...r, enabled: !r.enabled };
+              })}
+                className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${recurrence.enabled ? 'bg-indigo-600' : 'bg-gray-200'}`}>
+                <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform mt-0.5 ${recurrence.enabled ? 'translate-x-5.5 ml-[22px]' : 'translate-x-0.5 ml-[2px]'}`} />
+              </button>
+              <span className="text-sm font-medium text-gray-900">Repeat</span>
             </label>
+
             {recurrence.enabled && (
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <div className="space-y-1">
-                  <label className="text-xs text-gray-500">Frequency</label>
-                  <select className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <label className="text-sm text-gray-600 w-24 shrink-0">Repeat:</label>
+                  <select className="flex-1 rounded-lg border-2 border-indigo-200 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
                     value={recurrence.freq} onChange={e => setRecurrence(r => ({ ...r, freq: e.target.value }))}>
                     <option value="weekly">Weekly</option>
                     <option value="fortnightly">Fortnightly</option>
@@ -450,10 +464,49 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
                     <option value="monthly">Monthly</option>
                   </select>
                 </div>
-                <div className="space-y-1">
-                  <label className="text-xs text-gray-500">Repeat until</label>
-                  <DatePicker className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                    value={recurrence.until} onChange={v => setRecurrence(r => ({ ...r, until: v }))} />
+
+                {recurrence.freq !== 'monthly' && (
+                  <div className="flex items-center gap-4">
+                    <label className="text-sm text-gray-600 w-24 shrink-0">Repeat on<span className="text-red-500">*</span></label>
+                    <div className="flex gap-1.5">
+                      {['S','M','T','W','T','F','S'].map((d, i) => {
+                        const active = recurrence.days.includes(i);
+                        return (
+                          <button key={i} type="button"
+                            onClick={() => setRecurrence(r => ({
+                              ...r,
+                              days: active ? r.days.filter(x => x !== i) : [...r.days, i],
+                            }))}
+                            className={`h-9 w-9 rounded-full text-sm font-medium transition-colors ${
+                              active ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                            }`}>
+                            {d}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <label className="text-sm text-gray-600">Ends:</label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input type="radio" name="endType" className="accent-indigo-600"
+                      checked={recurrence.endType === 'after'}
+                      onChange={() => setRecurrence(r => ({ ...r, endType: 'after' }))} />
+                    <span className="text-sm text-gray-700 w-12">After</span>
+                    <input type="number" min="1" placeholder="" className="w-20 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+                      value={recurrence.occurrences} onChange={e => setRecurrence(r => ({ ...r, occurrences: e.target.value, endType: 'after' }))} />
+                    <span className="text-sm text-gray-500">Occurrences</span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input type="radio" name="endType" className="accent-indigo-600"
+                      checked={recurrence.endType === 'on'}
+                      onChange={() => setRecurrence(r => ({ ...r, endType: 'on' }))} />
+                    <span className="text-sm text-gray-700 w-12">On</span>
+                    <DatePicker className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+                      value={recurrence.until} onChange={v => setRecurrence(r => ({ ...r, until: v, endType: 'on' }))} />
+                  </label>
                 </div>
               </div>
             )}
