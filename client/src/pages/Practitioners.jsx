@@ -20,7 +20,7 @@ const ROLE_COLORS = {
   finance:      'bg-amber-100 text-amber-700',
 };
 
-const EMPTY = { first_name: '', last_name: '', title: '', email: '', phone: '', color: '#6366f1', provider_number: '', role: 'practitioner' };
+const EMPTY = { first_name: '', last_name: '', title: '', email: '', phone: '', color: '#6366f1', provider_number: '', role: 'practitioner', gender: '' };
 
 function UserModal({ user, onClose, onSaved }) {
   const [form, setForm] = useState(user || EMPTY);
@@ -48,7 +48,21 @@ function UserModal({ user, onClose, onSaved }) {
           <Input label="Email" type="email" value={form.email} onChange={e => set('email', e.target.value)} />
           <Input label="Phone" value={form.phone} onChange={e => set('phone', e.target.value)} />
         </div>
-        <Input label="Provider number" value={form.provider_number} onChange={e => set('provider_number', e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Provider number" value={form.provider_number} onChange={e => set('provider_number', e.target.value)} />
+          <div className="space-y-1">
+            <label className="block text-sm font-medium text-gray-700">Gender</label>
+            <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              value={form.gender} onChange={e => set('gender', e.target.value)}>
+              <option value="">—</option>
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+              <option value="Non-binary">Non-binary</option>
+              <option value="Other">Other</option>
+              <option value="Prefer not to say">Prefer not to say</option>
+            </select>
+          </div>
+        </div>
 
         <div className="space-y-1">
           <label className="block text-sm font-medium text-gray-700">Role</label>

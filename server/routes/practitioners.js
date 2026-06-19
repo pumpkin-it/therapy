@@ -21,18 +21,18 @@ router.get('/:id', auth, (req, res) => {
 });
 
 router.post('/', auth, (req, res) => {
-  const { first_name, last_name, title, email, phone, color, provider_number, role } = req.body;
+  const { first_name, last_name, title, email, phone, color, provider_number, role, gender } = req.body;
   const result = db.prepare(
-    'INSERT INTO practitioners (first_name, last_name, title, email, phone, color, provider_number, role) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', provider_number || null, role || 'practitioner');
+    'INSERT INTO practitioners (first_name, last_name, title, email, phone, color, provider_number, role, gender) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', provider_number || null, role || 'practitioner', gender || null);
   res.status(201).json(db.prepare('SELECT * FROM practitioners WHERE id = ?').get(result.lastInsertRowid));
 });
 
 router.patch('/:id', auth, (req, res) => {
-  const { first_name, last_name, title, email, phone, color, provider_number, role } = req.body;
+  const { first_name, last_name, title, email, phone, color, provider_number, role, gender } = req.body;
   db.prepare(
-    'UPDATE practitioners SET first_name=?, last_name=?, title=?, email=?, phone=?, color=?, provider_number=?, role=? WHERE id=?'
-  ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', provider_number || null, role || 'practitioner', req.params.id);
+    'UPDATE practitioners SET first_name=?, last_name=?, title=?, email=?, phone=?, color=?, provider_number=?, role=?, gender=? WHERE id=?'
+  ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', provider_number || null, role || 'practitioner', gender || null, req.params.id);
   res.json(db.prepare('SELECT * FROM practitioners WHERE id = ?').get(req.params.id));
 });
 

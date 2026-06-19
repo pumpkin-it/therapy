@@ -54,17 +54,17 @@ router.post('/', auth, (req, res) => {
   const {
     first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes, alert,
     emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
-    diagnosis, allergies, regular_medication,
+    diagnosis, allergies, regular_medication, gender,
   } = req.body;
   const result = db.prepare(`
     INSERT INTO clients (first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes, alert,
       emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
-      diagnosis, allergies, regular_medication)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      diagnosis, allergies, regular_medication, gender)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, notes||null, alert||null,
     emergency_contact_name||null, emergency_contact_phone||null, emergency_contact_relationship||null, emergency_contact_email||null,
-    diagnosis||null, allergies||null, regular_medication||null,
+    diagnosis||null, allergies||null, regular_medication||null, gender||null,
   );
   res.status(201).json(db.prepare(`${CLIENT_SELECT} WHERE c.id = ?`).get(result.lastInsertRowid));
 });
@@ -73,18 +73,18 @@ router.patch('/:id', auth, (req, res) => {
   const {
     first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes, alert,
     emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
-    diagnosis, allergies, regular_medication,
+    diagnosis, allergies, regular_medication, gender,
   } = req.body;
   db.prepare(`
     UPDATE clients SET
       first_name=?, last_name=?, email=?, phone=?, date_of_birth=?, address=?, ndis_number=?, notes=?, alert=?,
       emergency_contact_name=?, emergency_contact_phone=?, emergency_contact_relationship=?, emergency_contact_email=?,
-      diagnosis=?, allergies=?, regular_medication=?
+      diagnosis=?, allergies=?, regular_medication=?, gender=?
     WHERE id=?
   `).run(
     first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, notes||null, alert||null,
     emergency_contact_name||null, emergency_contact_phone||null, emergency_contact_relationship||null, emergency_contact_email||null,
-    diagnosis||null, allergies||null, regular_medication||null,
+    diagnosis||null, allergies||null, regular_medication||null, gender||null,
     req.params.id,
   );
   res.json(db.prepare(`${CLIENT_SELECT} WHERE c.id = ?`).get(req.params.id));

@@ -318,7 +318,7 @@ function CaseNotesTab({ clientId }) {
 
 // ─── Main detail page ─────────────────────────────────────────────────────────
 const EMPTY_FORM = {
-  first_name: '', last_name: '', email: '', phone: '', date_of_birth: '', address: '',
+  first_name: '', last_name: '', email: '', phone: '', date_of_birth: '', address: '', gender: '',
   ndis_number: '', notes: '', alert: '',
   emergency_contact_name: '', emergency_contact_phone: '', emergency_contact_relationship: '', emergency_contact_email: '',
   diagnosis: '', allergies: '', regular_medication: '',
@@ -345,6 +345,7 @@ export default function ClientDetail() {
         phone:      r.data.phone      || '',
         date_of_birth: r.data.date_of_birth || '',
         address:    r.data.address    || '',
+        gender:     r.data.gender     || '',
         ndis_number: r.data.ndis_number || '',
         notes:      r.data.notes      || '',
         alert:      r.data.alert      || '',
@@ -445,7 +446,18 @@ export default function ClientDetail() {
               <Input label="Email"      value={form.email}      onChange={e => set('email',      e.target.value)} type="email" />
               <Input label="Phone"      value={form.phone}      onChange={e => set('phone',      e.target.value)} />
               <DateInput label="Date of birth" value={form.date_of_birth} onChange={v => set('date_of_birth', v)} />
-              <div className="col-span-1" />
+              <div className="space-y-1">
+                <label className="block text-sm font-medium text-gray-700">Gender</label>
+                <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  value={form.gender} onChange={e => set('gender', e.target.value)}>
+                  <option value="">—</option>
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Non-binary">Non-binary</option>
+                  <option value="Other">Other</option>
+                  <option value="Prefer not to say">Prefer not to say</option>
+                </select>
+              </div>
               <div className="col-span-2">
                 <Input label="Address" value={form.address} onChange={e => set('address', e.target.value)} />
               </div>

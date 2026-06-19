@@ -176,6 +176,8 @@ try { db.exec(`ALTER TABLE practitioners ADD COLUMN provider_number TEXT`); } ca
 try { db.exec(`ALTER TABLE appointments ADD COLUMN late_cancel_pct REAL`); } catch {}
 try { db.exec(`ALTER TABLE appointments ADD COLUMN late_cancel_billable INTEGER DEFAULT 0`); } catch {}
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN role TEXT DEFAULT 'practitioner'`); } catch {}
+try { db.exec(`ALTER TABLE clients ADD COLUMN gender TEXT`); } catch {}
+try { db.exec(`ALTER TABLE practitioners ADD COLUMN gender TEXT`); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN emergency_contact_email TEXT`); } catch {}
 try { db.exec(`ALTER TABLE appointment_items ADD COLUMN notes_min INTEGER`); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN alert TEXT`); } catch {}
