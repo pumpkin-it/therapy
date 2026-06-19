@@ -178,6 +178,41 @@ try { db.exec(`ALTER TABLE appointments ADD COLUMN late_cancel_billable INTEGER 
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN role TEXT DEFAULT 'practitioner'`); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN gender TEXT`); } catch {}
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN gender TEXT`); } catch {}
+try { db.exec(`ALTER TABLE appointments ADD COLUMN series_id INTEGER REFERENCES recurring_series(id)`); } catch {}
+
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS recurring_series (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    practitioner_id INTEGER NOT NULL REFERENCES practitioners(id),
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    location TEXT,
+    location_id INTEGER,
+    location_other TEXT,
+    title TEXT,
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL,
+    notes TEXT,
+    freq TEXT NOT NULL,
+    day_of_week INTEGER NOT NULL,
+    end_type TEXT DEFAULT 'never',
+    end_date TEXT,
+    end_occurrences INTEGER,
+    items_json TEXT,
+    active INTEGER DEFAULT 1,
+    generated_until TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS recurring_series_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    series_id INTEGER NOT NULL REFERENCES recurring_series(id) ON DELETE CASCADE,
+    action TEXT NOT NULL,
+    details TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN emergency_contact_email TEXT`); } catch {}
 try { db.exec(`ALTER TABLE appointment_items ADD COLUMN notes_min INTEGER`); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN alert TEXT`); } catch {}

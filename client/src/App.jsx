@@ -9,6 +9,8 @@ import Locations from './pages/Locations';
 import Services from './pages/Services';
 import Invoices from './pages/Invoices';
 import Settings from './pages/Settings';
+import RecurringSeries from './pages/RecurringSeries';
+import RecurringSeriesDetail from './pages/RecurringSeriesDetail';
 
 export default function App() {
   return (
@@ -24,6 +26,8 @@ export default function App() {
             <Route path="/funds-managers" element={<FundsManagers />} />
             <Route path="/locations"      element={<Locations />} />
             <Route path="/services"      element={<Services />} />
+            <Route path="/recurring-series"     element={<RecurringSeries />} />
+            <Route path="/recurring-series/:id" element={<RecurringSeriesDetail />} />
             <Route path="/invoices"      element={<Invoices />} />
             <Route path="/settings"      element={<Settings />} />
             <Route path="*"              element={<Navigate to="/calendar" replace />} />

@@ -302,11 +302,15 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
       if (editing) {
         await api.patch(`/appointments/${appointment.id}`, payload);
         onSaved();
+      } else if (recurrence.enabled) {
+        // Create via recurring series API
+        await api.post('/recurring-series', payload);
+        if (onRefresh) onRefresh();
+        onSaved();
       } else {
         const res = await api.post('/appointments', payload);
-        const newId = res.data.recurring ? null : res.data.id;
-        setSavedId(newId);
-        if (onRefresh) onRefresh(); // refresh calendar immediately without closing
+        setSavedId(res.data.id);
+        if (onRefresh) onRefresh();
       }
       // Note: email errors are logged server-side; resend manually if needed
     } catch (e) {

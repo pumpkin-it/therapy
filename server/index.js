@@ -28,6 +28,7 @@ app.use('/api/locations',      require('./routes/locations'));
 app.use('/api/case-notes',      require('./routes/caseNotes'));
 app.use('/api/funding-periods', require('./routes/fundingPeriods'));
 app.use('/api/client-files',   require('./routes/clientFiles'));
+app.use('/api/recurring-series', require('./routes/recurringSeries'));
 
 // Logo is public; all other uploads require auth
 app.get('/uploads/logo', (req, res) => {
@@ -47,4 +48,12 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: err.message || 'Server error' });
 });
 
-app.listen(PORT, () => console.log(`Therapy API running on :${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Therapy API running on :${PORT}`);
+  // Generate recurring appointments on startup, then every hour
+  const { generateAll } = require('./routes/recurringSeries');
+  try { generateAll(); } catch (e) { console.error('Recurring generation error:', e.message); }
+  setInterval(() => {
+    try { generateAll(); } catch (e) { console.error('Recurring generation error:', e.message); }
+  }, 60 * 60 * 1000);
+});

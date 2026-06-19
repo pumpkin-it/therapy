@@ -107,23 +107,14 @@ router.post('/', auth, (req, res) => {
     return r.lastInsertRowid;
   };
 
-  if (recurrence?.freq && (recurrence.until || recurrence.occurrences)) {
-    const until = recurrence.until ? new Date(recurrence.until + 'T23:59') : null;
-    const maxCount = recurrence.occurrences ? Number(recurrence.occurrences) : 999;
-    const allowedDays = recurrence.days?.length ? recurrence.days : null; // 0=Sun..6=Sat
-    let st = start_time, et = end_time;
-    const ids = [];
-
-    while (ids.length < maxCount) {
-      if (until && new Date(st) > until) break;
-      if (!allowedDays || allowedDays.includes(new Date(st).getDay())) {
-        ids.push(createOne(st, et));
-      }
-      st = addInterval(st, recurrence.freq);
-      et = addInterval(et, recurrence.freq);
-      if (ids.length === 0 && new Date(st) > new Date(start_time).getTime() + 365 * 86400000) break;
-    }
-    return res.status(201).json({ recurring: true, count: ids.length, ids });
+  // Recurring appointments are now handled via /api/recurring-series
+  // Keep this as a fallback for legacy calls
+  if (recurrence?.freq) {
+    // Redirect to recurring series creation
+    const seriesRouter = require('./recurringSeries');
+    return require('./recurringSeries').handle
+      ? res.status(400).json({ error: 'Use /api/recurring-series to create recurring appointments' })
+      : res.status(400).json({ error: 'Use /api/recurring-series to create recurring appointments' });
   }
 
   const apptId = createOne(start_time, end_time);
