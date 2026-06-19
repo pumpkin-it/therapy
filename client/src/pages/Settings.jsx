@@ -17,7 +17,7 @@ export default function Settings() {
     { key: 'calendar',      label: 'Calendar' },
     { key: 'clients',       label: 'Clients' },
     { key: 'users',         label: 'Users' },
-    { key: 'funds_managers',label: 'Funds Managers' },
+    { key: 'funds_managers',label: 'Funders' },
     { key: 'locations',     label: 'Locations' },
     { key: 'services',      label: 'Services' },
     { key: 'invoices',      label: 'Invoices' },

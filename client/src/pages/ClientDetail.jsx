@@ -74,7 +74,7 @@ function AddFundsManagerInline({ initialName, onClose, onSaved }) {
   };
   return (
     <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 space-y-2">
-      <p className="text-sm font-medium text-indigo-700">New funds manager</p>
+      <p className="text-sm font-medium text-indigo-700">New funder</p>
       <div className="grid grid-cols-2 gap-2">
         <Input label="Name" value={name} onChange={e => setName(e.target.value)} />
         <Input label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} />
@@ -146,7 +146,7 @@ function FundingTab({ clientId }) {
                   {p.start_date ? format(parseISO(p.start_date), 'd MMM yyyy') : '—'} – {p.end_date ? format(parseISO(p.end_date), 'd MMM yyyy') : 'ongoing'}
                 </p>
               )}
-              {p.funds_manager_name && <p className="text-xs text-gray-500">Funds manager: {p.funds_manager_name}</p>}
+              {p.funds_manager_name && <p className="text-xs text-gray-500">Funder: {p.funds_manager_name}</p>}
               {p.client_identifier && <p className="text-xs text-gray-500">Client ID: {p.client_identifier}</p>}
             </div>
             <div className="flex gap-1 shrink-0">
@@ -174,8 +174,8 @@ function FundingTab({ clientId }) {
               </select>
             </div>
             <div className="space-y-1">
-              <label className="block text-sm font-medium text-gray-700">Funds manager <span className="text-gray-400">(optional)</span></label>
-              <SearchSelect options={fmOptions} value={form.funds_manager_id} onChange={v => set('funds_manager_id', v)} placeholder="None" onAddNew={handleAddFM} addNewLabel="Add funds manager" />
+              <label className="block text-sm font-medium text-gray-700">Funder <span className="text-gray-400">(optional)</span></label>
+              <SearchSelect options={fmOptions} value={form.funds_manager_id} onChange={v => set('funds_manager_id', v)} placeholder="None" onAddNew={handleAddFM} addNewLabel="Add funder" />
             </div>
             <div className="col-span-2 space-y-1">
               <label className="block text-sm font-medium text-gray-700">Client ID <span className="text-gray-400">(optional)</span></label>

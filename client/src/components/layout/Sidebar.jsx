@@ -6,7 +6,7 @@ const nav = [
   { to: '/calendar',       label: 'Calendar',       icon: CalendarDays },
   { to: '/clients',        label: 'Clients',        icon: Users },
   { to: '/practitioners',  label: 'Users',          icon: UserCog },
-  { to: '/funds-managers', label: 'Funds Managers', icon: Wallet },
+  { to: '/funds-managers', label: 'Funders',         icon: Wallet },
   { to: '/locations',      label: 'Locations',      icon: MapPin },
   { to: '/services',       label: 'Services',       icon: Layers },
   { to: '/invoices',       label: 'Invoices',       icon: FileText },

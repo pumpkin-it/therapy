@@ -29,7 +29,7 @@ const dateInput = (label, value, onChange) => (
   </div>
 );
 
-// ─── Add Funds Manager mini-modal ─────────────────────────────────────────────
+// ─── Add Funder mini-modal ─────────────────────────────────────────────
 
 function AddFundsManagerModal({ initialName, onClose, onSaved }) {
   const [name, setName] = useState(initialName);
@@ -41,7 +41,7 @@ function AddFundsManagerModal({ initialName, onClose, onSaved }) {
     finally { setSaving(false); }
   };
   return (
-    <Modal title="Add Funds Manager" onClose={onClose}>
+    <Modal title="Add Funder" onClose={onClose}>
       <div className="space-y-3">
         <Input label="Name" value={name} onChange={e => setName(e.target.value)} />
         <Input label="Email" type="email" value={email} onChange={e => setEmail(e.target.value)} />
@@ -133,7 +133,7 @@ function FundingTab({ clientId }) {
                 {format(parseISO(p.start_date), 'd MMM yyyy')} – {format(parseISO(p.end_date), 'd MMM yyyy')}
               </p>
               {p.funds_manager_name && (
-                <p className="text-xs text-gray-500">Funds manager: {p.funds_manager_name}</p>
+                <p className="text-xs text-gray-500">Funder: {p.funds_manager_name}</p>
               )}
               {p.client_identifier && (
                 <p className="text-xs text-gray-500">Client ID: {p.client_identifier}</p>
@@ -168,7 +168,7 @@ function FundingTab({ clientId }) {
               </select>
             </div>
             <div className="space-y-1">
-              <label className="block text-sm font-medium text-gray-700">Funds manager {form.funding_type !== 'NDIS' && <span className="text-gray-400">(optional)</span>}</label>
+              <label className="block text-sm font-medium text-gray-700">Funder {form.funding_type !== 'NDIS' && <span className="text-gray-400">(optional)</span>}</label>
               {form.funding_type === 'NDIS' || true ? (
                 <SearchSelect
                   options={fmOptions}
@@ -176,7 +176,7 @@ function FundingTab({ clientId }) {
                   onChange={v => set('funds_manager_id', v)}
                   placeholder="None"
                   onAddNew={handleAddFM}
-                  addNewLabel="Add funds manager"
+                  addNewLabel="Add funder"
                 />
               ) : null}
             </div>
@@ -442,7 +442,7 @@ export default function Clients() {
         <table className="min-w-full divide-y divide-gray-100">
           <thead className="bg-gray-50">
             <tr>
-              {['Name', 'Contact', 'Active Funding', 'Funds Manager', ''].map(h => (
+              {['Name', 'Contact', 'Active Funding', 'Funder', ''].map(h => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
               ))}
             </tr>

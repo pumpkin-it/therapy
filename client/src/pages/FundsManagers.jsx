@@ -22,7 +22,7 @@ function FundsManagerModal({ fm, onClose, onSaved }) {
   };
 
   return (
-    <Modal title={fm ? 'Edit Funds Manager' : 'Add Funds Manager'} onClose={onClose}>
+    <Modal title={fm ? 'Edit Funder' : 'Add Funder'} onClose={onClose}>
       <div className="space-y-3">
         <Input label="Name" value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. NDIS Support Coord Pty Ltd" />
         <Input label="Email" type="email" value={form.email} onChange={e => set('email', e.target.value)} placeholder="invoices@example.com" />
@@ -45,7 +45,7 @@ export default function FundsManagers() {
   useEffect(() => { load(); }, []);
 
   const remove = async id => {
-    if (!confirm('Remove this funds manager?')) return;
+    if (!confirm('Remove this funder?')) return;
     await api.delete(`/funds-managers/${id}`);
     load();
   };
@@ -53,8 +53,8 @@ export default function FundsManagers() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Funds Managers</h1>
-        <Button onClick={() => setModal({})}><Plus className="h-4 w-4" /> Add funds manager</Button>
+        <h1 className="text-2xl font-semibold">Funders</h1>
+        <Button onClick={() => setModal({})}><Plus className="h-4 w-4" /> Add funder</Button>
       </div>
 
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
@@ -68,7 +68,7 @@ export default function FundsManagers() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {fms.length === 0 && (
-              <tr><td colSpan={3} className="py-12 text-center text-gray-400">No funds managers added yet</td></tr>
+              <tr><td colSpan={3} className="py-12 text-center text-gray-400">No funders added yet</td></tr>
             )}
             {fms.map(fm => (
               <tr key={fm.id} className="hover:bg-gray-50">
