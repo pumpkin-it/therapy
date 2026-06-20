@@ -66,25 +66,28 @@ function generateInvoicePdf(data) {
     // Table
     const tableY = Math.max(doc.y + 20, detY + 60);
     doc.rect(50, tableY, 495, 18).fill('#f3f4f6');
-    doc.fillColor('#111').font('Helvetica-Bold').fontSize(7.5);
-    doc.text('Code',            55, tableY + 5, { width: 115 });
-    doc.text('Description',    173, tableY + 5, { width: 120 });
-    doc.text('Qty',            296, tableY + 5, { width: 32, align: 'right' });
-    doc.text('Rate',           330, tableY + 5, { width: 50, align: 'right' });
-    doc.text('GST',            383, tableY + 5, { width: 30, align: 'right' });
-    doc.text('Amount (inc GST)', 415, tableY + 5, { width: 80, align: 'right' });
+    doc.fillColor('#111').font('Helvetica-Bold').fontSize(7);
+    doc.text('Date',             55, tableY + 5, { width: 48 });
+    doc.text('Code',            105, tableY + 5, { width: 95 });
+    doc.text('Description',    203, tableY + 5, { width: 100 });
+    doc.text('Qty',            306, tableY + 5, { width: 28, align: 'right' });
+    doc.text('Rate',           336, tableY + 5, { width: 45, align: 'right' });
+    doc.text('GST',            383, tableY + 5, { width: 25, align: 'right' });
+    doc.text('Amount (inc GST)', 410, tableY + 5, { width: 85, align: 'right' });
 
     let rowY = tableY + 20;
-    doc.font('Helvetica').fontSize(7.5);
+    doc.font('Helvetica').fontSize(7);
     for (const item of (data.items || [])) {
       const gstRate = Number(item.gst_rate || 0);
       const lineIncGst = Number(item.line_total) + Number(item.gst_amount || item.line_total * gstRate || 0);
-      doc.fillColor('#111').text(item.code || item.service_code || '', 55, rowY, { width: 115 });
-      doc.text(item.description, 173, rowY, { width: 120 });
-      doc.text(String(item.quantity), 296, rowY, { width: 32, align: 'right' });
-      doc.text(`$${Number(item.unit_rate).toFixed(2)}`, 330, rowY, { width: 50, align: 'right' });
-      doc.text(`${Math.round(gstRate * 100)}%`, 383, rowY, { width: 30, align: 'right' });
-      doc.text(`$${lineIncGst.toFixed(2)}`, 415, rowY, { width: 80, align: 'right' });
+      const svcDate = item.service_date ? item.service_date.split('-').reverse().join('/') : '';
+      doc.fillColor('#111').text(svcDate, 55, rowY, { width: 48 });
+      doc.text(item.code || item.service_code || '', 105, rowY, { width: 95 });
+      doc.text(item.description, 203, rowY, { width: 100 });
+      doc.text(String(item.quantity), 306, rowY, { width: 28, align: 'right' });
+      doc.text(`$${Number(item.unit_rate).toFixed(2)}`, 336, rowY, { width: 45, align: 'right' });
+      doc.text(`${Math.round(gstRate * 100)}%`, 383, rowY, { width: 25, align: 'right' });
+      doc.text(`$${lineIncGst.toFixed(2)}`, 410, rowY, { width: 85, align: 'right' });
       rowY = doc.y + 3;
       doc.moveTo(50, rowY).lineTo(right, rowY).strokeColor('#e5e7eb').stroke();
       rowY += 4;

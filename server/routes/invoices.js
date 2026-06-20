@@ -146,9 +146,10 @@ router.post('/generate', auth, (req, res) => {
     const lineItems = [];
     for (const item of items) {
       const gst = item.service_gst_rate || 0;
+      const serviceDate = appt.start_time ? appt.start_time.slice(0, 10) : null;
       const addLine = (code, desc, qty, rate) => {
         const lt = qty * rate;
-        lineItems.push({ appointment_item_id: item.id, code, description: desc, quantity: qty, unit_rate: rate, line_total: lt, gst_rate: gst, gst_amount: lt * gst });
+        lineItems.push({ appointment_item_id: item.id, service_date: serviceDate, code, description: desc, quantity: qty, unit_rate: rate, line_total: lt, gst_rate: gst, gst_amount: lt * gst });
       };
       addLine(item.service_code || '', item.service_name || item.description, item.quantity, item.unit_rate);
       if (item.travel_time_min) addLine(item.travel_code || '', `Travel time (${item.travel_time_min} min)`, item.travel_time_min / 60, item.travel_rate_per_hour || item.unit_rate);
@@ -172,11 +173,11 @@ router.post('/generate', auth, (req, res) => {
       appt.funds_manager_id || null, issueDate, dueDate, subtotal, 0, taxAmount, total);
 
     const insertItem = db.prepare(`
-      INSERT INTO invoice_items (invoice_id, appointment_item_id, code, description, quantity, unit_rate, line_total, gst_rate, gst_amount)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO invoice_items (invoice_id, appointment_item_id, service_date, code, description, quantity, unit_rate, line_total, gst_rate, gst_amount)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const li of lineItems) {
-      insertItem.run(r.lastInsertRowid, li.appointment_item_id, li.code || null, li.description, li.quantity, li.unit_rate, li.line_total, li.gst_rate || 0, li.gst_amount || 0);
+      insertItem.run(r.lastInsertRowid, li.appointment_item_id, li.service_date || null, li.code || null, li.description, li.quantity, li.unit_rate, li.line_total, li.gst_rate || 0, li.gst_amount || 0);
     }
 
     db.prepare('UPDATE appointments SET is_invoiced=1 WHERE id=?').run(apptId);
