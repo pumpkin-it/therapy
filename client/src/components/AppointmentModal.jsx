@@ -347,14 +347,29 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
     }
   };
 
-  const endSeriesFromDate = async (endDate) => {
-    await api.patch(`/recurring-series/${appointment.series_id}`, {
+  const endSeriesFromDate = async (cancelFrom) => {
+    // Set end date to day before cancel-from so the series ends before the cancellation date
+    const endDateObj = new Date(cancelFrom);
+    endDateObj.setDate(endDateObj.getDate() - 1);
+    const endDate = endDateObj.toISOString().slice(0, 10);
+
+    const res = await api.patch(`/recurring-series/${appointment.series_id}`, {
       end_type: 'date',
       end_date: endDate,
     });
-    setSeriesEndPrompt(null);
-    onSaved();
+
+    // Check if any cancelled appointments fall within late cancellation policy
+    const { data: policyData } = await api.get(`/appointments/${appointment.id}/cancel-policy`);
+    if (policyData.tier) {
+      setSeriesEndPrompt(null);
+      setSeriesLateCancelInfo({ cancelFrom, tier: policyData.tier });
+    } else {
+      setSeriesEndPrompt(null);
+      onSaved();
+    }
   };
+
+  const [seriesLateCancelInfo, setSeriesLateCancelInfo] = useState(null);
 
   const confirmCancel = async (applyPolicy) => {
     const pct = applyPolicy ? lateCancelConfirm.tier.percent : null;
@@ -795,16 +810,16 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
             ) : (
               <>
                 <h3 className="font-semibold text-gray-900">End recurring series</h3>
-                <p className="text-sm text-gray-600">All scheduled appointments after this date will be cancelled. The series will stop generating new ones.</p>
+                <p className="text-sm text-gray-600">All scheduled appointments from this date onwards will be cancelled. The series will stop generating new ones.</p>
                 <div className="space-y-1">
-                  <label className="text-sm text-gray-700">Last appointment date:</label>
+                  <label className="text-sm text-gray-700">Cancel from:</label>
                   <input type="date" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                     value={seriesEndPrompt.endDate}
                     onChange={e => setSeriesEndPrompt(s => ({ ...s, endDate: e.target.value }))} />
                 </div>
                 <div className="flex flex-col gap-2">
                   <Button onClick={() => endSeriesFromDate(seriesEndPrompt.endDate)} className="w-full justify-center">
-                    End series after {seriesEndPrompt.endDate}
+                    Cancel all from {seriesEndPrompt.endDate}
                   </Button>
                   <Button variant="ghost" onClick={() => setSeriesEndPrompt(s => ({ ...s, step: 'choose' }))} className="w-full justify-center text-gray-500">
                     Go back
@@ -812,6 +827,47 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Series late cancellation policy — shown after ending a series */}
+      {seriesLateCancelInfo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+            <div className="flex items-start gap-3">
+              <TriangleAlert className="h-6 w-6 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <h3 className="font-semibold text-gray-900">Late Cancellation Policy</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  Some cancelled appointments fall within your late cancellation policy
+                  (<span className="font-medium text-amber-700">{seriesLateCancelInfo.tier.percent}%</span> within{' '}
+                  <span className="font-medium">{seriesLateCancelInfo.tier.days} days</span>).
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Button onClick={async () => {
+                // Apply late cancel fee to all cancelled appointments from that date within policy window
+                const appts = await api.get(`/appointments?series_id=${appointment.series_id}&from=${seriesLateCancelInfo.cancelFrom}`);
+                for (const a of (appts.data || [])) {
+                  if (a.status === 'cancelled') {
+                    await api.patch(`/appointments/${a.id}/status`, {
+                      status: 'cancelled',
+                      late_cancel_pct: Number(seriesLateCancelInfo.tier.percent),
+                      late_cancel_billable: 1,
+                    });
+                  }
+                }
+                setSeriesLateCancelInfo(null);
+                onSaved();
+              }} className="w-full justify-center">
+                Apply {seriesLateCancelInfo.tier.percent}% fee to cancelled appointments
+              </Button>
+              <Button variant="secondary" onClick={() => { setSeriesLateCancelInfo(null); onSaved(); }} className="w-full justify-center">
+                Cancel without fee
+              </Button>
+            </div>
           </div>
         </div>
       )}
