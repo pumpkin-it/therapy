@@ -185,7 +185,9 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
   });
 
   const [recurrence, setRecurrence] = useState({ enabled: false, freq: 'weekly', days: [], endType: 'never', until: '', occurrences: '' });
-  const [lateCancelConfirm, setLateCancelConfirm] = useState(null); // null | { daysUntil, tier }
+  const [lateCancelConfirm, setLateCancelConfirm] = useState(null);
+  const [makeRecurring, setMakeRecurring] = useState(null); // null | { freq, endType, until, occurrences }
+  const [convertingRecurring, setConvertingRecurring] = useState(false); // null | { daysUntil, tier }
 
   useEffect(() => {
     Promise.all([
@@ -338,6 +340,23 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
     });
     setLateCancelConfirm(null);
     onSaved();
+  };
+
+  const convertToRecurring = async () => {
+    setConvertingRecurring(true);
+    try {
+      await api.post('/recurring-series/from-appointment', {
+        appointment_id: appointment.id,
+        freq: makeRecurring.freq,
+        endType: makeRecurring.endType,
+        until: makeRecurring.endType === 'on' ? makeRecurring.until : undefined,
+        occurrences: makeRecurring.endType === 'after' ? Number(makeRecurring.occurrences) : undefined,
+      });
+      if (onRefresh) onRefresh();
+      onSaved();
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to convert');
+    } finally { setConvertingRecurring(false); }
   };
 
   const notify = async (target) => {
@@ -653,6 +672,70 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Make recurring — shown for standalone appointments */}
+        {editing && !appointment.series_id && form.status !== 'cancelled' && (
+          <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-3 space-y-2">
+            {!makeRecurring ? (
+              <button onClick={() => setMakeRecurring({ freq: 'weekly', endType: 'never', until: '', occurrences: '' })}
+                className="flex items-center gap-2 text-sm font-medium text-indigo-700 hover:text-indigo-800">
+                <RefreshCw className="h-3.5 w-3.5" /> Make this a recurring appointment
+              </button>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-sm font-medium text-indigo-800">Convert to recurring series</p>
+                <div className="flex items-center gap-3">
+                  <label className="text-xs text-gray-600">Frequency:</label>
+                  <select className="rounded border border-indigo-200 px-2 py-1.5 text-sm bg-white"
+                    value={makeRecurring.freq} onChange={e => setMakeRecurring(r => ({ ...r, freq: e.target.value }))}>
+                    <option value="weekly">Weekly</option>
+                    <option value="fortnightly">Fortnightly</option>
+                    <option value="every3weeks">Every 3 weeks</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input type="radio" className="accent-indigo-600" checked={makeRecurring.endType === 'never'}
+                      onChange={() => setMakeRecurring(r => ({ ...r, endType: 'never' }))} />
+                    <span>Never ends</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input type="radio" className="accent-indigo-600" checked={makeRecurring.endType === 'on'}
+                      onChange={() => setMakeRecurring(r => ({ ...r, endType: 'on' }))} />
+                    <span>End on</span>
+                    <input type="date" className="rounded border border-gray-300 px-2 py-1 text-xs"
+                      value={makeRecurring.until} onChange={e => setMakeRecurring(r => ({ ...r, until: e.target.value, endType: 'on' }))} />
+                  </label>
+                  <label className="flex items-center gap-2 text-xs cursor-pointer">
+                    <input type="radio" className="accent-indigo-600" checked={makeRecurring.endType === 'after'}
+                      onChange={() => setMakeRecurring(r => ({ ...r, endType: 'after' }))} />
+                    <span>After</span>
+                    <input type="number" min="1" className="w-14 rounded border border-gray-300 px-2 py-1 text-xs"
+                      value={makeRecurring.occurrences} onChange={e => setMakeRecurring(r => ({ ...r, occurrences: e.target.value, endType: 'after' }))} />
+                    <span>occurrences</span>
+                  </label>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={convertToRecurring} disabled={convertingRecurring}>
+                    {convertingRecurring ? 'Converting…' : 'Create series'}
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => setMakeRecurring(null)}>Cancel</Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Link to series if part of one */}
+        {editing && appointment.series_id && (
+          <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <a href={`/recurring-series/${appointment.series_id}`}
+              className="flex items-center gap-2 text-sm text-indigo-600 hover:text-indigo-800">
+              <RefreshCw className="h-3.5 w-3.5" /> Part of a recurring series — view series
+            </a>
           </div>
         )}
 

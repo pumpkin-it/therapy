@@ -348,6 +348,52 @@ router.patch('/:id/active', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Convert a single appointment into a recurring series
+router.post('/from-appointment', auth, (req, res) => {
+  const { appointment_id, freq, endType = 'never', until, occurrences } = req.body;
+
+  const appt = db.prepare('SELECT * FROM appointments WHERE id=?').get(appointment_id);
+  if (!appt) return res.status(404).json({ error: 'Appointment not found' });
+  if (appt.series_id) return res.status(400).json({ error: 'Appointment already belongs to a series' });
+
+  const items = db.prepare('SELECT * FROM appointment_items WHERE appointment_id=?').all(appointment_id);
+  const itemsJson = JSON.stringify(items.map(i => ({
+    service_id: i.service_id, description: i.description, quantity: i.quantity,
+    unit_rate: i.unit_rate, travel_time_min: i.travel_time_min, travel_km: i.travel_km,
+    prep_time_min: i.prep_time_min, item_notes: i.item_notes, notes_min: i.notes_min,
+  })));
+
+  const dayOfWeek = new Date(appt.start_time).getDay();
+  const endTypeDb = until ? 'date' : occurrences ? 'occurrences' : 'never';
+
+  const r = db.prepare(`
+    INSERT INTO recurring_series (practitioner_id, client_id, location, location_id, location_other, title,
+      start_time, end_time, notes, freq, day_of_week, end_type, end_date, end_occurrences, items_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    appt.practitioner_id, appt.client_id, appt.location, appt.location_id,
+    appt.location_other, appt.title, appt.start_time, appt.end_time,
+    appt.notes, freq, dayOfWeek, endTypeDb, until || null, occurrences || null, itemsJson
+  );
+
+  // Link the original appointment to the series
+  db.prepare('UPDATE appointments SET series_id=? WHERE id=?').run(r.lastInsertRowid, appointment_id);
+
+  db.prepare('INSERT INTO recurring_series_logs (series_id, action, details) VALUES (?, ?, ?)')
+    .run(r.lastInsertRowid, 'created', `Converted from appointment #${appointment_id}. ${FREQ_LABEL[freq] || freq} on ${DAY_NAMES[dayOfWeek]}s`);
+
+  // Generate future appointments
+  const series = db.prepare('SELECT * FROM recurring_series WHERE id=?').get(r.lastInsertRowid);
+  const generated = generateForSeries(series, getHorizon());
+
+  db.prepare('INSERT INTO recurring_series_logs (series_id, action, details) VALUES (?, ?, ?)')
+    .run(r.lastInsertRowid, 'generated', `Generated ${generated} appointments`);
+
+  res.status(201).json({ seriesId: r.lastInsertRowid, generated });
+});
+
+const FREQ_LABEL = { weekly: 'Weekly', fortnightly: 'Fortnightly', every3weeks: 'Every 3 weeks', monthly: 'Monthly' };
+
 // Manually trigger generation
 router.post('/generate', auth, (_req, res) => {
   const count = generateAll();
