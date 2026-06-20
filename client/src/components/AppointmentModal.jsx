@@ -4,6 +4,7 @@ import api from '../lib/api';
 import Modal from './ui/Modal';
 import Button from './ui/Button';
 import { Trash2, Plus, FileText, Pencil, RefreshCw, Mail, AlertCircle, CheckCircle, TriangleAlert } from 'lucide-react';
+import { localToday } from '../lib/utils';
 
 const EMPTY_ITEM = { service_id: '', description: '', quantity: 1, unit_rate: 0, travel_time_min: '', travel_km: '', notes_min: '' };
 
@@ -334,7 +335,7 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
 
   const del = async () => {
     if (appointment.series_id) {
-      setSeriesEndPrompt({ step: 'choose', endDate: new Date().toISOString().slice(0, 10) });
+      setSeriesEndPrompt({ step: 'choose', endDate: localToday() });
       return;
     }
     const { data } = await api.get(`/appointments/${appointment.id}/cancel-policy`);

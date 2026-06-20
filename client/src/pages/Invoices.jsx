@@ -4,7 +4,7 @@ import { format, startOfWeek, endOfWeek, subWeeks, addWeeks } from 'date-fns';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
-import { currency, fmtDate } from '../lib/utils';
+import { currency, fmtDate, localToday } from '../lib/utils';
 
 const STATUS_COLOR = { draft:'gray', sent:'blue', paid:'green', void:'gray' };
 
@@ -177,7 +177,7 @@ function InvoiceListTab({ status, emptyMsg }) {
             <tr><td colSpan={9} className="py-12 text-center text-gray-400">{emptyMsg}</td></tr>
           )}
           {invoices.map(inv => {
-            const overdue = status === 'sent' && inv.due_date && inv.due_date < new Date().toISOString().slice(0, 10);
+            const overdue = status === 'sent' && inv.due_date && inv.due_date < localToday();
             return (
               <tr key={inv.id} className={`hover:bg-gray-50 ${overdue ? 'bg-red-50/50' : ''}`}>
                 <td className="px-4 py-3 font-mono text-sm font-medium text-gray-900">{inv.invoice_number}</td>

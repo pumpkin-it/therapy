@@ -8,6 +8,7 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import SearchSelect from '../components/ui/SearchSelect';
+import { localToday } from '../lib/utils';
 
 const FUNDING_COLOR = { NDIS: 'blue', Medicare: 'green', Private: 'purple', 'Aged Care': 'orange', Other: 'gray' };
 
@@ -110,7 +111,7 @@ function FundingTab({ clientId }) {
     loadPeriods();
   };
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localToday();
   const isActive = p => p.start_date <= today && p.end_date >= today;
 
   if (!clientId) return <p className="text-sm text-gray-400 py-6 text-center">Save the client first to manage funding periods.</p>;

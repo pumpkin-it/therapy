@@ -9,6 +9,7 @@ import Badge from '../components/ui/Badge';
 import Input from '../components/ui/Input';
 import SearchSelect from '../components/ui/SearchSelect';
 import { EmbeddedCalendar } from '../components/CalendarViews';
+import { localToday } from '../lib/utils';
 
 const FUNDING_COLOR = { NDIS: 'blue', Medicare: 'green', Private: 'purple', 'Aged Care': 'orange', Other: 'gray' };
 
@@ -127,7 +128,7 @@ function FundingTab({ clientId }) {
     await api.delete(`/funding-periods/${id}`); loadPeriods();
   };
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localToday();
   const isActive = p => (!p.start_date || p.start_date <= today) && (!p.end_date || p.end_date >= today);
 
   return (

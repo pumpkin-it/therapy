@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Pause, Play, Clock, User, Calendar } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import api from '../lib/api';
+import { localToday } from '../lib/utils';
 import Button from '../components/ui/Button';
 
 const FREQ_LABEL = { weekly: 'Weekly', fortnightly: 'Fortnightly', every3weeks: 'Every 3 weeks', monthly: 'Monthly' };
@@ -109,7 +110,7 @@ export default function RecurringSeriesDetail() {
           ) : (
             <p className="text-xs text-gray-500 mt-1">
               {FREQ_LABEL[series.freq]} on {DAY_NAMES[series.day_of_week]}s
-              <button onClick={() => setFreqEdit({ freq: series.freq, fromDate: new Date().toISOString().slice(0, 10) })} className="ml-2 text-indigo-600 hover:underline">change</button>
+              <button onClick={() => setFreqEdit({ freq: series.freq, fromDate: localToday() })} className="ml-2 text-indigo-600 hover:underline">change</button>
             </p>
           )}
 
