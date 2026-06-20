@@ -19,7 +19,7 @@ function getSettings() {
 // ─── "To Send": completed, uninvoiced appointments ──────────────────────────
 router.get('/to-send', auth, (req, res) => {
   const { client_id, practitioner_id, from, to } = req.query;
-  let where = "a.status = 'completed' AND a.is_invoiced = 0";
+  let where = "a.status != 'cancelled' AND a.is_invoiced = 0";
   const params = [];
   if (client_id)       { where += ' AND a.client_id = ?';       params.push(client_id); }
   if (practitioner_id) { where += ' AND a.practitioner_id = ?'; params.push(practitioner_id); }
