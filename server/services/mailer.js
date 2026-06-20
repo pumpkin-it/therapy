@@ -165,4 +165,12 @@ async function sendTestEmail(toEmail) {
   });
 }
 
-module.exports = { sendInvoiceEmail, sendAppointmentNotification, sendTestEmail };
+async function sendReminderEmail(toEmail, invoiceNumber, total, dueDate) {
+  await graphSend({
+    to: toEmail,
+    subject: `Payment Reminder — Invoice ${invoiceNumber}`,
+    html: `<p>This is a friendly reminder that invoice <strong>${invoiceNumber}</strong> for <strong>$${Number(total).toFixed(2)}</strong> was due on <strong>${dueDate}</strong> and remains unpaid.</p><p>Please arrange payment at your earliest convenience.</p><p>Thank you.</p>`,
+  });
+}
+
+module.exports = { sendInvoiceEmail, sendAppointmentNotification, sendTestEmail, sendReminderEmail };

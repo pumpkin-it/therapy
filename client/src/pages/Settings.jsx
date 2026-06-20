@@ -120,6 +120,15 @@ export default function Settings() {
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+        <h2 className="font-semibold text-gray-900">Invoice Settings</h2>
+        <div className="grid grid-cols-2 gap-3">
+          {field('Payment terms (days)', 'invoice_payment_terms_days', 'number')}
+          {field('Reminder interval (days)', 'invoice_reminder_interval_days', 'number')}
+        </div>
+        <p className="text-xs text-gray-400">Reminders are sent automatically to funders for overdue invoices at this interval.</p>
+      </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
         <div>
           <h2 className="font-semibold text-gray-900">Late Cancellation Policy</h2>
           <p className="text-sm text-gray-500 mt-1">Define tiers by how many days before the appointment the cancellation occurs. Tiers are sorted automatically — the shortest window takes priority.</p>

@@ -189,6 +189,11 @@ try { db.exec(`
 `); } catch {}
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN discipline_id INTEGER REFERENCES disciplines(id)`); } catch {}
 try { db.exec(`ALTER TABLE services ADD COLUMN discipline_id INTEGER REFERENCES disciplines(id)`); } catch {}
+try { db.exec(`ALTER TABLE invoices ADD COLUMN appointment_id INTEGER REFERENCES appointments(id)`); } catch {}
+try { db.exec(`ALTER TABLE invoices ADD COLUMN funds_manager_id INTEGER REFERENCES funds_managers(id)`); } catch {}
+try { db.exec(`ALTER TABLE invoices ADD COLUMN practitioner_id INTEGER REFERENCES practitioners(id)`); } catch {}
+try { db.exec(`ALTER TABLE invoices ADD COLUMN last_reminder_at TEXT`); } catch {}
+try { db.exec(`ALTER TABLE invoices ADD COLUMN reminder_count INTEGER DEFAULT 0`); } catch {}
 try { db.exec(`ALTER TABLE appointments ADD COLUMN series_id INTEGER REFERENCES recurring_series(id)`); } catch {}
 
 try { db.exec(`
@@ -273,6 +278,8 @@ const defaults = {
   graph_client_id: '',
   graph_client_secret: '',
   graph_mailbox: '',
+  invoice_payment_terms_days: '14',
+  invoice_reminder_interval_days: '7',
   role_permissions: JSON.stringify({
     owner:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:true },
     admin:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:false },
