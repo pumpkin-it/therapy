@@ -16,13 +16,23 @@ const SERIES_SELECT = `
 
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 
+const pad = n => String(n).padStart(2, '0');
+function localDT(d) {
+  if (typeof d === 'string') d = new Date(d);
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function localDate(d) {
+  if (typeof d === 'string') d = new Date(d);
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+
 function addInterval(date, freq) {
   const d = new Date(date);
   if (freq === 'weekly')       d.setDate(d.getDate() + 7);
   else if (freq === 'fortnightly') d.setDate(d.getDate() + 14);
   else if (freq === 'every3weeks') d.setDate(d.getDate() + 21);
   else if (freq === 'monthly') d.setMonth(d.getMonth() + 1);
-  return d.toISOString().slice(0, 16);
+  return localDT(d);
 }
 
 function generateForSeries(series, horizon) {
@@ -38,15 +48,15 @@ function generateForSeries(series, horizon) {
   let st, et;
   if (lastAppt) {
     st = addInterval(lastAppt.start_time, series.freq);
-    et = new Date(new Date(st).getTime() + durMs).toISOString().slice(0, 16);
+    et = localDT(new Date(new Date(st).getTime() + durMs));
   } else {
     // Adjust start to the correct day_of_week
     const startDt = new Date(series.start_time);
     let diff = series.day_of_week - startDt.getDay();
     if (diff < 0) diff += 7;
     if (diff > 0) startDt.setDate(startDt.getDate() + diff);
-    st = startDt.toISOString().slice(0, 11) + series.start_time.slice(11);
-    et = new Date(new Date(st).getTime() + durMs).toISOString().slice(0, 16);
+    st = `${localDate(startDt)}T${series.start_time.slice(11)}`;
+    et = localDT(new Date(new Date(st).getTime() + durMs));
   }
 
   const insertAppt = db.prepare(`
@@ -86,11 +96,11 @@ function generateForSeries(series, horizon) {
 
     st = addInterval(st, series.freq);
     const durMs = new Date(series.end_time) - new Date(series.start_time);
-    et = new Date(new Date(st).getTime() + durMs).toISOString().slice(0, 16);
+    et = localDT(new Date(new Date(st).getTime() + durMs));
   }
 
   if (created > 0) {
-    db.prepare('UPDATE recurring_series SET generated_until=? WHERE id=?').run(horizon.toISOString().slice(0, 10), series.id);
+    db.prepare('UPDATE recurring_series SET generated_until=? WHERE id=?').run(localDate(horizon), series.id);
   }
   return created;
 }
@@ -179,11 +189,11 @@ router.post('/', auth, (req, res) => {
     let diff = day - startDt.getDay();
     if (diff < 0) diff += 7;
     startDt.setDate(startDt.getDate() + diff);
-    const adjStart = startDt.toISOString().slice(0, 11) + start_time.slice(11);
+    const adjStart = localDate(startDt) + 'T' + start_time.slice(11);
 
     const endDt = new Date(end_time);
     endDt.setDate(endDt.getDate() + diff);
-    const adjEnd = endDt.toISOString().slice(0, 11) + end_time.slice(11);
+    const adjEnd = localDate(endDt) + 'T' + end_time.slice(11);
 
     const endTypeDb = until ? 'date' : occurrences ? 'occurrences' : 'never';
 
@@ -294,7 +304,7 @@ router.patch('/:id', auth, (req, res) => {
 
   // If frequency changed, cancel appointments from the change date and regenerate
   if (freq && freq !== series.freq) {
-    const changeFrom = freq_change_from || new Date().toISOString().slice(0, 10);
+    const changeFrom = freq_change_from || localDate(new Date());
     const cancelled = db.prepare(
       "UPDATE appointments SET status='cancelled' WHERE series_id=? AND start_time >= ? AND status='scheduled'"
     ).run(req.params.id, changeFrom + 'T00:00');
@@ -302,7 +312,7 @@ router.patch('/:id', auth, (req, res) => {
 
     // Reset generated_until so regeneration starts fresh from the change date
     db.prepare('UPDATE recurring_series SET generated_until=? WHERE id=?').run(
-      new Date(new Date(changeFrom).getTime() - 86400000).toISOString().slice(0, 10), req.params.id
+      localDate(new Date(new Date(changeFrom).getTime() - 86400000)), req.params.id
     );
     const updatedSeries = db.prepare('SELECT * FROM recurring_series WHERE id=?').get(req.params.id);
     const generated = generateForSeries(updatedSeries, getHorizon());
@@ -310,7 +320,7 @@ router.patch('/:id', auth, (req, res) => {
   }
 
   // Update future appointments
-  const fromDate = apply_from || new Date().toISOString().slice(0, 10);
+  const fromDate = apply_from || localDate(new Date());
   const futureAppts = db.prepare("SELECT id FROM appointments WHERE series_id=? AND start_time >= ? AND status='scheduled'")
     .all(req.params.id, fromDate);
 
