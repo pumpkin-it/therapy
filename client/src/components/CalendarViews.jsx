@@ -96,7 +96,7 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
                     className={cn('absolute inset-x-1 rounded border px-1.5 py-1 text-xs cursor-pointer overflow-hidden hover:shadow transition-shadow', STATUS_CLASS[appt.status] || STATUS_CLASS.scheduled)}
                     style={getStyle(appt.start_time, appt.end_time)}
                   >
-                    {appt.series_id && <span className="absolute top-0.5 left-0.5 h-3.5 w-3.5 rounded-full bg-indigo-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">R</span>}
+                    {appt.series_id && <span className="absolute bottom-0.5 right-0.5 h-3.5 w-3.5 rounded-full bg-indigo-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">R</span>}
                     <div className="font-medium truncate">{appt.client_name}</div>
                     <div className="text-gray-500">{fmtTime(appt.start_time)}–{fmtTime(appt.end_time)}</div>
                   </div>
@@ -170,7 +170,7 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
                     className="absolute inset-x-1 rounded border px-1.5 py-1 text-xs cursor-pointer overflow-hidden hover:shadow transition-shadow"
                     style={{ ...getStyle(appt.start_time, appt.end_time), borderColor: practitionerColor(appt.practitioner_id), background: practitionerColor(appt.practitioner_id) + '22', color: '#111' }}
                   >
-                    {appt.series_id && <span className="absolute top-0.5 left-0.5 h-3.5 w-3.5 rounded-full bg-indigo-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">R</span>}
+                    {appt.series_id && <span className="absolute bottom-0.5 right-0.5 h-3.5 w-3.5 rounded-full bg-indigo-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">R</span>}
                     <div className="font-medium truncate">{appt.client_name}</div>
                     <div className="opacity-60">{fmtTime(appt.start_time)}</div>
                   </div>
