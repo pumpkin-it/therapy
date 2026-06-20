@@ -99,9 +99,9 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
                   {travelBlocks(appt).map(tb => (
                     <div key={`${appt.id}-${tb.key}`}
                       className="absolute inset-x-1 rounded border px-1.5 py-0.5 text-xs overflow-hidden pointer-events-none"
-                      style={{ ...getStyle(tb.startISO, tb.endISO), borderColor: '#a5b4fc', background: '#e0e7ff88' }}
+                      style={{ ...getStyle(tb.startISO, tb.endISO), borderColor: p.color, background: p.color + '22' }}
                     >
-                      <div className="text-indigo-400 truncate">Travel</div>
+                      <div className="truncate" style={{ color: p.color }}>Travel</div>
                     </div>
                   ))}
                   <div
@@ -174,9 +174,9 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
                   {travelBlocks(appt).map(tb => (
                     <div key={`${appt.id}-${tb.key}`}
                       className="absolute inset-x-1 rounded border px-1 py-0.5 text-xs overflow-hidden pointer-events-none"
-                      style={{ ...getStyle(tb.startISO, tb.endISO), borderColor: '#a5b4fc', background: '#e0e7ff88' }}
+                      style={{ ...getStyle(tb.startISO, tb.endISO), borderColor: practitionerColor(appt.practitioner_id), background: practitionerColor(appt.practitioner_id) + '22' }}
                     >
-                      <div className="text-indigo-400 truncate text-[10px]">Travel</div>
+                      <div className="truncate text-[10px]" style={{ color: practitionerColor(appt.practitioner_id) }}>Travel</div>
                     </div>
                   ))}
                   <div
