@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const db = require('../database');
 const auth = require('../middleware/auth');
+const audit = require('../services/audit');
 
 const SERIES_SELECT = `
   SELECT rs.*,
@@ -203,8 +204,14 @@ router.post('/', auth, (req, res) => {
     );
 
     insertLog.run(r.lastInsertRowid, 'created', `Created ${freq} series on ${DAY_NAMES[day]}s`);
+    audit.log('series', r.lastInsertRowid, 'created', `SER-${String(r.lastInsertRowid).padStart(5,'0')} created — ${freq} on ${DAY_NAMES[day]}s`, { ref: `SER-${String(r.lastInsertRowid).padStart(5,'0')}` });
     const series = db.prepare('SELECT * FROM recurring_series WHERE id=?').get(r.lastInsertRowid);
-    generateForSeries(series, horizon);
+    const generated = generateForSeries(series, horizon);
+    // Log creation on each generated appointment
+    const genAppts = db.prepare("SELECT id FROM appointments WHERE series_id=? AND status='scheduled'").all(r.lastInsertRowid);
+    for (const a of genAppts) {
+      audit.log('appointment', a.id, 'created', `APT-${String(a.id).padStart(5,'0')} generated from SER-${String(r.lastInsertRowid).padStart(5,'0')}`, { ref: `APT-${String(a.id).padStart(5,'0')}` });
+    }
     seriesIds.push(r.lastInsertRowid);
   }
 
@@ -374,7 +381,13 @@ router.patch('/:id', auth, (req, res) => {
   // Log changes
   if (changes.length) {
     const logInsert = db.prepare('INSERT INTO recurring_series_logs (series_id, action, details) VALUES (?, ?, ?)');
-    logInsert.run(req.params.id, 'updated', `${changes.join('; ')}. Applied to ${futureAppts.length} future appointments from ${fromDate}`);
+    const seriesRef = `SER-${String(req.params.id).padStart(5,'0')}`;
+    const detail = `${changes.join('; ')}. Applied to ${futureAppts.length} future appointments from ${fromDate}`;
+    logInsert.run(req.params.id, 'updated', detail);
+    audit.log('series', Number(req.params.id), 'updated', detail, { ref: seriesRef });
+    for (const appt of futureAppts) {
+      audit.log('appointment', appt.id, 'updated', `Updated via ${seriesRef}: ${changes.join('; ')}`, { ref: `APT-${String(appt.id).padStart(5,'0')}` });
+    }
   }
 
   res.json(db.prepare(`${SERIES_SELECT} WHERE rs.id=?`).get(req.params.id));
@@ -385,6 +398,7 @@ router.patch('/:id/active', auth, (req, res) => {
   db.prepare('UPDATE recurring_series SET active=? WHERE id=?').run(req.body.active ? 1 : 0, req.params.id);
   const action = req.body.active ? 'reactivated' : 'deactivated';
   db.prepare('INSERT INTO recurring_series_logs (series_id, action, details) VALUES (?, ?, ?)').run(req.params.id, action, `Series ${action}`);
+  audit.log('series', Number(req.params.id), action, `SER-${String(req.params.id).padStart(5,'0')} ${action}`, { ref: `SER-${String(req.params.id).padStart(5,'0')}` });
   res.json({ ok: true });
 });
 
@@ -428,6 +442,11 @@ router.post('/from-appointment', auth, (req, res) => {
 
   db.prepare('INSERT INTO recurring_series_logs (series_id, action, details) VALUES (?, ?, ?)')
     .run(r.lastInsertRowid, 'generated', `Generated ${generated} appointments`);
+
+  const seriesRef = `SER-${String(r.lastInsertRowid).padStart(5,'0')}`;
+  const apptRef = `APT-${String(appointment_id).padStart(5,'0')}`;
+  audit.log('series', r.lastInsertRowid, 'created', `${seriesRef} created from ${apptRef} — ${freq} on ${DAY_NAMES[dayOfWeek]}s`, { ref: seriesRef });
+  audit.log('appointment', appointment_id, 'converted_to_series', `Converted to recurring series ${seriesRef}`, { ref: apptRef });
 
   res.status(201).json({ seriesId: r.lastInsertRowid, generated });
 });

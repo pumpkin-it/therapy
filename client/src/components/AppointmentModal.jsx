@@ -4,7 +4,7 @@ import api from '../lib/api';
 import Modal from './ui/Modal';
 import Button from './ui/Button';
 import { Trash2, Plus, FileText, Pencil, RefreshCw, Mail, AlertCircle, CheckCircle, TriangleAlert } from 'lucide-react';
-import { localToday } from '../lib/utils';
+import { localToday, fmtDate } from '../lib/utils';
 
 const EMPTY_ITEM = { service_id: '', description: '', quantity: 1, unit_rate: 0, travel_time_min: '', travel_km: '', notes_min: '' };
 
@@ -134,6 +134,40 @@ function TimePicker({ value, onChange, className }) {
       <select value={ampm} onChange={e => emit(h, m, e.target.value)} className={selClass}>
         <option>AM</option><option>PM</option>
       </select>
+    </div>
+  );
+}
+
+function AppointmentAuditLog({ appointmentId }) {
+  const [logs, setLogs] = useState([]);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (open && appointmentId) api.get(`/audit-logs?entity_type=appointment&entity_id=${appointmentId}`).then(r => setLogs(r.data));
+  }, [open, appointmentId]);
+
+  const ACTION_COLOR = {
+    created: 'text-green-700', updated: 'text-blue-700', status_changed: 'text-amber-600',
+    converted_to_series: 'text-indigo-600', voided: 'text-red-600', cancelled: 'text-red-500',
+  };
+
+  return (
+    <div className="space-y-2">
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 text-sm font-medium text-gray-700 hover:text-indigo-600">
+        <FileText className="h-4 w-4 text-gray-400" /> Change History {open ? '▾' : '▸'}
+      </button>
+      {open && (
+        <div className="space-y-1.5 max-h-48 overflow-y-auto">
+          {logs.length === 0 ? (
+            <p className="text-xs text-gray-400 py-2">No change history recorded.</p>
+          ) : logs.map(log => (
+            <div key={log.id} className="text-xs border-l-2 border-gray-200 pl-2 py-1">
+              <span className={`font-medium ${ACTION_COLOR[log.action] || 'text-gray-600'}`}>{log.action}</span>
+              <span className="text-gray-400 ml-1.5">{format(parseISO(log.created_at), 'd MMM yyyy h:mm a')}</span>
+              <p className="text-gray-600 mt-0.5">{log.details}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -807,6 +841,12 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
         {editing && (
           <div className="border-t border-gray-100 pt-4">
             <CaseNotesSection appointmentId={appointment.id} clientId={appointment.client_id} practitionerId={form.practitioner_id} />
+          </div>
+        )}
+
+        {editing && (
+          <div className="border-t border-gray-100 pt-4">
+            <AppointmentAuditLog appointmentId={appointment.id} />
           </div>
         )}
 
