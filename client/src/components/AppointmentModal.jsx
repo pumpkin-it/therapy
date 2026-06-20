@@ -276,6 +276,17 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
   });
 
   const save = async () => {
+    const errors = [];
+    if (!form.practitioner_id) errors.push('Practitioner');
+    if (!form.client_id) errors.push('Client');
+    if (!startDate || !startTime) errors.push('Start date/time');
+    if (!endDate || !endTime) errors.push('End date/time');
+    if (recurrence.enabled && recurrence.endType === 'on' && !recurrence.until) errors.push('Repeat end date');
+    if (recurrence.enabled && recurrence.endType === 'after' && !recurrence.occurrences) errors.push('Number of occurrences');
+    if (errors.length) {
+      setError(`Please fill in required fields: ${errors.join(', ')}`);
+      return;
+    }
     setSaving(true); setError('');
     try {
       const payload = {
