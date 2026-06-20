@@ -189,7 +189,8 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
   const [lateCancelConfirm, setLateCancelConfirm] = useState(null);
   const [makeRecurring, setMakeRecurring] = useState(null);
   const [convertingRecurring, setConvertingRecurring] = useState(false);
-  const [seriesEndPrompt, setSeriesEndPrompt] = useState(null); // null | { step: 'choose' | 'pickDate', endDate } // null | { daysUntil, tier }
+  const [seriesEndPrompt, setSeriesEndPrompt] = useState(null);
+  const [seriesEditPrompt, setSeriesEditPrompt] = useState(null); // null | payload // null | { daysUntil, tier }
 
   useEffect(() => {
     Promise.all([
@@ -313,7 +314,11 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
           occurrences: recurrence.endType === 'after' ? Number(recurrence.occurrences) : undefined,
         } : null,
       };
-      if (editing) {
+      if (editing && appointment.series_id) {
+        setSeriesEditPrompt(payload);
+        setSaving(false);
+        return;
+      } else if (editing) {
         await api.patch(`/appointments/${appointment.id}`, payload);
         onSaved();
       } else if (recurrence.enabled) {
@@ -391,6 +396,28 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
     });
     setLateCancelConfirm(null);
     onSaved();
+  };
+
+  const saveSeriesThis = async () => {
+    setSaving(true);
+    try {
+      await api.patch(`/appointments/${appointment.id}`, seriesEditPrompt);
+      setSeriesEditPrompt(null);
+      onSaved();
+    } finally { setSaving(false); }
+  };
+
+  const saveSeriesFuture = async () => {
+    setSaving(true);
+    try {
+      await api.patch(`/appointments/${appointment.id}`, seriesEditPrompt);
+      await api.patch(`/recurring-series/${appointment.series_id}`, {
+        ...seriesEditPrompt,
+        apply_from: seriesEditPrompt.start_time?.slice(0, 10),
+      });
+      setSeriesEditPrompt(null);
+      onSaved();
+    } finally { setSaving(false); }
   };
 
   const convertToRecurring = async () => {
@@ -785,6 +812,27 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
 
         {error && <p className="text-sm text-red-600">{error}</p>}
       </div>
+
+      {/* Series edit prompt — this only or all future */}
+      {seriesEditPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+            <h3 className="font-semibold text-gray-900">This is a recurring appointment</h3>
+            <p className="text-sm text-gray-600">Do you want to update just this appointment, or apply changes to all future appointments in this series?</p>
+            <div className="flex flex-col gap-2">
+              <Button onClick={saveSeriesThis} disabled={saving} className="w-full justify-center">
+                {saving ? 'Saving…' : 'Save this appointment only'}
+              </Button>
+              <Button variant="secondary" onClick={saveSeriesFuture} disabled={saving} className="w-full justify-center">
+                {saving ? 'Saving…' : 'Save this and all future appointments'}
+              </Button>
+              <Button variant="ghost" onClick={() => setSeriesEditPrompt(null)} className="w-full justify-center text-gray-500">
+                Go back
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Series cancel prompt */}
       {seriesEndPrompt && (
