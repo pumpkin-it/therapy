@@ -46,7 +46,8 @@ router.get('/to-send', auth, (req, res) => {
   const ids = rows.map(r => r.id);
   const items = ids.length
     ? db.prepare(`
-        SELECT ai.*, s.name AS service_name, s.code AS service_code
+        SELECT ai.*, s.name AS service_name, s.code AS service_code,
+          s.travel_rate_per_hour, s.km_rate, s.notes_rate
         FROM appointment_items ai LEFT JOIN services s ON s.id = ai.service_id
         WHERE ai.appointment_id IN (${ids.map(() => '?').join(',')})
       `).all(...ids)

@@ -92,7 +92,13 @@ function ToSendTab() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {appointments.map(a => {
-                  const total = (a.items || []).reduce((s, i) => s + i.quantity * i.unit_rate, 0);
+                  const total = (a.items || []).reduce((s, i) => {
+                    let t = i.quantity * i.unit_rate;
+                    if (i.travel_time_min) t += (i.travel_time_min / 60) * (i.travel_rate_per_hour || i.unit_rate);
+                    if (i.travel_km && i.km_rate) t += i.travel_km * i.km_rate;
+                    if (i.notes_min) t += (i.notes_min / 60) * (i.notes_rate || i.unit_rate);
+                    return s + t;
+                  }, 0);
                   const dur = a.start_time && a.end_time
                     ? ((new Date(a.end_time) - new Date(a.start_time)) / 3600000).toFixed(1) + ' hrs'
                     : '—';
