@@ -19,7 +19,8 @@ export default function RecurringSeriesDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [series, setSeries] = useState(null);
-  const [endEdit, setEndEdit] = useState(null); // null | { end_type, end_date, end_occurrences }
+  const [endEdit, setEndEdit] = useState(null);
+  const [freqEdit, setFreqEdit] = useState(null); // null | string (new freq value)
   const [saving, setSaving] = useState(false);
 
   const load = () => api.get(`/recurring-series/${id}`).then(r => setSeries(r.data));
@@ -43,6 +44,17 @@ export default function RecurringSeriesDetail() {
     try {
       await api.patch(`/recurring-series/${id}`, endEdit);
       setEndEdit(null);
+      load();
+    } finally { setSaving(false); }
+  };
+
+  const saveFreqEdit = async () => {
+    if (!freqEdit || freqEdit === series.freq) { setFreqEdit(null); return; }
+    if (!confirm(`Change frequency from ${FREQ_LABEL[series.freq]} to ${FREQ_LABEL[freqEdit]}? This will cancel all future scheduled appointments and regenerate them at the new frequency.`)) return;
+    setSaving(true);
+    try {
+      await api.patch(`/recurring-series/${id}`, { freq: freqEdit });
+      setFreqEdit(null);
       load();
     } finally { setSaving(false); }
   };
@@ -74,6 +86,23 @@ export default function RecurringSeriesDetail() {
             {!endEdit && <button onClick={startEndEdit} className="text-xs text-indigo-600 hover:underline">Edit</button>}
           </div>
           <p className="font-medium text-gray-900">{series.start_time?.slice(11,16)} – {series.end_time?.slice(11,16)}</p>
+
+          {/* Frequency */}
+          {freqEdit !== null ? (
+            <div className="mt-2 flex items-center gap-2">
+              <select className="rounded border border-gray-300 px-2 py-1 text-sm" value={freqEdit} onChange={e => setFreqEdit(e.target.value)}>
+                {Object.entries(FREQ_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+              <Button size="sm" onClick={saveFreqEdit} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+              <Button size="sm" variant="secondary" onClick={() => setFreqEdit(null)}>Cancel</Button>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-500 mt-1">
+              {FREQ_LABEL[series.freq]} on {DAY_NAMES[series.day_of_week]}s
+              <button onClick={() => setFreqEdit(series.freq)} className="ml-2 text-indigo-600 hover:underline">change</button>
+            </p>
+          )}
+
           {endEdit ? (
             <div className="mt-2 space-y-2">
               <label className="flex items-center gap-2 text-sm cursor-pointer">

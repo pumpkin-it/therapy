@@ -203,7 +203,7 @@ router.patch('/:id', auth, (req, res) => {
 
   const { practitioner_id, client_id, start_time, end_time, notes, title,
     location_type, location_id, location_other, items, apply_from,
-    end_type, end_date, end_occurrences } = req.body;
+    end_type, end_date, end_occurrences, freq } = req.body;
 
   const changes = [];
 
@@ -216,8 +216,11 @@ router.patch('/:id', auth, (req, res) => {
     changes.push(`Time: ${series.start_time.slice(11)} → ${start_time.slice(11)}`);
   }
 
+  const FREQ_LABELS = { weekly: 'Weekly', fortnightly: 'Fortnightly', every3weeks: 'Every 3 weeks', monthly: 'Monthly' };
+
   // Update series record
   const updates = {};
+  if (freq && freq !== series.freq) updates.freq = freq;
   if (practitioner_id) updates.practitioner_id = practitioner_id;
   if (client_id) updates.client_id = client_id;
   if (start_time) updates.start_time = start_time;
@@ -282,6 +285,21 @@ router.patch('/:id', auth, (req, res) => {
     const updatedSeries = db.prepare('SELECT * FROM recurring_series WHERE id=?').get(req.params.id);
     const generated = generateForSeries(updatedSeries, getHorizon());
     if (generated > 0) changes.push(`Generated ${generated} new appointments`);
+  }
+
+  // If frequency changed, cancel future scheduled appointments and regenerate
+  if (freq && freq !== series.freq) {
+    const today = new Date().toISOString().slice(0, 10);
+    const cancelled = db.prepare(
+      "UPDATE appointments SET status='cancelled' WHERE series_id=? AND start_time >= ? AND status='scheduled'"
+    ).run(req.params.id, today + 'T00:00');
+    changes.push(`Frequency: ${FREQ_LABELS[series.freq] || series.freq} → ${FREQ_LABELS[freq] || freq}. Cancelled ${cancelled.changes} future appointments`);
+
+    // Reset generated_until so regeneration starts fresh
+    db.prepare('UPDATE recurring_series SET generated_until=NULL WHERE id=?').run(req.params.id);
+    const updatedSeries = db.prepare('SELECT * FROM recurring_series WHERE id=?').get(req.params.id);
+    const generated = generateForSeries(updatedSeries, getHorizon());
+    if (generated > 0) changes.push(`Regenerated ${generated} appointments at new frequency`);
   }
 
   // Update future appointments
