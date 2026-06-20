@@ -178,6 +178,17 @@ try { db.exec(`ALTER TABLE appointments ADD COLUMN late_cancel_billable INTEGER 
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN role TEXT DEFAULT 'practitioner'`); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN gender TEXT`); } catch {}
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN gender TEXT`); } catch {}
+
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS disciplines (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec(`ALTER TABLE practitioners ADD COLUMN discipline_id INTEGER REFERENCES disciplines(id)`); } catch {}
+try { db.exec(`ALTER TABLE services ADD COLUMN discipline_id INTEGER REFERENCES disciplines(id)`); } catch {}
 try { db.exec(`ALTER TABLE appointments ADD COLUMN series_id INTEGER REFERENCES recurring_series(id)`); } catch {}
 
 try { db.exec(`

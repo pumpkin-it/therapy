@@ -6,12 +6,15 @@ import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { currency } from '../lib/utils';
 
-const EMPTY = { name:'', description:'', code:'', default_rate:0, unit:'hour', default_duration:60, travel_rate_per_hour:'', km_rate:'', notes_rate:'', gst_rate:'' };
+const EMPTY = { name:'', description:'', code:'', default_rate:0, unit:'hour', default_duration:60, travel_rate_per_hour:'', km_rate:'', notes_rate:'', gst_rate:'', discipline_id:'' };
 
 function ServiceModal({ service, onClose, onSaved }) {
   const [form, setForm] = useState(service || EMPTY);
   const [saving, setSaving] = useState(false);
+  const [disciplines, setDisciplines] = useState([]);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  useEffect(() => { api.get('/disciplines').then(r => setDisciplines(r.data)); }, []);
 
   const save = async () => {
     setSaving(true);
@@ -29,7 +32,17 @@ function ServiceModal({ service, onClose, onSaved }) {
           <Input label="Service name" value={form.name} onChange={e => set('name', e.target.value)} />
           <Input label="Code" value={form.code} onChange={e => set('code', e.target.value)} placeholder="e.g. NDIS-001" />
         </div>
-        <Input label="Description" value={form.description} onChange={e => set('description', e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Description" value={form.description} onChange={e => set('description', e.target.value)} />
+          <div className="space-y-1">
+            <label className="block text-sm font-medium text-gray-700">Discipline</label>
+            <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              value={form.discipline_id} onChange={e => set('discipline_id', e.target.value)}>
+              <option value="">— All disciplines —</option>
+              {disciplines.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+            </select>
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <Input label="Default rate ($)" type="number" step="0.01" value={form.default_rate}
             onChange={e => set('default_rate', parseFloat(e.target.value))} />
@@ -67,10 +80,13 @@ function ServiceModal({ service, onClose, onSaved }) {
 
 export default function Services() {
   const [services, setServices] = useState([]);
+  const [disciplines, setDisciplines] = useState([]);
   const [modal, setModal] = useState(null);
 
   const load = () => api.get('/services').then(r => setServices(r.data));
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); api.get('/disciplines').then(r => setDisciplines(r.data)); }, []);
+
+  const discName = id => disciplines.find(d => d.id === id)?.name || '—';
 
   const remove = async id => {
     if (!confirm('Remove this service?')) return;
@@ -89,7 +105,7 @@ export default function Services() {
         <table className="min-w-full divide-y divide-gray-100">
           <thead className="bg-gray-50">
             <tr>
-              {['Service','Rate','Unit','Duration',''].map(h => (
+              {['Service','Discipline','Rate','Unit','Duration',''].map(h => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
               ))}
             </tr>
@@ -101,6 +117,7 @@ export default function Services() {
                   <div className="font-medium text-gray-900">{s.name}</div>
                   {s.description && <div className="text-xs text-gray-400">{s.description}</div>}
                 </td>
+                <td className="px-4 py-3 text-sm text-gray-600">{s.discipline_id ? discName(s.discipline_id) : <span className="text-gray-300">All</span>}</td>
                 <td className="px-4 py-3 font-medium text-gray-900">{currency(s.default_rate)}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{s.unit}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{s.default_duration} min</td>

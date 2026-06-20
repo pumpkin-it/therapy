@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Pencil, UserX, UserCheck, Calendar, ArrowLeft } from 'lucide-react';
+import { Plus, Pencil, UserX, UserCheck, Calendar, ArrowLeft, PlusCircle } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
@@ -20,12 +20,24 @@ const ROLE_COLORS = {
   finance:      'bg-amber-100 text-amber-700',
 };
 
-const EMPTY = { first_name: '', last_name: '', title: '', email: '', phone: '', color: '#6366f1', provider_number: '', role: 'practitioner', gender: '' };
+const EMPTY = { first_name: '', last_name: '', title: '', email: '', phone: '', color: '#6366f1', provider_number: '', role: 'practitioner', gender: '', discipline_id: '' };
 
 function UserModal({ user, onClose, onSaved }) {
   const [form, setForm] = useState(user || EMPTY);
   const [saving, setSaving] = useState(false);
+  const [disciplines, setDisciplines] = useState([]);
+  const [newDiscipline, setNewDiscipline] = useState('');
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  useEffect(() => { api.get('/disciplines').then(r => setDisciplines(r.data)); }, []);
+
+  const addDiscipline = async () => {
+    if (!newDiscipline.trim()) return;
+    const res = await api.post('/disciplines', { name: newDiscipline.trim() });
+    setDisciplines(d => [...d, res.data]);
+    set('discipline_id', res.data.id);
+    setNewDiscipline('');
+  };
 
   const save = async () => {
     setSaving(true);
@@ -43,7 +55,25 @@ function UserModal({ user, onClose, onSaved }) {
           <Input label="First name" value={form.first_name} onChange={e => set('first_name', e.target.value)} />
           <Input label="Last name"  value={form.last_name}  onChange={e => set('last_name', e.target.value)} />
         </div>
-        <Input label="Title (e.g. OT, Psychologist)" value={form.title} onChange={e => set('title', e.target.value)} />
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="Title (e.g. OT, Psychologist)" value={form.title} onChange={e => set('title', e.target.value)} />
+          <div className="space-y-1">
+            <label className="block text-sm font-medium text-gray-700">Discipline</label>
+            <div className="flex gap-1">
+              <select className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                value={form.discipline_id} onChange={e => set('discipline_id', e.target.value)}>
+                <option value="">— None —</option>
+                {disciplines.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-1 mt-1">
+              <input className="flex-1 rounded border border-gray-300 px-2 py-1 text-xs" placeholder="Add new…"
+                value={newDiscipline} onChange={e => setNewDiscipline(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addDiscipline()} />
+              <button onClick={addDiscipline} className="text-indigo-500 hover:text-indigo-700"><PlusCircle className="h-4 w-4" /></button>
+            </div>
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <Input label="Email" type="email" value={form.email} onChange={e => set('email', e.target.value)} />
           <Input label="Phone" value={form.phone} onChange={e => set('phone', e.target.value)} />

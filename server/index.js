@@ -29,6 +29,7 @@ app.use('/api/case-notes',      require('./routes/caseNotes'));
 app.use('/api/funding-periods', require('./routes/fundingPeriods'));
 app.use('/api/client-files',   require('./routes/clientFiles'));
 app.use('/api/recurring-series', require('./routes/recurringSeries'));
+app.use('/api/disciplines',      require('./routes/disciplines'));
 
 // Logo is public; all other uploads require auth
 app.get('/uploads/logo', (req, res) => {

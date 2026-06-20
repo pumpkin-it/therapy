@@ -424,6 +424,11 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
     setTimeout(() => setNotifyStatus(s => { const n = { ...s }; delete n[target]; return n; }), 5000);
   };
 
+  const selectedPractitioner = practitioners.find(p => p.id === Number(form.practitioner_id));
+  const filteredServices = selectedPractitioner?.discipline_id
+    ? services.filter(s => !s.discipline_id || s.discipline_id === selectedPractitioner.discipline_id)
+    : services;
+
   const isHome = form.location_type === 'home';
 
   return (
@@ -611,7 +616,7 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
                     <select className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
                       value={item.service_id} onChange={e => setItem(idx, 'service_id', e.target.value)}>
                       <option value="">Manual…</option>
-                      {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      {filteredServices.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1">
