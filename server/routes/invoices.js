@@ -131,15 +131,63 @@ router.post('/generate', auth, (req, res) => {
     if (!appt) continue;
 
     const items = db.prepare(`
-      SELECT ai.*, s.name AS service_name, s.code AS service_code
+      SELECT ai.*, s.name AS service_name, s.code AS service_code,
+        s.travel_rate_per_hour, s.km_rate, s.notes_rate
       FROM appointment_items ai LEFT JOIN services s ON s.id = ai.service_id
       WHERE ai.appointment_id = ?
     `).all(apptId);
 
     if (!items.length) continue;
 
-    const subtotal = items.reduce((s, i) => s + i.quantity * i.unit_rate, 0);
-    const gstRate = items[0].service_code ? (db.prepare('SELECT gst_rate FROM services WHERE id=?').get(items[0].service_id)?.gst_rate ?? taxRate) : taxRate;
+    // Build line items including travel/notes
+    const lineItems = [];
+    for (const item of items) {
+      // Base service cost
+      lineItems.push({
+        appointment_item_id: item.id,
+        description: item.service_name || item.description,
+        quantity: item.quantity,
+        unit_rate: item.unit_rate,
+        line_total: item.quantity * item.unit_rate,
+      });
+      // Travel time
+      if (item.travel_time_min) {
+        const travelHrs = item.travel_time_min / 60;
+        const travelRate = item.travel_rate_per_hour || item.unit_rate;
+        lineItems.push({
+          appointment_item_id: item.id,
+          description: `Travel time (${item.travel_time_min} min)`,
+          quantity: travelHrs,
+          unit_rate: travelRate,
+          line_total: travelHrs * travelRate,
+        });
+      }
+      // Travel km
+      if (item.travel_km && item.km_rate) {
+        lineItems.push({
+          appointment_item_id: item.id,
+          description: `Travel distance (${item.travel_km} km)`,
+          quantity: item.travel_km,
+          unit_rate: item.km_rate,
+          line_total: item.travel_km * item.km_rate,
+        });
+      }
+      // Notes time
+      if (item.notes_min) {
+        const notesHrs = item.notes_min / 60;
+        const notesRate = item.notes_rate || item.unit_rate;
+        lineItems.push({
+          appointment_item_id: item.id,
+          description: `Clinical notes (${item.notes_min} min)`,
+          quantity: notesHrs,
+          unit_rate: notesRate,
+          line_total: notesHrs * notesRate,
+        });
+      }
+    }
+
+    const subtotal = lineItems.reduce((s, i) => s + i.line_total, 0);
+    const gstRate = items[0].service_id ? (db.prepare('SELECT gst_rate FROM services WHERE id=?').get(items[0].service_id)?.gst_rate ?? taxRate) : taxRate;
     const taxAmount = subtotal * (gstRate || 0);
     const total = subtotal + taxAmount;
 
@@ -158,9 +206,8 @@ router.post('/generate', auth, (req, res) => {
       INSERT INTO invoice_items (invoice_id, appointment_item_id, description, quantity, unit_rate, line_total)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
-    for (const item of items) {
-      insertItem.run(r.lastInsertRowid, item.id,
-        item.service_name || item.description, item.quantity, item.unit_rate, item.quantity * item.unit_rate);
+    for (const li of lineItems) {
+      insertItem.run(r.lastInsertRowid, li.appointment_item_id, li.description, li.quantity, li.unit_rate, li.line_total);
     }
 
     db.prepare('UPDATE appointments SET is_invoiced=1 WHERE id=?').run(apptId);
