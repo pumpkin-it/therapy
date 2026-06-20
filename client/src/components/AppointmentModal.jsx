@@ -309,7 +309,6 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
         })),
         recurrence: recurrence.enabled ? {
           freq: recurrence.freq,
-          days: recurrence.days.length ? recurrence.days : undefined,
           until: recurrence.endType === 'on' ? recurrence.until : undefined,
           occurrences: recurrence.endType === 'after' ? Number(recurrence.occurrences) : undefined,
         } : null,
@@ -530,13 +529,7 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
         {!editing && (
           <div className="rounded-lg border border-gray-200 p-4 space-y-4">
             <label className="flex items-center gap-3 cursor-pointer">
-              <button type="button" onClick={() => setRecurrence(r => {
-                if (!r.enabled && startDate) {
-                  const dayOfWeek = new Date(startDate).getDay();
-                  return { ...r, enabled: true, days: [dayOfWeek] };
-                }
-                return { ...r, enabled: !r.enabled };
-              })}
+              <button type="button" onClick={() => setRecurrence(r => ({ ...r, enabled: !r.enabled }))}
                 className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${recurrence.enabled ? 'bg-indigo-600' : 'bg-gray-200'}`}>
                 <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transform transition-transform mt-0.5 ${recurrence.enabled ? 'translate-x-5.5 ml-[22px]' : 'translate-x-0.5 ml-[2px]'}`} />
               </button>
@@ -555,29 +548,6 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
                     <option value="monthly">Monthly</option>
                   </select>
                 </div>
-
-                {recurrence.freq !== 'monthly' && (
-                  <div className="flex items-center gap-4">
-                    <label className="text-sm text-gray-600 w-24 shrink-0">Repeat on<span className="text-red-500">*</span></label>
-                    <div className="flex gap-1.5">
-                      {['S','M','T','W','T','F','S'].map((d, i) => {
-                        const active = recurrence.days.includes(i);
-                        return (
-                          <button key={i} type="button"
-                            onClick={() => setRecurrence(r => ({
-                              ...r,
-                              days: active ? r.days.filter(x => x !== i) : [...r.days, i],
-                            }))}
-                            className={`h-9 w-9 rounded-full text-sm font-medium transition-colors ${
-                              active ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                            }`}>
-                            {d}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
 
                 <div className="space-y-3">
                   <label className="text-sm text-gray-600">Ends:</label>

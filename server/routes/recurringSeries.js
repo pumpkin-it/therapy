@@ -158,7 +158,7 @@ router.post('/', auth, (req, res) => {
   const { practitioner_id, client_id, location_type, location_id, location_other, title,
     start_time, end_time, notes, items = [], recurrence } = req.body;
 
-  const { freq, days = [], endType = 'never', until, occurrences } = recurrence;
+  const { freq, endType = 'never', until, occurrences } = recurrence;
 
   let locationText = '';
   if (location_type === 'home') locationText = 'Home visit';
@@ -170,7 +170,7 @@ router.post('/', auth, (req, res) => {
   const itemsJson = JSON.stringify(items);
 
   // Determine which days to create series for
-  const targetDays = days.length ? days : [new Date(start_time).getDay()];
+  const targetDays = [new Date(start_time).getDay()];
 
   const insertSeries = db.prepare(`
     INSERT INTO recurring_series (practitioner_id, client_id, location, location_id, location_other, title,
