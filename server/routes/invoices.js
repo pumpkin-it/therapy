@@ -247,6 +247,10 @@ router.post('/:id/send', auth, async (req, res) => {
     practice_email: settings.practice_email,
     practice_phone: settings.practice_phone,
     practice_address: settings.practice_address,
+    bank_account_name: settings.bank_account_name,
+    bank_bsb: settings.bank_bsb,
+    bank_account_number: settings.bank_account_number,
+    remittance_email: settings.remittance_email,
   });
 
   await sendInvoiceEmail(recipient, inv.invoice_number, pdf);
@@ -278,6 +282,10 @@ router.get('/:id/pdf', auth, async (req, res) => {
     practice_email: settings.practice_email,
     practice_phone: settings.practice_phone,
     practice_address: settings.practice_address,
+    bank_account_name: settings.bank_account_name,
+    bank_bsb: settings.bank_bsb,
+    bank_account_number: settings.bank_account_number,
+    remittance_email: settings.remittance_email,
   });
 
   res.setHeader('Content-Type', 'application/pdf');

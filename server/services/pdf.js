@@ -11,31 +11,34 @@ function generateInvoicePdf(data) {
     doc.on('error', reject);
 
     const right = 545;
+    const rCol = 350;
+    const rW = 195;
 
-    // Logo
+    // Logo (top left)
     const logoPath = path.join(__dirname, '../../uploads/logo');
     if (fs.existsSync(logoPath)) {
-      try { doc.image(logoPath, 50, 40, { height: 40 }); } catch {}
+      try { doc.image(logoPath, 50, 40, { height: 50 }); } catch {}
     }
 
-    // Practice header
-    const headerX = fs.existsSync(logoPath) ? 100 : 50;
-    doc.fontSize(16).font('Helvetica-Bold').text(data.practice_name || '', headerX, 45);
-    doc.fontSize(8).font('Helvetica');
-    if (data.practice_address) doc.text(data.practice_address, headerX);
-    if (data.practice_phone)   doc.text(data.practice_phone, headerX);
-    if (data.practice_email)   doc.text(data.practice_email, headerX);
-    if (data.practice_abn)     doc.text(`ABN: ${data.practice_abn}`, headerX);
-
-    // Invoice title
-    doc.fontSize(18).font('Helvetica-Bold').text('TAX INVOICE', 350, 45, { align: 'right', width: 195 });
+    // Invoice title + practice details (top right)
+    doc.fontSize(18).font('Helvetica-Bold').text('TAX INVOICE', rCol, 40, { align: 'right', width: rW });
     doc.fontSize(9).font('Helvetica');
-    doc.text(`Invoice #: ${data.invoice_number}`, 350, 72, { align: 'right', width: 195 });
-    doc.text(`Date: ${data.issue_date}`, 350, 86, { align: 'right', width: 195 });
-    doc.text(`Due:  ${data.due_date}`, 350, 100, { align: 'right', width: 195 });
+    doc.text(`Invoice #: ${data.invoice_number}`, rCol, 65, { align: 'right', width: rW });
+    doc.text(`Date: ${data.issue_date}`, rCol, 79, { align: 'right', width: rW });
+    doc.text(`Due:  ${data.due_date}`, rCol, 93, { align: 'right', width: rW });
 
-    // Bill to
-    const billY = Math.max(doc.y + 20, 130);
+    // Practice details (right column, below invoice info)
+    let prY = 115;
+    doc.fontSize(8).fillColor('#555');
+    if (data.practice_name)    { doc.font('Helvetica-Bold').text(data.practice_name, rCol, prY, { align: 'right', width: rW }); prY = doc.y; doc.font('Helvetica'); }
+    if (data.practice_address) { doc.text(data.practice_address, rCol, prY, { align: 'right', width: rW }); prY = doc.y; }
+    if (data.practice_phone)   { doc.text(data.practice_phone, rCol, prY, { align: 'right', width: rW }); prY = doc.y; }
+    if (data.practice_email)   { doc.text(data.practice_email, rCol, prY, { align: 'right', width: rW }); prY = doc.y; }
+    if (data.practice_abn)     { doc.text(`ABN: ${data.practice_abn}`, rCol, prY, { align: 'right', width: rW }); prY = doc.y; }
+    doc.fillColor('#111');
+
+    // Bill to (left column)
+    const billY = 100;
     doc.font('Helvetica-Bold').fontSize(9).text('BILL TO', 50, billY);
     doc.font('Helvetica');
     if (data.funds_manager_name) {
@@ -48,8 +51,8 @@ function generateInvoicePdf(data) {
     }
 
     // Client & Practitioner details
-    const detY = doc.y + 12;
-    doc.font('Helvetica-Bold').text('CLIENT', 50, detY);
+    const detY = Math.max(doc.y + 12, prY + 12);
+    doc.font('Helvetica-Bold').fontSize(9).text('CLIENT', 50, detY);
     doc.font('Helvetica').text(data.client_name, 50, detY + 13);
     if (data.client_address) doc.text(data.client_address);
 
@@ -97,8 +100,25 @@ function generateInvoicePdf(data) {
     doc.text('TOTAL', 370, totalY, { width: 60, align: 'right' });
     doc.text(`$${Number(data.total).toFixed(2)}`, 435, totalY, { width: 60, align: 'right' });
 
+    // Notes
+    let footerY = totalY + 40;
     if (data.notes) {
-      doc.font('Helvetica').fontSize(9).fillColor('#555').text(`Notes: ${data.notes}`, 50, totalY + 30);
+      doc.font('Helvetica').fontSize(9).fillColor('#555').text(`Notes: ${data.notes}`, 50, footerY);
+      footerY = doc.y + 15;
+    }
+
+    // Banking details
+    const hasBanking = data.bank_account_name || data.bank_bsb || data.bank_account_number;
+    if (hasBanking || data.remittance_email) {
+      doc.moveTo(50, footerY).lineTo(right, footerY).strokeColor('#e5e7eb').stroke();
+      footerY += 10;
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#111').text('PAYMENT DETAILS', 50, footerY);
+      footerY += 14;
+      doc.font('Helvetica').fontSize(8.5).fillColor('#333');
+      if (data.bank_account_name) { doc.text(`Account Name: ${data.bank_account_name}`, 50, footerY); footerY = doc.y + 2; }
+      if (data.bank_bsb)          { doc.text(`BSB: ${data.bank_bsb}`, 50, footerY); footerY = doc.y + 2; }
+      if (data.bank_account_number) { doc.text(`Account Number: ${data.bank_account_number}`, 50, footerY); footerY = doc.y + 2; }
+      if (data.remittance_email)  { doc.text(`Remittance Email: ${data.remittance_email}`, 50, footerY); }
     }
 
     doc.end();

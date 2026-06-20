@@ -283,6 +283,10 @@ const defaults = {
   graph_client_secret: '',
   graph_mailbox: '',
   google_maps_api_key: '',
+  bank_account_name: '',
+  bank_bsb: '',
+  bank_account_number: '',
+  remittance_email: '',
   invoice_payment_terms_days: '14',
   invoice_reminder_interval_days: '7',
   role_permissions: JSON.stringify({

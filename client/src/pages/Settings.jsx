@@ -127,6 +127,17 @@ export default function Settings() {
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+        <h2 className="font-semibold text-gray-900">Banking / Payment Details</h2>
+        <p className="text-xs text-gray-400">Shown at the bottom of invoices.</p>
+        <div className="grid grid-cols-2 gap-3">
+          {field('Account name', 'bank_account_name')}
+          {field('BSB', 'bank_bsb')}
+          {field('Account number', 'bank_account_number')}
+          {field('Remittance email', 'remittance_email', 'email')}
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
         <h2 className="font-semibold text-gray-900">Invoice Settings</h2>
         <div className="grid grid-cols-2 gap-3">
           {field('Payment terms (days)', 'invoice_payment_terms_days', 'number')}
