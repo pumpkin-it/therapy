@@ -425,6 +425,17 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
     setTimeout(() => setNotifyStatus(s => { const n = { ...s }; delete n[target]; return n; }), 5000);
   };
 
+  const calcItemTotal = (item) => {
+    const base = Number(item.quantity || 0) * Number(item.unit_rate || 0);
+    const svc = item.service_id ? services.find(s => s.id === Number(item.service_id)) : null;
+    const travelTimeHrs = Number(item.travel_time_min || 0) / 60;
+    const travelTimeCost = travelTimeHrs * Number(svc?.travel_rate_per_hour || item.unit_rate || 0);
+    const kmCost = Number(item.travel_km || 0) * Number(svc?.km_rate || 0);
+    const notesHrs = Number(item.notes_min || 0) / 60;
+    const notesCost = notesHrs * Number(svc?.notes_rate || item.unit_rate || 0);
+    return base + travelTimeCost + kmCost + notesCost;
+  };
+
   const selectedPractitioner = practitioners.find(p => p.id === Number(form.practitioner_id));
   const filteredServices = selectedPractitioner?.discipline_id
     ? services.filter(s => !s.discipline_id || s.discipline_id === selectedPractitioner.discipline_id)
@@ -681,7 +692,7 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
                       value={item.notes_min} onChange={e => setItem(idx, 'notes_min', e.target.value)} placeholder="—" />
                   </div>
                   <span className="text-sm text-gray-500 pb-1">
-                    ${(Number(item.quantity) * Number(item.unit_rate)).toFixed(2)}
+                    ${calcItemTotal(item).toFixed(2)}
                   </span>
                   {form.items.length > 1 && (
                     <button onClick={() => setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))}
@@ -695,7 +706,7 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
           </div>
           <div className="flex justify-end pt-2 border-t border-gray-100 mt-2">
             <span className="text-sm font-semibold text-gray-900">
-              Session total: ${form.items.reduce((sum, i) => sum + Number(i.quantity || 0) * Number(i.unit_rate || 0), 0).toFixed(2)}
+              Session total: ${form.items.reduce((sum, i) => sum + calcItemTotal(i), 0).toFixed(2)}
             </span>
           </div>
         </div>
