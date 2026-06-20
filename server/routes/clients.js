@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const db = require('../database');
 const auth = require('../middleware/auth');
+const audit = require('../services/audit');
 
 const CLIENT_SELECT = `
   SELECT c.*,
@@ -66,7 +67,9 @@ router.post('/', auth, (req, res) => {
     emergency_contact_name||null, emergency_contact_phone||null, emergency_contact_relationship||null, emergency_contact_email||null,
     diagnosis||null, allergies||null, regular_medication||null, gender||null,
   );
-  res.status(201).json(db.prepare(`${CLIENT_SELECT} WHERE c.id = ?`).get(result.lastInsertRowid));
+  const newClient = db.prepare(`${CLIENT_SELECT} WHERE c.id = ?`).get(result.lastInsertRowid);
+  audit.log('client', newClient.id, 'created', `Created client ${first_name} ${last_name}`);
+  res.status(201).json(newClient);
 });
 
 router.patch('/:id', auth, (req, res) => {
@@ -75,6 +78,7 @@ router.patch('/:id', auth, (req, res) => {
     emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
     diagnosis, allergies, regular_medication, gender,
   } = req.body;
+  const before = db.prepare('SELECT * FROM clients WHERE id=?').get(req.params.id);
   db.prepare(`
     UPDATE clients SET
       first_name=?, last_name=?, email=?, phone=?, date_of_birth=?, address=?, ndis_number=?, notes=?, alert=?,
@@ -87,16 +91,20 @@ router.patch('/:id', auth, (req, res) => {
     diagnosis||null, allergies||null, regular_medication||null, gender||null,
     req.params.id,
   );
+  const changes = audit.diff(before, req.body, ['first_name','last_name','email','phone','date_of_birth','address','gender','ndis_number','notes','alert']);
+  if (changes) audit.log('client', Number(req.params.id), 'updated', changes);
   res.json(db.prepare(`${CLIENT_SELECT} WHERE c.id = ?`).get(req.params.id));
 });
 
 router.patch('/:id/active', auth, (req, res) => {
   db.prepare('UPDATE clients SET active=? WHERE id=?').run(req.body.active ? 1 : 0, req.params.id);
+  audit.log('client', Number(req.params.id), req.body.active ? 'reactivated' : 'deactivated', `Client ${req.body.active ? 'reactivated' : 'deactivated'}`);
   res.json({ ok: true });
 });
 
 router.delete('/:id', auth, (req, res) => {
   db.prepare('UPDATE clients SET active = 0 WHERE id = ?').run(req.params.id);
+  audit.log('client', Number(req.params.id), 'deactivated', 'Client deactivated');
   res.status(204).send();
 });
 

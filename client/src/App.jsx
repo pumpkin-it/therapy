@@ -9,6 +9,7 @@ import Locations from './pages/Locations';
 import Services from './pages/Services';
 import Invoices from './pages/Invoices';
 import Settings from './pages/Settings';
+import AuditLog from './pages/AuditLog';
 import RecurringSeries from './pages/RecurringSeries';
 import RecurringSeriesDetail from './pages/RecurringSeriesDetail';
 
@@ -29,6 +30,7 @@ export default function App() {
             <Route path="/recurring-series"     element={<RecurringSeries />} />
             <Route path="/recurring-series/:id" element={<RecurringSeriesDetail />} />
             <Route path="/invoices"      element={<Invoices />} />
+            <Route path="/audit-log"      element={<AuditLog />} />
             <Route path="/settings"      element={<Settings />} />
             <Route path="*"              element={<Navigate to="/calendar" replace />} />
           </Routes>

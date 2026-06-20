@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const db = require('../database');
 const auth = require('../middleware/auth');
+const audit = require('../services/audit');
 
 router.get('/', auth, (req, res) => {
   const { active, role } = req.query;
@@ -25,24 +26,30 @@ router.post('/', auth, (req, res) => {
   const result = db.prepare(
     'INSERT INTO practitioners (first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', provider_number || null, role || 'practitioner', gender || null, discipline_id || null);
+  audit.log('user', result.lastInsertRowid, 'created', `Created user ${first_name} ${last_name} (${role || 'practitioner'})`);
   res.status(201).json(db.prepare('SELECT * FROM practitioners WHERE id = ?').get(result.lastInsertRowid));
 });
 
 router.patch('/:id', auth, (req, res) => {
   const { first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id } = req.body;
+  const before = db.prepare('SELECT * FROM practitioners WHERE id=?').get(req.params.id);
   db.prepare(
     'UPDATE practitioners SET first_name=?, last_name=?, title=?, email=?, phone=?, color=?, provider_number=?, role=?, gender=?, discipline_id=? WHERE id=?'
   ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', provider_number || null, role || 'practitioner', gender || null, discipline_id || null, req.params.id);
+  const changes = audit.diff(before, req.body, ['first_name','last_name','title','email','phone','role','gender','provider_number']);
+  if (changes) audit.log('user', Number(req.params.id), 'updated', changes);
   res.json(db.prepare('SELECT * FROM practitioners WHERE id = ?').get(req.params.id));
 });
 
 router.patch('/:id/active', auth, (req, res) => {
   db.prepare('UPDATE practitioners SET active=? WHERE id=?').run(req.body.active ? 1 : 0, req.params.id);
+  audit.log('user', Number(req.params.id), req.body.active ? 'reactivated' : 'deactivated', `User ${req.body.active ? 'reactivated' : 'deactivated'}`);
   res.json({ ok: true });
 });
 
 router.delete('/:id', auth, (req, res) => {
   db.prepare('UPDATE practitioners SET active = 0 WHERE id = ?').run(req.params.id);
+  audit.log('user', Number(req.params.id), 'deactivated', 'User deactivated');
   res.status(204).send();
 });
 

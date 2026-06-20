@@ -141,6 +141,19 @@ try { db.exec(`ALTER TABLE services ADD COLUMN km_code TEXT`); } catch {}
 try { db.exec(`ALTER TABLE services ADD COLUMN notes_code TEXT`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN code TEXT`); } catch {}
 try { db.exec(`ALTER TABLE invoices ADD COLUMN voided_at TEXT`); } catch {}
+
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL,
+    entity_id INTEGER,
+    entity_ref TEXT,
+    action TEXT NOT NULL,
+    details TEXT,
+    snapshot TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN service_date TEXT`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN gst_rate REAL DEFAULT 0`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN gst_amount REAL DEFAULT 0`); } catch {}

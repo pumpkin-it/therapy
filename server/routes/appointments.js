@@ -2,6 +2,7 @@ const router = require('express').Router();
 const db = require('../database');
 const auth = require('../middleware/auth');
 const { sendAppointmentNotification } = require('../services/mailer');
+const audit = require('../services/audit');
 
 const APPT_SELECT = `
   SELECT a.*,
@@ -119,12 +120,14 @@ router.post('/', auth, (req, res) => {
   }
 
   const apptId = createOne(start_time, end_time);
+  audit.log('appointment', apptId, 'created', `APT-${String(apptId).padStart(5,'0')} created for ${start_time}`);
   res.status(201).json(withItems(db.prepare(`${APPT_SELECT} WHERE a.id=?`).get(apptId)));
 });
 
 router.patch('/:id', auth, (req, res) => {
   const { practitioner_id, client_id, location_type, location_id, location_other, title, start_time, end_time, notes, status, items, late_cancel_pct, late_cancel_billable } = req.body;
   const { locationText, resolvedLocationId, locationOther } = resolveLocation(location_type, location_id, location_other);
+  const before = db.prepare('SELECT * FROM appointments WHERE id=?').get(req.params.id);
 
   db.prepare(`
     UPDATE appointments SET practitioner_id=?, client_id=?, location=?, location_id=?, location_other=?, title=?, start_time=?, end_time=?, notes=?, status=?,
@@ -138,14 +141,19 @@ router.patch('/:id', auth, (req, res) => {
     insertItems(req.params.id, items);
   }
 
+  const changes = audit.diff(before, { practitioner_id, client_id, start_time, end_time, status, location: locationText }, ['practitioner_id','client_id','start_time','end_time','status','location']);
+  if (changes) audit.log('appointment', Number(req.params.id), 'updated', changes, { ref: `APT-${String(req.params.id).padStart(5,'0')}` });
+
   const updated = withItems(db.prepare(`${APPT_SELECT} WHERE a.id=?`).get(req.params.id));
   res.json(updated);
 });
 
 router.patch('/:id/status', auth, (req, res) => {
   const { status, late_cancel_pct, late_cancel_billable } = req.body;
+  const before = db.prepare('SELECT status FROM appointments WHERE id=?').get(req.params.id);
   db.prepare('UPDATE appointments SET status=?, late_cancel_pct=?, late_cancel_billable=? WHERE id=?')
     .run(status, late_cancel_pct ?? null, late_cancel_billable ? 1 : 0, req.params.id);
+  audit.log('appointment', Number(req.params.id), 'status_changed', `Status: ${before?.status} → ${status}`, { ref: `APT-${String(req.params.id).padStart(5,'0')}` });
   res.json({ ok: true });
 });
 

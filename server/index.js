@@ -31,6 +31,7 @@ app.use('/api/funding-periods', require('./routes/fundingPeriods'));
 app.use('/api/client-files',   require('./routes/clientFiles'));
 app.use('/api/recurring-series', require('./routes/recurringSeries'));
 app.use('/api/disciplines',      require('./routes/disciplines'));
+app.use('/api/audit-logs',       require('./routes/auditLogs'));
 
 // Logo is public; all other uploads require auth
 app.get('/uploads/logo', (req, res) => {

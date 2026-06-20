@@ -3,6 +3,7 @@ const db = require('../database');
 const auth = require('../middleware/auth');
 const { generateInvoicePdf } = require('../services/pdf');
 const { sendInvoiceEmail } = require('../services/mailer');
+const audit = require('../services/audit');
 
 function nextInvoiceNumber() {
   const counter = parseInt(db.prepare("SELECT value FROM settings WHERE key='invoice_counter'").get()?.value || '1');
@@ -181,6 +182,7 @@ router.post('/generate', auth, (req, res) => {
     }
 
     db.prepare('UPDATE appointments SET is_invoiced=1 WHERE id=?').run(apptId);
+    audit.log('invoice', r.lastInsertRowid, 'created', `${invoiceNumber} generated for ${appt.client_name} — $${total.toFixed(2)}`, { ref: invoiceNumber });
     created.push(r.lastInsertRowid);
   }
 
@@ -223,6 +225,7 @@ router.post('/:id/send', auth, async (req, res) => {
 
   await sendInvoiceEmail(recipient, inv.invoice_number, pdf);
   db.prepare("UPDATE invoices SET status='sent', sent_at=? WHERE id=?").run(new Date().toISOString(), req.params.id);
+  audit.log('invoice', Number(req.params.id), 'sent', `${inv.invoice_number} sent to ${recipient}`, { ref: inv.invoice_number });
   res.json(db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id));
 });
 
@@ -264,16 +267,32 @@ router.get('/:id/pdf', auth, async (req, res) => {
 // ─── Mark paid ──────────────────────────────────────────────────────────────
 router.patch('/:id/mark-paid', auth, (req, res) => {
   db.prepare("UPDATE invoices SET status='paid', paid_at=? WHERE id=?").run(req.body.paid_at || new Date().toISOString().slice(0, 10), req.params.id);
+  const paidInv = db.prepare('SELECT invoice_number, total FROM invoices WHERE id=?').get(req.params.id);
+  audit.log('invoice', Number(req.params.id), 'paid', `${paidInv.invoice_number} marked as paid — $${Number(paidInv.total).toFixed(2)}`, { ref: paidInv.invoice_number });
   res.json(db.prepare('SELECT * FROM invoices WHERE id=?').get(req.params.id));
 });
 
 // ─── Void invoice ───────────────────────────────────────────────────────────
 router.patch('/:id/void', auth, (req, res) => {
-  const inv = db.prepare('SELECT appointment_id FROM invoices WHERE id=?').get(req.params.id);
-  if (inv?.appointment_id) {
+  const inv = db.prepare(`
+    SELECT i.*, c.first_name || ' ' || c.last_name AS client_name,
+      p.first_name || ' ' || p.last_name AS practitioner_name,
+      fm.name AS funds_manager_name
+    FROM invoices i
+    LEFT JOIN clients c ON c.id = i.client_id
+    LEFT JOIN practitioners p ON p.id = i.practitioner_id
+    LEFT JOIN funds_managers fm ON fm.id = i.funds_manager_id
+    WHERE i.id=?
+  `).get(req.params.id);
+  if (!inv) return res.status(404).json({ error: 'Not found' });
+  const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id=?').all(req.params.id);
+  if (inv.appointment_id) {
     db.prepare('UPDATE appointments SET is_invoiced=0 WHERE id=?').run(inv.appointment_id);
   }
   db.prepare("UPDATE invoices SET status='void', voided_at=? WHERE id=?").run(new Date().toISOString(), req.params.id);
+  audit.log('invoice', Number(req.params.id), 'voided',
+    `${inv.invoice_number} voided — Client: ${inv.client_name}, Practitioner: ${inv.practitioner_name}, Funder: ${inv.funds_manager_name || 'N/A'}, Total: $${Number(inv.total).toFixed(2)}`,
+    { ref: inv.invoice_number, snapshot: { ...inv, items } });
   res.json({ ok: true });
 });
 
