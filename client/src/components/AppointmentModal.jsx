@@ -184,7 +184,7 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
     late_cancel_billable: false,
   });
 
-  const [recurrence, setRecurrence] = useState({ enabled: false, freq: 'weekly', days: [], endType: 'on', until: '', occurrences: '' });
+  const [recurrence, setRecurrence] = useState({ enabled: false, freq: 'weekly', days: [], endType: 'never', until: '', occurrences: '' });
   const [lateCancelConfirm, setLateCancelConfirm] = useState(null); // null | { daysUntil, tier }
 
   useEffect(() => {
@@ -494,6 +494,13 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
 
                 <div className="space-y-3">
                   <label className="text-sm text-gray-600">Ends:</label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input type="radio" name="endType" className="accent-indigo-600"
+                      checked={recurrence.endType === 'never'}
+                      onChange={() => setRecurrence(r => ({ ...r, endType: 'never' }))} />
+                    <span className="text-sm text-gray-700">Never</span>
+                    <span className="text-xs text-gray-400">(generates 2 months ahead automatically)</span>
+                  </label>
                   <label className="flex items-center gap-3 cursor-pointer">
                     <input type="radio" name="endType" className="accent-indigo-600"
                       checked={recurrence.endType === 'after'}
