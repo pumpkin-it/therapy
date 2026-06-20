@@ -143,6 +143,17 @@ try { db.exec(`ALTER TABLE invoice_items ADD COLUMN code TEXT`); } catch {}
 try { db.exec(`ALTER TABLE invoices ADD COLUMN voided_at TEXT`); } catch {}
 
 try { db.exec(`
+  CREATE TABLE IF NOT EXISTS gst_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    rate REAL NOT NULL,
+    effective_from TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+
+try { db.exec(`ALTER TABLE services ADD COLUMN gst_type TEXT DEFAULT 'GST'`); } catch {}
+
+try { db.exec(`
   CREATE TABLE IF NOT EXISTS audit_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     entity_type TEXT NOT NULL,
@@ -157,6 +168,7 @@ try { db.exec(`
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN service_date TEXT`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN gst_rate REAL DEFAULT 0`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN gst_amount REAL DEFAULT 0`); } catch {}
+try { db.exec(`ALTER TABLE invoice_items ADD COLUMN gst_type TEXT DEFAULT 'GST'`); } catch {}
 try { db.exec(`ALTER TABLE services ADD COLUMN travel_rate_per_hour REAL`); } catch {}
 try { db.exec(`ALTER TABLE services ADD COLUMN km_rate REAL`); } catch {}
 
@@ -317,6 +329,12 @@ const defaults = {
 const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
 for (const [key, value] of Object.entries(defaults)) {
   insertSetting.run(key, value);
+}
+
+// Seed default GST rate
+const gstCount = db.prepare('SELECT COUNT(*) as c FROM gst_rates').get().c;
+if (gstCount === 0) {
+  db.prepare("INSERT INTO gst_rates (rate, effective_from) VALUES (0.1, '2000-07-01')").run();
 }
 
 // Seed default admin user

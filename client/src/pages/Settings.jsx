@@ -13,6 +13,8 @@ export default function Settings() {
   const logoInputRef = useRef();
 
   const [cancelTiers, setCancelTiers] = useState([]);
+  const [gstRates, setGstRates] = useState([]);
+  const [newGst, setNewGst] = useState({ rate: '', effective_from: '' });
 
   const SECTIONS = [
     { key: 'calendar',      label: 'Calendar' },
@@ -42,7 +44,20 @@ export default function Settings() {
     api.get('/settings/logo', { responseType: 'blob' })
       .then(r => setLogoUrl(URL.createObjectURL(r.data)))
       .catch(() => setLogoUrl(null));
+    api.get('/gst-rates').then(r => setGstRates(r.data));
   }, []);
+
+  const addGstRate = async () => {
+    if (!newGst.rate || !newGst.effective_from) return;
+    await api.post('/gst-rates', newGst);
+    setNewGst({ rate: '', effective_from: '' });
+    api.get('/gst-rates').then(r => setGstRates(r.data));
+  };
+
+  const deleteGstRate = async (id) => {
+    await api.delete(`/gst-rates/${id}`);
+    api.get('/gst-rates').then(r => setGstRates(r.data));
+  };
 
   const uploadLogo = async (file) => {
     if (!file) return;
@@ -124,6 +139,43 @@ export default function Settings() {
         <h2 className="font-semibold text-gray-900">Integrations</h2>
         {field('Google Maps API Key', 'google_maps_api_key')}
         <p className="text-xs text-gray-400">Used for address autocomplete. Requires Places API enabled.</p>
+      </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+        <div>
+          <h2 className="font-semibold text-gray-900">GST Rates</h2>
+          <p className="text-xs text-gray-400 mt-1">Services are assigned a GST type (GST / GST Free / N-T). The GST percentage is set here globally with an effective date — rate changes only apply to invoices after that date.</p>
+        </div>
+        <div className="space-y-2">
+          {gstRates.map(r => (
+            <div key={r.id} className="flex items-center gap-3 text-sm">
+              <span className="font-medium text-gray-900 w-16">{Math.round(r.rate * 100)}%</span>
+              <span className="text-gray-500">from {r.effective_from}</span>
+              {gstRates.length > 1 && (
+                <button onClick={() => deleteGstRate(r.id)} className="text-red-400 hover:text-red-600 ml-auto">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="flex items-end gap-2">
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">New rate (%)</label>
+            <input type="number" min="0" step="1" placeholder="e.g. 15"
+              className="w-20 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              value={newGst.rate} onChange={e => setNewGst(g => ({ ...g, rate: e.target.value }))} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">Effective from</label>
+            <input type="date"
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              value={newGst.effective_from} onChange={e => setNewGst(g => ({ ...g, effective_from: e.target.value }))} />
+          </div>
+          <Button variant="secondary" size="sm" onClick={addGstRate} disabled={!newGst.rate || !newGst.effective_from}>
+            <Plus className="h-3.5 w-3.5" /> Add rate
+          </Button>
+        </div>
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">

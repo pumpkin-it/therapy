@@ -6,13 +6,10 @@ import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { currency } from '../lib/utils';
 
-const EMPTY = { name:'', description:'', code:'', default_rate:0, unit:'hour', default_duration:60, travel_rate_per_hour:'', km_rate:'', notes_rate:'', gst_pct:'', discipline_id:'', travel_code:'', km_code:'', notes_code:'' };
+const EMPTY = { name:'', description:'', code:'', default_rate:0, unit:'hour', default_duration:60, travel_rate_per_hour:'', km_rate:'', notes_rate:'', gst_type:'GST', discipline_id:'', travel_code:'', km_code:'', notes_code:'' };
 
 function ServiceModal({ service, onClose, onSaved }) {
-  const [form, setForm] = useState(() => {
-    const s = service || EMPTY;
-    return { ...s, gst_pct: s.gst_rate != null && s.gst_rate !== '' ? Math.round(Number(s.gst_rate) * 100) : '' };
-  });
+  const [form, setForm] = useState(service || EMPTY);
   const [saving, setSaving] = useState(false);
   const [disciplines, setDisciplines] = useState([]);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
@@ -21,11 +18,9 @@ function ServiceModal({ service, onClose, onSaved }) {
 
   const save = async () => {
     setSaving(true);
-    const payload = { ...form, gst_rate: form.gst_pct !== '' ? Number(form.gst_pct) / 100 : null };
-    delete payload.gst_pct;
     try {
-      if (service) await api.patch(`/services/${service.id}`, payload);
-      else         await api.post('/services', payload);
+      if (service) await api.patch(`/services/${service.id}`, form);
+      else         await api.post('/services', form);
       onSaved();
     } finally { setSaving(false); }
   };
@@ -79,8 +74,15 @@ function ServiceModal({ service, onClose, onSaved }) {
             onChange={e => set('notes_code', e.target.value)} placeholder="e.g. 04_799" />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Input label="GST (%)" type="number" step="1" value={form.gst_pct}
-            onChange={e => set('gst_pct', e.target.value)} placeholder="e.g. 10" />
+          <div className="space-y-1">
+            <label className="block text-sm font-medium text-gray-700">GST Type</label>
+            <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              value={form.gst_type || 'GST'} onChange={e => set('gst_type', e.target.value)}>
+              <option value="GST">GST (standard rate)</option>
+              <option value="FRE">GST Free</option>
+              <option value="N-T">N-T (Not Reportable)</option>
+            </select>
+          </div>
         </div>
       </div>
       <div className="flex justify-end gap-2 mt-5">

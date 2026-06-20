@@ -86,7 +86,8 @@ function generateInvoicePdf(data) {
       doc.text(item.description, 203, rowY, { width: 100 });
       doc.text(String(item.quantity), 306, rowY, { width: 28, align: 'right' });
       doc.text(`$${Number(item.unit_rate).toFixed(2)}`, 336, rowY, { width: 45, align: 'right' });
-      doc.text(`${Math.round(gstRate * 100)}%`, 383, rowY, { width: 25, align: 'right' });
+      const gstLabel = item.gst_type === 'FRE' ? 'FRE' : item.gst_type === 'N-T' ? 'N-T' : `${Math.round(gstRate * 100)}%`;
+      doc.text(gstLabel, 383, rowY, { width: 25, align: 'right' });
       doc.text(`$${lineIncGst.toFixed(2)}`, 410, rowY, { width: 85, align: 'right' });
       rowY = doc.y + 3;
       doc.moveTo(50, rowY).lineTo(right, rowY).strokeColor('#e5e7eb').stroke();
