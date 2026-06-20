@@ -323,7 +323,7 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
 
   const del = async () => {
     if (appointment.series_id) {
-      setSeriesEndPrompt({ step: 'choose', endDate: startDate });
+      setSeriesEndPrompt({ step: 'choose', endDate: new Date().toISOString().slice(0, 10) });
       return;
     }
     const { data } = await api.get(`/appointments/${appointment.id}/cancel-policy`);
