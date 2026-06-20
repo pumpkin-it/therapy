@@ -23,8 +23,8 @@ router.post('/', auth, (req, res) => {
     const overlaps = db.prepare(`
       SELECT id FROM funding_periods
       WHERE client_id = ?
-        AND (start_date IS NULL OR DATE(start_date) <= DATE(?))
-        AND (end_date IS NULL OR DATE(end_date) >= DATE(?))
+        AND (start_date IS NULL OR start_date = '' OR DATE(start_date) <= DATE(?))
+        AND (end_date IS NULL OR end_date = '' OR DATE(end_date) >= DATE(?))
     `).all(client_id, end_date || '9999-12-31', start_date || '0000-01-01');
 
     if (overlaps.length) {
@@ -55,8 +55,8 @@ router.patch('/:id', auth, (req, res) => {
     const overlaps = db.prepare(`
       SELECT id FROM funding_periods
       WHERE client_id = ? AND id != ?
-        AND (start_date IS NULL OR DATE(start_date) <= DATE(?))
-        AND (end_date IS NULL OR DATE(end_date) >= DATE(?))
+        AND (start_date IS NULL OR start_date = '' OR DATE(start_date) <= DATE(?))
+        AND (end_date IS NULL OR end_date = '' OR DATE(end_date) >= DATE(?))
     `).all(existing.client_id, req.params.id, end_date || '9999-12-31', start_date || '0000-01-01');
 
     if (overlaps.length) {

@@ -36,7 +36,7 @@ router.get('/to-send', auth, (req, res) => {
     JOIN clients c ON c.id = a.client_id
     JOIN practitioners p ON p.id = a.practitioner_id
     LEFT JOIN funding_periods fp ON fp.client_id = a.client_id
-      AND (fp.start_date IS NULL OR fp.start_date <= DATE(a.start_time)) AND (fp.end_date IS NULL OR fp.end_date >= DATE(a.start_time))
+      AND (fp.start_date IS NULL OR fp.start_date = '' OR fp.start_date <= DATE(a.start_time)) AND (fp.end_date IS NULL OR fp.end_date = '' OR fp.end_date >= DATE(a.start_time))
     LEFT JOIN funds_managers fm ON fm.id = fp.funds_manager_id
     WHERE ${where}
     ORDER BY a.start_time ASC
@@ -120,7 +120,7 @@ router.post('/generate', auth, (req, res) => {
       JOIN clients c ON c.id = a.client_id
       JOIN practitioners p ON p.id = a.practitioner_id
       LEFT JOIN funding_periods fp ON fp.client_id = a.client_id
-        AND (fp.start_date IS NULL OR fp.start_date <= DATE(a.start_time)) AND (fp.end_date IS NULL OR fp.end_date >= DATE(a.start_time))
+        AND (fp.start_date IS NULL OR fp.start_date = '' OR fp.start_date <= DATE(a.start_time)) AND (fp.end_date IS NULL OR fp.end_date = '' OR fp.end_date >= DATE(a.start_time))
       WHERE a.id = ? AND a.is_invoiced = 0
     `).get(apptId);
 
