@@ -58,7 +58,7 @@ export default function RecurringSeriesDetail() {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="flex-1">
-          <h1 className="text-2xl font-semibold">{series.client_name}</h1>
+          <h1 className="text-2xl font-semibold"><span className="font-mono text-base text-indigo-500 mr-2">SER-{String(series.id).padStart(5,'0')}</span>{series.client_name}</h1>
           <p className="text-sm text-gray-500">{series.practitioner_name} · {FREQ_LABEL[series.freq]} on {DAY_NAMES[series.day_of_week]}s</p>
         </div>
         <Button variant={series.active ? 'secondary' : 'primary'} size="sm" onClick={toggleActive}>
@@ -154,6 +154,7 @@ export default function RecurringSeriesDetail() {
             const isPast = new Date(a.start_time) < new Date();
             return (
               <div key={a.id} className={`px-4 py-2.5 flex items-center gap-3 ${isPast ? 'opacity-50' : ''}`}>
+                <span className="font-mono text-xs text-gray-400 w-20 shrink-0">APT-{String(a.id).padStart(5,'0')}</span>
                 <span className="h-2 w-2 rounded-full shrink-0" style={{ background: a.practitioner_color }} />
                 <span className="text-sm text-gray-700 w-36 shrink-0">
                   {format(parseISO(a.start_time), 'EEE d MMM yyyy')}

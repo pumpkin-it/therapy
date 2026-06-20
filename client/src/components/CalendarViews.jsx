@@ -22,6 +22,8 @@ export const HOUR_START = 6;
 export const HOUR_COUNT = 16; // 6am–9pm
 export const HOURS = Array.from({ length: HOUR_COUNT }, (_, i) => i + HOUR_START);
 
+export const apptRef = id => `APT-${String(id).padStart(5,'0')}`;
+
 export function getStyle(startISO, endISO) {
   const start = new Date(startISO);
   const end   = new Date(endISO);
@@ -93,6 +95,7 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
                   ))}
                   <div
                     onClick={e => { e.stopPropagation(); onClickAppt(appt); }}
+                    title={apptRef(appt.id)}
                     className={cn('absolute inset-x-1 rounded border px-1.5 py-1 text-xs cursor-pointer overflow-hidden hover:shadow transition-shadow', STATUS_CLASS[appt.status] || STATUS_CLASS.scheduled)}
                     style={getStyle(appt.start_time, appt.end_time)}
                   >
@@ -167,6 +170,7 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
                   ))}
                   <div
                     onClick={() => onClickAppt(appt)}
+                    title={apptRef(appt.id)}
                     className="absolute inset-x-1 rounded border px-1.5 py-1 text-xs cursor-pointer overflow-hidden hover:shadow transition-shadow"
                     style={{ ...getStyle(appt.start_time, appt.end_time), borderColor: practitionerColor(appt.practitioner_id), background: practitionerColor(appt.practitioner_id) + '22', color: '#111' }}
                   >
@@ -229,6 +233,7 @@ export function MonthView({ date, appointments, practitioners, filteredPractitio
                 {dayAppts.slice(0, 3).map(appt => (
                   <div key={appt.id}
                     onClick={e => { e.stopPropagation(); onClickAppt(appt); }}
+                    title={apptRef(appt.id)}
                     className="truncate rounded px-1 py-0.5 text-xs font-medium cursor-pointer hover:opacity-80"
                     style={{ background: practitionerColor(appt.practitioner_id) + '33', color: '#111', borderLeft: `3px solid ${practitionerColor(appt.practitioner_id)}` }}
                   >

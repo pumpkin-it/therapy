@@ -432,7 +432,7 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
   const isHome = form.location_type === 'home';
 
   return (
-    <Modal title={editing ? 'Edit Appointment' : 'New Appointment'} onClose={onClose} wide>
+    <Modal title={editing ? `Edit Appointment — APT-${String(appointment.id).padStart(5,'0')}` : 'New Appointment'} onClose={onClose} wide>
       <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
 
         {/* Practitioner + Client */}

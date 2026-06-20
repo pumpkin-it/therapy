@@ -54,7 +54,7 @@ export default function RecurringSeries() {
                 <div className="flex items-center gap-3">
                   <span className="h-3 w-3 rounded-full shrink-0" style={{ background: s.practitioner_color }} />
                   <div>
-                    <p className="font-medium text-gray-900">{s.client_name}</p>
+                    <p className="font-medium text-gray-900"><span className="font-mono text-xs text-indigo-500 mr-1.5">SER-{String(s.id).padStart(5,'0')}</span>{s.client_name}</p>
                     <p className="text-sm text-gray-500">{s.practitioner_name} · {FREQ_LABEL[s.freq] || s.freq} on {DAY_NAMES[s.day_of_week]}s</p>
                   </div>
                 </div>
