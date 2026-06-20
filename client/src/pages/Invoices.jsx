@@ -238,6 +238,7 @@ export default function Invoices() {
     ['to_send',    'To Send'],
     ['to_receive', 'To Receive'],
     ['paid',       'Paid'],
+    ['void',       'Void'],
   ];
 
   return (
@@ -260,6 +261,7 @@ export default function Invoices() {
       {tab === 'to_send' && <ToSendTab />}
       {tab === 'to_receive' && <InvoiceListTab status="draft,sent" emptyMsg="No invoices awaiting payment." />}
       {tab === 'paid' && <InvoiceListTab status="paid" emptyMsg="No paid invoices." />}
+      {tab === 'void' && <InvoiceListTab status="void" emptyMsg="No voided invoices." />}
     </div>
   );
 }

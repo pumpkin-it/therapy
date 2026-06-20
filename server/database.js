@@ -140,6 +140,7 @@ try { db.exec(`ALTER TABLE services ADD COLUMN travel_code TEXT`); } catch {}
 try { db.exec(`ALTER TABLE services ADD COLUMN km_code TEXT`); } catch {}
 try { db.exec(`ALTER TABLE services ADD COLUMN notes_code TEXT`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN code TEXT`); } catch {}
+try { db.exec(`ALTER TABLE invoices ADD COLUMN voided_at TEXT`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN service_date TEXT`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN gst_rate REAL DEFAULT 0`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN gst_amount REAL DEFAULT 0`); } catch {}

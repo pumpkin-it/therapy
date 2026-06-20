@@ -273,7 +273,7 @@ router.patch('/:id/void', auth, (req, res) => {
   if (inv?.appointment_id) {
     db.prepare('UPDATE appointments SET is_invoiced=0 WHERE id=?').run(inv.appointment_id);
   }
-  db.prepare("UPDATE invoices SET status='void' WHERE id=?").run(req.params.id);
+  db.prepare("UPDATE invoices SET status='void', voided_at=? WHERE id=?").run(new Date().toISOString(), req.params.id);
   res.json({ ok: true });
 });
 
