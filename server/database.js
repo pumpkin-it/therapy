@@ -136,6 +136,10 @@ try { db.exec(`ALTER TABLE clients ADD COLUMN plan_start_date TEXT`); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN plan_end_date TEXT`); } catch {}
 
 try { db.exec(`ALTER TABLE services ADD COLUMN code TEXT`); } catch {}
+try { db.exec(`ALTER TABLE services ADD COLUMN travel_code TEXT`); } catch {}
+try { db.exec(`ALTER TABLE services ADD COLUMN km_code TEXT`); } catch {}
+try { db.exec(`ALTER TABLE services ADD COLUMN notes_code TEXT`); } catch {}
+try { db.exec(`ALTER TABLE invoice_items ADD COLUMN code TEXT`); } catch {}
 try { db.exec(`ALTER TABLE services ADD COLUMN travel_rate_per_hour REAL`); } catch {}
 try { db.exec(`ALTER TABLE services ADD COLUMN km_rate REAL`); } catch {}
 

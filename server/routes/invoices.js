@@ -132,52 +132,53 @@ router.post('/generate', auth, (req, res) => {
 
     const items = db.prepare(`
       SELECT ai.*, s.name AS service_name, s.code AS service_code,
-        s.travel_rate_per_hour, s.km_rate, s.notes_rate
+        s.travel_rate_per_hour, s.km_rate, s.notes_rate,
+        s.travel_code, s.km_code, s.notes_code
       FROM appointment_items ai LEFT JOIN services s ON s.id = ai.service_id
       WHERE ai.appointment_id = ?
     `).all(apptId);
 
     if (!items.length) continue;
 
-    // Build line items including travel/notes
+    // Build line items including travel/notes with codes
     const lineItems = [];
     for (const item of items) {
-      // Base service cost
       lineItems.push({
         appointment_item_id: item.id,
+        code: item.service_code || '',
         description: item.service_name || item.description,
         quantity: item.quantity,
         unit_rate: item.unit_rate,
         line_total: item.quantity * item.unit_rate,
       });
-      // Travel time
       if (item.travel_time_min) {
         const travelHrs = item.travel_time_min / 60;
         const travelRate = item.travel_rate_per_hour || item.unit_rate;
         lineItems.push({
           appointment_item_id: item.id,
+          code: item.travel_code || '',
           description: `Travel time (${item.travel_time_min} min)`,
           quantity: travelHrs,
           unit_rate: travelRate,
           line_total: travelHrs * travelRate,
         });
       }
-      // Travel km
       if (item.travel_km && item.km_rate) {
         lineItems.push({
           appointment_item_id: item.id,
+          code: item.km_code || '',
           description: `Travel distance (${item.travel_km} km)`,
           quantity: item.travel_km,
           unit_rate: item.km_rate,
           line_total: item.travel_km * item.km_rate,
         });
       }
-      // Notes time
       if (item.notes_min) {
         const notesHrs = item.notes_min / 60;
         const notesRate = item.notes_rate || item.unit_rate;
         lineItems.push({
           appointment_item_id: item.id,
+          code: item.notes_code || '',
           description: `Clinical notes (${item.notes_min} min)`,
           quantity: notesHrs,
           unit_rate: notesRate,
@@ -203,11 +204,11 @@ router.post('/generate', auth, (req, res) => {
       appt.funds_manager_id || null, issueDate, dueDate, subtotal, gstRate || 0, taxAmount, total);
 
     const insertItem = db.prepare(`
-      INSERT INTO invoice_items (invoice_id, appointment_item_id, description, quantity, unit_rate, line_total)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO invoice_items (invoice_id, appointment_item_id, code, description, quantity, unit_rate, line_total)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
     for (const li of lineItems) {
-      insertItem.run(r.lastInsertRowid, li.appointment_item_id, li.description, li.quantity, li.unit_rate, li.line_total);
+      insertItem.run(r.lastInsertRowid, li.appointment_item_id, li.code || null, li.description, li.quantity, li.unit_rate, li.line_total);
     }
 
     db.prepare('UPDATE appointments SET is_invoiced=1 WHERE id=?').run(apptId);

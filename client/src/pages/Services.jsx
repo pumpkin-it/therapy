@@ -6,7 +6,7 @@ import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { currency } from '../lib/utils';
 
-const EMPTY = { name:'', description:'', code:'', default_rate:0, unit:'hour', default_duration:60, travel_rate_per_hour:'', km_rate:'', notes_rate:'', gst_rate:'', discipline_id:'' };
+const EMPTY = { name:'', description:'', code:'', default_rate:0, unit:'hour', default_duration:60, travel_rate_per_hour:'', km_rate:'', notes_rate:'', gst_rate:'', discipline_id:'', travel_code:'', km_code:'', notes_code:'' };
 
 function ServiceModal({ service, onClose, onSaved }) {
   const [form, setForm] = useState(service || EMPTY);
@@ -59,13 +59,21 @@ function ServiceModal({ service, onClose, onSaved }) {
         </div>
         <Input label="Default duration (minutes)" type="number" value={form.default_duration}
           onChange={e => set('default_duration', parseInt(e.target.value))} />
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <Input label="Travel rate ($/hr)" type="number" step="0.01" value={form.travel_rate_per_hour}
             onChange={e => set('travel_rate_per_hour', e.target.value)} placeholder="Optional" />
           <Input label="KM rate ($/km)" type="number" step="0.01" value={form.km_rate}
             onChange={e => set('km_rate', e.target.value)} placeholder="Optional" />
           <Input label="Notes rate ($/hr)" type="number" step="0.01" value={form.notes_rate}
             onChange={e => set('notes_rate', e.target.value)} placeholder="Optional" />
+          <Input label="Travel code" value={form.travel_code}
+            onChange={e => set('travel_code', e.target.value)} placeholder="e.g. 04_799" />
+          <Input label="KM code" value={form.km_code}
+            onChange={e => set('km_code', e.target.value)} placeholder="e.g. 04_799" />
+          <Input label="Notes code" value={form.notes_code}
+            onChange={e => set('notes_code', e.target.value)} placeholder="e.g. 04_799" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
           <Input label="GST rate (e.g. 0.1 = 10%)" type="number" step="0.01" value={form.gst_rate}
             onChange={e => set('gst_rate', e.target.value)} placeholder="e.g. 0.1" />
         </div>
