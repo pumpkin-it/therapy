@@ -63,19 +63,19 @@ function generateInvoicePdf(data) {
     // Table
     const tableY = Math.max(doc.y + 20, detY + 60);
     doc.rect(50, tableY, 495, 18).fill('#f3f4f6');
-    doc.fillColor('#111').font('Helvetica-Bold').fontSize(8.5);
-    doc.text('Code',         55, tableY + 4, { width: 60 });
-    doc.text('Description', 120, tableY + 4, { width: 190 });
-    doc.text('Qty',         315, tableY + 4, { width: 50, align: 'right' });
+    doc.fillColor('#111').font('Helvetica-Bold').fontSize(8);
+    doc.text('Code',         55, tableY + 4, { width: 130 });
+    doc.text('Description', 190, tableY + 4, { width: 130 });
+    doc.text('Qty',         325, tableY + 4, { width: 40, align: 'right' });
     doc.text('Rate',        370, tableY + 4, { width: 60, align: 'right' });
     doc.text('Amount',      435, tableY + 4, { width: 60, align: 'right' });
 
     let rowY = tableY + 20;
-    doc.font('Helvetica').fontSize(9);
+    doc.font('Helvetica').fontSize(8);
     for (const item of (data.items || [])) {
-      doc.fillColor('#111').text(item.code || item.service_code || '', 55, rowY, { width: 60 });
-      doc.text(item.description, 120, rowY, { width: 190 });
-      doc.text(String(item.quantity), 315, rowY, { width: 50, align: 'right' });
+      doc.fillColor('#111').text(item.code || item.service_code || '', 55, rowY, { width: 130 });
+      doc.text(item.description, 190, rowY, { width: 130 });
+      doc.text(String(item.quantity), 325, rowY, { width: 40, align: 'right' });
       doc.text(`$${Number(item.unit_rate).toFixed(2)}`, 370, rowY, { width: 60, align: 'right' });
       doc.text(`$${Number(item.line_total).toFixed(2)}`, 435, rowY, { width: 60, align: 'right' });
       rowY = doc.y + 3;
