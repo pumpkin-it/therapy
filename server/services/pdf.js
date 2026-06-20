@@ -66,39 +66,44 @@ function generateInvoicePdf(data) {
     // Table
     const tableY = Math.max(doc.y + 20, detY + 60);
     doc.rect(50, tableY, 495, 18).fill('#f3f4f6');
-    doc.fillColor('#111').font('Helvetica-Bold').fontSize(8);
-    doc.text('Code',         55, tableY + 4, { width: 130 });
-    doc.text('Description', 190, tableY + 4, { width: 130 });
-    doc.text('Qty',         325, tableY + 4, { width: 40, align: 'right' });
-    doc.text('Rate',        370, tableY + 4, { width: 60, align: 'right' });
-    doc.text('Amount',      435, tableY + 4, { width: 60, align: 'right' });
+    doc.fillColor('#111').font('Helvetica-Bold').fontSize(7.5);
+    doc.text('Code',         55, tableY + 5, { width: 110 });
+    doc.text('Description', 168, tableY + 5, { width: 115 });
+    doc.text('Qty',         286, tableY + 5, { width: 32, align: 'right' });
+    doc.text('Rate',        320, tableY + 5, { width: 50, align: 'right' });
+    doc.text('Amount',      373, tableY + 5, { width: 50, align: 'right' });
+    doc.text('GST',         426, tableY + 5, { width: 30, align: 'right' });
+    doc.text('GST $',       458, tableY + 5, { width: 37, align: 'right' });
 
     let rowY = tableY + 20;
-    doc.font('Helvetica').fontSize(8);
+    doc.font('Helvetica').fontSize(7.5);
     for (const item of (data.items || [])) {
-      doc.fillColor('#111').text(item.code || item.service_code || '', 55, rowY, { width: 130 });
-      doc.text(item.description, 190, rowY, { width: 130 });
-      doc.text(String(item.quantity), 325, rowY, { width: 40, align: 'right' });
-      doc.text(`$${Number(item.unit_rate).toFixed(2)}`, 370, rowY, { width: 60, align: 'right' });
-      doc.text(`$${Number(item.line_total).toFixed(2)}`, 435, rowY, { width: 60, align: 'right' });
+      const gstRate = Number(item.gst_rate || 0);
+      const gstAmt = Number(item.gst_amount || item.line_total * gstRate || 0);
+      doc.fillColor('#111').text(item.code || item.service_code || '', 55, rowY, { width: 110 });
+      doc.text(item.description, 168, rowY, { width: 115 });
+      doc.text(String(item.quantity), 286, rowY, { width: 32, align: 'right' });
+      doc.text(`$${Number(item.unit_rate).toFixed(2)}`, 320, rowY, { width: 50, align: 'right' });
+      doc.text(`$${Number(item.line_total).toFixed(2)}`, 373, rowY, { width: 50, align: 'right' });
+      doc.text(gstRate ? `${Math.round(gstRate * 100)}%` : '—', 426, rowY, { width: 30, align: 'right' });
+      doc.text(gstAmt ? `$${gstAmt.toFixed(2)}` : '—', 458, rowY, { width: 37, align: 'right' });
       rowY = doc.y + 3;
       doc.moveTo(50, rowY).lineTo(right, rowY).strokeColor('#e5e7eb').stroke();
       rowY += 4;
     }
 
     // Totals
+    const gstTotal = (data.items || []).reduce((s, i) => s + Number(i.gst_amount || i.line_total * (i.gst_rate || 0) || 0), 0);
     const totY = rowY + 10;
     doc.font('Helvetica').fontSize(9).fillColor('#111');
-    doc.text('Subtotal', 370, totY, { width: 60, align: 'right' });
-    doc.text(`$${Number(data.subtotal).toFixed(2)}`, 435, totY, { width: 60, align: 'right' });
-    if (data.tax_rate) {
-      doc.text(`GST (${Math.round((data.tax_rate || 0) * 100)}%)`, 370, totY + 15, { width: 60, align: 'right' });
-      doc.text(`$${Number(data.tax_amount || 0).toFixed(2)}`, 435, totY + 15, { width: 60, align: 'right' });
-    }
+    doc.text('Subtotal', 390, totY, { width: 50, align: 'right' });
+    doc.text(`$${Number(data.subtotal).toFixed(2)}`, 443, totY, { width: 52, align: 'right' });
+    doc.text('GST Total', 390, totY + 15, { width: 50, align: 'right' });
+    doc.text(`$${gstTotal.toFixed(2)}`, 443, totY + 15, { width: 52, align: 'right' });
     doc.font('Helvetica-Bold').fontSize(11);
-    const totalY = data.tax_rate ? totY + 34 : totY + 18;
-    doc.text('TOTAL', 370, totalY, { width: 60, align: 'right' });
-    doc.text(`$${Number(data.total).toFixed(2)}`, 435, totalY, { width: 60, align: 'right' });
+    const totalY = totY + 34;
+    doc.text('TOTAL', 390, totalY, { width: 50, align: 'right' });
+    doc.text(`$${Number(data.total).toFixed(2)}`, 443, totalY, { width: 52, align: 'right' });
 
     // Notes
     let footerY = totalY + 40;
