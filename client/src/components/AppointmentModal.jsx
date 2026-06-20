@@ -186,8 +186,9 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
 
   const [recurrence, setRecurrence] = useState({ enabled: false, freq: 'weekly', days: [], endType: 'never', until: '', occurrences: '' });
   const [lateCancelConfirm, setLateCancelConfirm] = useState(null);
-  const [makeRecurring, setMakeRecurring] = useState(null); // null | { freq, endType, until, occurrences }
-  const [convertingRecurring, setConvertingRecurring] = useState(false); // null | { daysUntil, tier }
+  const [makeRecurring, setMakeRecurring] = useState(null);
+  const [convertingRecurring, setConvertingRecurring] = useState(false);
+  const [seriesEndPrompt, setSeriesEndPrompt] = useState(null); // null | { step: 'choose' | 'pickDate', endDate } // null | { daysUntil, tier }
 
   useEffect(() => {
     Promise.all([
@@ -321,14 +322,38 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
   };
 
   const del = async () => {
+    if (appointment.series_id) {
+      setSeriesEndPrompt({ step: 'choose', endDate: startDate });
+      return;
+    }
     const { data } = await api.get(`/appointments/${appointment.id}/cancel-policy`);
     if (data.tier) {
-      setLateCancelConfirm(data); // show modal
+      setLateCancelConfirm(data);
     } else {
       if (!confirm('Cancel this appointment?')) return;
       await api.patch(`/appointments/${appointment.id}/status`, { status: 'cancelled', late_cancel_pct: null, late_cancel_billable: 0 });
       onSaved();
     }
+  };
+
+  const cancelSingleFromSeries = async () => {
+    const { data } = await api.get(`/appointments/${appointment.id}/cancel-policy`);
+    if (data.tier) {
+      setSeriesEndPrompt(null);
+      setLateCancelConfirm(data);
+    } else {
+      await api.patch(`/appointments/${appointment.id}/status`, { status: 'cancelled', late_cancel_pct: null, late_cancel_billable: 0 });
+      onSaved();
+    }
+  };
+
+  const endSeriesFromDate = async (endDate) => {
+    await api.patch(`/recurring-series/${appointment.series_id}`, {
+      end_type: 'date',
+      end_date: endDate,
+    });
+    setSeriesEndPrompt(null);
+    onSaved();
   };
 
   const confirmCancel = async (applyPolicy) => {
@@ -747,6 +772,49 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
 
         {error && <p className="text-sm text-red-600">{error}</p>}
       </div>
+
+      {/* Series cancel prompt */}
+      {seriesEndPrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+            {seriesEndPrompt.step === 'choose' ? (
+              <>
+                <h3 className="font-semibold text-gray-900">This is a recurring appointment</h3>
+                <div className="flex flex-col gap-2">
+                  <Button onClick={cancelSingleFromSeries} className="w-full justify-center">
+                    Cancel this appointment only
+                  </Button>
+                  <Button variant="secondary" onClick={() => setSeriesEndPrompt(s => ({ ...s, step: 'pickDate' }))} className="w-full justify-center">
+                    End this series…
+                  </Button>
+                  <Button variant="ghost" onClick={() => setSeriesEndPrompt(null)} className="w-full justify-center text-gray-500">
+                    Go back
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="font-semibold text-gray-900">End recurring series</h3>
+                <p className="text-sm text-gray-600">All scheduled appointments after this date will be cancelled. The series will stop generating new ones.</p>
+                <div className="space-y-1">
+                  <label className="text-sm text-gray-700">Last appointment date:</label>
+                  <input type="date" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                    value={seriesEndPrompt.endDate}
+                    onChange={e => setSeriesEndPrompt(s => ({ ...s, endDate: e.target.value }))} />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Button onClick={() => endSeriesFromDate(seriesEndPrompt.endDate)} className="w-full justify-center">
+                    End series after {seriesEndPrompt.endDate}
+                  </Button>
+                  <Button variant="ghost" onClick={() => setSeriesEndPrompt(s => ({ ...s, step: 'choose' }))} className="w-full justify-center text-gray-500">
+                    Go back
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Late cancellation policy confirmation */}
       {lateCancelConfirm && (
