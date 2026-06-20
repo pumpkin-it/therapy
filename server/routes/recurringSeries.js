@@ -30,8 +30,8 @@ function generateForSeries(series, horizon) {
   const endDate = series.end_type === 'date' && series.end_date ? new Date(series.end_date + 'T23:59') : null;
   const maxOccurrences = series.end_type === 'occurrences' ? series.end_occurrences : null;
 
-  const existingCount = db.prepare('SELECT COUNT(*) as cnt FROM appointments WHERE series_id=?').get(series.id).cnt;
-  const lastAppt = db.prepare('SELECT start_time FROM appointments WHERE series_id=? ORDER BY start_time DESC LIMIT 1').get(series.id);
+  const existingCount = db.prepare("SELECT COUNT(*) as cnt FROM appointments WHERE series_id=? AND status != 'cancelled'").get(series.id).cnt;
+  const lastAppt = db.prepare("SELECT start_time FROM appointments WHERE series_id=? AND status != 'cancelled' ORDER BY start_time DESC LIMIT 1").get(series.id);
 
   // Start from the day after the last generated appointment, or from the series start
   let st, et;
@@ -63,7 +63,7 @@ function generateForSeries(series, horizon) {
     if (maxOccurrences && totalCount >= maxOccurrences) break;
 
     if (stDate.getDay() === series.day_of_week) {
-      const existing = db.prepare('SELECT id FROM appointments WHERE series_id=? AND start_time=?').get(series.id, st);
+      const existing = db.prepare("SELECT id FROM appointments WHERE series_id=? AND start_time=? AND status != 'cancelled'").get(series.id, st);
       if (!existing) {
         const r = insertAppt.run(
           series.practitioner_id, series.client_id, series.location, series.location_id,
