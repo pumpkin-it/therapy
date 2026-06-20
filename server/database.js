@@ -152,6 +152,8 @@ try { db.exec(`
 `); } catch {}
 
 try { db.exec(`ALTER TABLE services ADD COLUMN gst_type TEXT DEFAULT 'GST'`); } catch {}
+try { db.exec(`ALTER TABLE appointment_items ADD COLUMN travel_time_to INTEGER`); } catch {}
+try { db.exec(`ALTER TABLE appointment_items ADD COLUMN travel_time_from INTEGER`); } catch {}
 
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS audit_logs (

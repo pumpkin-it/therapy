@@ -6,7 +6,7 @@ import Button from './ui/Button';
 import { Trash2, Plus, FileText, Pencil, RefreshCw, Mail, AlertCircle, CheckCircle, TriangleAlert } from 'lucide-react';
 import { localToday, fmtDate } from '../lib/utils';
 
-const EMPTY_ITEM = { service_id: '', description: '', quantity: 1, unit_rate: 0, travel_time_min: '', travel_km: '', notes_min: '' };
+const EMPTY_ITEM = { service_id: '', description: '', quantity: 1, unit_rate: 0, travel_time_to: '', travel_time_from: '', travel_km: '', notes_min: '' };
 
 // Split ISO datetime string into { date, time }
 const splitDT = iso => {
@@ -257,7 +257,8 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
           description:    i.description,
           quantity:       i.quantity,
           unit_rate:      i.unit_rate,
-          travel_time_min: i.travel_time_min || '',
+          travel_time_to:  i.travel_time_to || '',
+          travel_time_from: i.travel_time_from || '',
           travel_km:      i.travel_km || '',
           notes_min:      i.notes_min || '',
         })) : [{ ...EMPTY_ITEM }],
@@ -338,7 +339,8 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
           service_id:      i.service_id ? Number(i.service_id) : null,
           quantity:        Number(i.quantity),
           unit_rate:       Number(i.unit_rate),
-          travel_time_min: form.location_type === 'home' && i.travel_time_min ? Number(i.travel_time_min) : null,
+          travel_time_to:  form.location_type === 'home' && i.travel_time_to ? Number(i.travel_time_to) : null,
+          travel_time_from: form.location_type === 'home' && i.travel_time_from ? Number(i.travel_time_from) : null,
           travel_km:       form.location_type === 'home' && i.travel_km ? Number(i.travel_km) : null,
           notes_min:       i.notes_min ? Number(i.notes_min) : null,
         })),
@@ -488,7 +490,7 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
   const calcItemTotal = (item) => {
     const base = Number(item.quantity || 0) * Number(item.unit_rate || 0);
     const svc = item.service_id ? services.find(s => s.id === Number(item.service_id)) : null;
-    const travelTimeHrs = Number(item.travel_time_min || 0) / 60;
+    const travelTimeHrs = (Number(item.travel_time_to || 0) + Number(item.travel_time_from || 0)) / 60;
     const travelTimeCost = travelTimeHrs * Number(svc?.travel_rate_per_hour || item.unit_rate || 0);
     const kmCost = Number(item.travel_km || 0) * Number(svc?.km_rate || 0);
     const notesHrs = Number(item.notes_min || 0) / 60;
@@ -676,9 +678,14 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
                     {isHome && (
                       <>
                         <div className="space-y-1">
-                          <label className="text-xs text-gray-500">Travel (min)</label>
+                          <label className="text-xs text-gray-500">Travel to (min)</label>
                           <input type="number" className="w-20 rounded border border-gray-300 px-2 py-1.5 text-sm"
-                            value={item.travel_time_min} onChange={e => setItem(idx, 'travel_time_min', e.target.value)} placeholder="—" />
+                            value={item.travel_time_to} onChange={e => setItem(idx, 'travel_time_to', e.target.value)} placeholder="—" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-gray-500">Travel from (min)</label>
+                          <input type="number" className="w-20 rounded border border-gray-300 px-2 py-1.5 text-sm"
+                            value={item.travel_time_from} onChange={e => setItem(idx, 'travel_time_from', e.target.value)} placeholder="—" />
                         </div>
                         <div className="space-y-1">
                           <label className="text-xs text-gray-500">Travel (km)</label>
@@ -689,7 +696,7 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
                     )}
                   </div>
                 ) : (
-                  <div className={`grid gap-2 ${isHome ? 'grid-cols-4' : 'grid-cols-2'}`}>
+                  <div className={`grid gap-2 ${isHome ? 'grid-cols-5' : 'grid-cols-2'}`}>
                     <div className="space-y-1">
                       <label className="text-xs text-gray-500">Qty</label>
                       <input type="number" step="0.25" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
@@ -703,9 +710,14 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
                     {isHome && (
                       <>
                         <div className="space-y-1">
-                          <label className="text-xs text-gray-500">Travel (min)</label>
+                          <label className="text-xs text-gray-500">Travel to (min)</label>
                           <input type="number" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                            value={item.travel_time_min} onChange={e => setItem(idx, 'travel_time_min', e.target.value)} placeholder="—" />
+                            value={item.travel_time_to} onChange={e => setItem(idx, 'travel_time_to', e.target.value)} placeholder="—" />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-gray-500">Travel from (min)</label>
+                          <input type="number" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                            value={item.travel_time_from} onChange={e => setItem(idx, 'travel_time_from', e.target.value)} placeholder="—" />
                         </div>
                         <div className="space-y-1">
                           <label className="text-xs text-gray-500">Travel (km)</label>

@@ -65,8 +65,8 @@ function generateForSeries(series, horizon) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?)
   `);
   const insertItem = db.prepare(`
-    INSERT INTO appointment_items (appointment_id, service_id, description, quantity, unit_rate, travel_time_min, travel_km, prep_time_min, item_notes, notes_min)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO appointment_items (appointment_id, service_id, description, quantity, unit_rate, travel_time_min, travel_time_to, travel_time_from, travel_km, prep_time_min, item_notes, notes_min)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   let created = 0;
@@ -87,8 +87,8 @@ function generateForSeries(series, horizon) {
         );
         for (const item of items) {
           insertItem.run(r.lastInsertRowid, item.service_id || null, item.description, item.quantity || 1,
-            item.unit_rate, item.travel_time_min || null, item.travel_km || null,
-            item.prep_time_min || null, item.item_notes || null, item.notes_min || null);
+            item.unit_rate, item.travel_time_min || null, item.travel_time_to || null, item.travel_time_from || null,
+            item.travel_km || null, item.prep_time_min || null, item.item_notes || null, item.notes_min || null);
         }
         created++;
         totalCount++;

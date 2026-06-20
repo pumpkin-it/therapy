@@ -33,15 +33,26 @@ export function getStyle(startISO, endISO) {
 }
 
 export function travelBlocks(appt) {
-  const totalMin = (appt.items || []).reduce((s, i) => s + (i.travel_time_min || 0), 0);
-  if (!totalMin) return [];
-  const half = totalMin / 2;
+  const toMin = (appt.items || []).reduce((s, i) => s + (i.travel_time_to || 0), 0);
+  const fromMin = (appt.items || []).reduce((s, i) => s + (i.travel_time_from || 0), 0);
+  // Fallback to old travel_time_min split evenly
+  if (!toMin && !fromMin) {
+    const totalMin = (appt.items || []).reduce((s, i) => s + (i.travel_time_min || 0), 0);
+    if (!totalMin) return [];
+    const half = totalMin / 2;
+    const start = new Date(appt.start_time);
+    const end   = new Date(appt.end_time);
+    return [
+      { key: 'before', startISO: new Date(start.getTime() - half * 60000).toISOString(), endISO: appt.start_time },
+      { key: 'after',  startISO: appt.end_time, endISO: new Date(end.getTime() + half * 60000).toISOString() },
+    ];
+  }
+  const blocks = [];
   const start = new Date(appt.start_time);
   const end   = new Date(appt.end_time);
-  return [
-    { key: 'before', startISO: new Date(start.getTime() - half * 60000).toISOString(), endISO: appt.start_time },
-    { key: 'after',  startISO: appt.end_time, endISO: new Date(end.getTime() + half * 60000).toISOString() },
-  ];
+  if (toMin) blocks.push({ key: 'before', startISO: new Date(start.getTime() - toMin * 60000).toISOString(), endISO: appt.start_time });
+  if (fromMin) blocks.push({ key: 'after', startISO: appt.end_time, endISO: new Date(end.getTime() + fromMin * 60000).toISOString() });
+  return blocks;
 }
 
 // ─── Day View ────────────────────────────────────────────────────────────────
