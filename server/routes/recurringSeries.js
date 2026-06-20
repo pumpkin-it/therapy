@@ -202,7 +202,8 @@ router.patch('/:id', auth, (req, res) => {
   if (!series) return res.status(404).json({ error: 'Not found' });
 
   const { practitioner_id, client_id, start_time, end_time, notes, title,
-    location_type, location_id, location_other, items, apply_from } = req.body;
+    location_type, location_id, location_other, items, apply_from,
+    end_type, end_date, end_occurrences } = req.body;
 
   const changes = [];
 
@@ -231,9 +232,56 @@ router.patch('/:id', auth, (req, res) => {
     else { updates.location = location_other || 'Other'; updates.location_other = location_other; }
   }
 
+  // Handle end type changes
+  if (end_type !== undefined) {
+    const oldEndType = series.end_type;
+    updates.end_type = end_type;
+    updates.end_date = end_type === 'date' ? (end_date || null) : null;
+    updates.end_occurrences = end_type === 'occurrences' ? (end_occurrences || null) : null;
+
+    if (end_type === 'date' && end_date) {
+      // Cancel all scheduled appointments after the end date
+      const cancelled = db.prepare(
+        "UPDATE appointments SET status='cancelled' WHERE series_id=? AND start_time > ? AND status='scheduled'"
+      ).run(req.params.id, end_date + 'T23:59');
+      if (cancelled.changes > 0) {
+        changes.push(`End date set to ${end_date} — cancelled ${cancelled.changes} appointments after that date`);
+      } else {
+        changes.push(`End date set to ${end_date}`);
+      }
+    } else if (end_type === 'occurrences' && end_occurrences) {
+      // Cancel excess appointments beyond the occurrence limit
+      const allScheduled = db.prepare(
+        "SELECT id FROM appointments WHERE series_id=? AND status='scheduled' ORDER BY start_time ASC"
+      ).all(req.params.id);
+      const totalNonCancelled = db.prepare(
+        "SELECT COUNT(*) as cnt FROM appointments WHERE series_id=? AND status != 'cancelled'"
+      ).get(req.params.id).cnt;
+      if (totalNonCancelled > end_occurrences) {
+        const excess = allScheduled.slice(-(totalNonCancelled - end_occurrences));
+        for (const a of excess) {
+          db.prepare("UPDATE appointments SET status='cancelled' WHERE id=?").run(a.id);
+        }
+        changes.push(`Occurrence limit set to ${end_occurrences} — cancelled ${excess.length} excess appointments`);
+      } else {
+        changes.push(`Occurrence limit set to ${end_occurrences}`);
+      }
+    } else if (end_type === 'never' && oldEndType !== 'never') {
+      // Changed to never-ending — generate appointments up to horizon
+      changes.push('Changed to never-ending');
+    }
+  }
+
   const setClauses = Object.keys(updates).map(k => `${k}=?`).join(', ');
   if (setClauses) {
     db.prepare(`UPDATE recurring_series SET ${setClauses} WHERE id=?`).run(...Object.values(updates), req.params.id);
+  }
+
+  // If changed to never-ending, generate new appointments
+  if (end_type === 'never' && series.end_type !== 'never') {
+    const updatedSeries = db.prepare('SELECT * FROM recurring_series WHERE id=?').get(req.params.id);
+    const generated = generateForSeries(updatedSeries, getHorizon());
+    if (generated > 0) changes.push(`Generated ${generated} new appointments`);
   }
 
   // Update future appointments

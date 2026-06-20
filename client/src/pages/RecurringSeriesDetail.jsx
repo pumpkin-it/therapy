@@ -19,6 +19,8 @@ export default function RecurringSeriesDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [series, setSeries] = useState(null);
+  const [endEdit, setEndEdit] = useState(null); // null | { end_type, end_date, end_occurrences }
+  const [saving, setSaving] = useState(false);
 
   const load = () => api.get(`/recurring-series/${id}`).then(r => setSeries(r.data));
   useEffect(() => { load(); }, [id]);
@@ -28,6 +30,21 @@ export default function RecurringSeriesDetail() {
   const toggleActive = async () => {
     await api.patch(`/recurring-series/${id}/active`, { active: !series.active });
     load();
+  };
+
+  const startEndEdit = () => setEndEdit({
+    end_type: series.end_type || 'never',
+    end_date: series.end_date || '',
+    end_occurrences: series.end_occurrences || '',
+  });
+
+  const saveEndEdit = async () => {
+    setSaving(true);
+    try {
+      await api.patch(`/recurring-series/${id}`, endEdit);
+      setEndEdit(null);
+      load();
+    } finally { setSaving(false); }
   };
 
   const past = series.appointments.filter(a => new Date(a.start_time) < new Date());
@@ -52,9 +69,41 @@ export default function RecurringSeriesDetail() {
       {/* Summary cards */}
       <div className="grid grid-cols-3 gap-4">
         <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <div className="flex items-center gap-2 text-sm text-gray-500 mb-1"><Clock className="h-4 w-4" /> Schedule</div>
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2 text-sm text-gray-500"><Clock className="h-4 w-4" /> Schedule</div>
+            {!endEdit && <button onClick={startEndEdit} className="text-xs text-indigo-600 hover:underline">Edit</button>}
+          </div>
           <p className="font-medium text-gray-900">{series.start_time?.slice(11,16)} – {series.end_time?.slice(11,16)}</p>
-          <p className="text-xs text-gray-400 mt-1">{series.end_type === 'never' ? 'No end date' : series.end_type === 'date' ? `Until ${series.end_date}` : `${series.end_occurrences} occurrences`}</p>
+          {endEdit ? (
+            <div className="mt-2 space-y-2">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="radio" className="accent-indigo-600" checked={endEdit.end_type === 'never'}
+                  onChange={() => setEndEdit(e => ({ ...e, end_type: 'never' }))} />
+                <span>Never ends</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="radio" className="accent-indigo-600" checked={endEdit.end_type === 'date'}
+                  onChange={() => setEndEdit(e => ({ ...e, end_type: 'date' }))} />
+                <span>End on</span>
+                <input type="date" className="rounded border border-gray-300 px-2 py-1 text-sm"
+                  value={endEdit.end_date} onChange={e => setEndEdit(ev => ({ ...ev, end_date: e.target.value, end_type: 'date' }))} />
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="radio" className="accent-indigo-600" checked={endEdit.end_type === 'occurrences'}
+                  onChange={() => setEndEdit(e => ({ ...e, end_type: 'occurrences' }))} />
+                <span>After</span>
+                <input type="number" min="1" className="w-16 rounded border border-gray-300 px-2 py-1 text-sm"
+                  value={endEdit.end_occurrences} onChange={e => setEndEdit(ev => ({ ...ev, end_occurrences: e.target.value, end_type: 'occurrences' }))} />
+                <span>occurrences</span>
+              </label>
+              <div className="flex gap-2 pt-1">
+                <Button size="sm" onClick={saveEndEdit} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+                <Button size="sm" variant="secondary" onClick={() => setEndEdit(null)}>Cancel</Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-400 mt-1">{series.end_type === 'never' ? 'No end date' : series.end_type === 'date' ? `Until ${series.end_date}` : `${series.end_occurrences} occurrences`}</p>
+          )}
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <div className="flex items-center gap-2 text-sm text-gray-500 mb-1"><Calendar className="h-4 w-4" /> Appointments</div>
