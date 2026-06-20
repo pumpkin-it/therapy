@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Plus, Pencil, Trash2, MapPin } from 'lucide-react';
 import api from '../lib/api';
+import AddressAutocomplete from '../components/AddressAutocomplete';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
@@ -25,7 +26,7 @@ function LocationModal({ location, onClose, onSaved }) {
     <Modal title={location ? 'Edit Location' : 'Add Location'} onClose={onClose}>
       <div className="space-y-3">
         <Input label="Clinic name" value={form.name} onChange={e => set('name', e.target.value)} />
-        <Input label="Address"     value={form.address} onChange={e => set('address', e.target.value)} />
+        <AddressAutocomplete label="Address" value={form.address} onChange={v => set('address', v)} />
       </div>
       <div className="flex justify-end gap-2 mt-5">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>

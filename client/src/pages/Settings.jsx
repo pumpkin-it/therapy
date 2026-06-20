@@ -3,6 +3,7 @@ import { Upload, X, Plus, Trash2 } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
+import AddressAutocomplete from '../components/AddressAutocomplete';
 
 export default function Settings() {
   const [form, setForm] = useState({});
@@ -93,7 +94,7 @@ export default function Settings() {
           {field('Email',          'practice_email', 'email')}
           {field('Phone',          'practice_phone')}
         </div>
-        {field('Address', 'practice_address')}
+        <AddressAutocomplete label="Address" value={form.practice_address || ''} onChange={v => set('practice_address', v)} />
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
@@ -117,6 +118,12 @@ export default function Settings() {
             )}
           </div>
         </div>
+      </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+        <h2 className="font-semibold text-gray-900">Integrations</h2>
+        {field('Google Maps API Key', 'google_maps_api_key')}
+        <p className="text-xs text-gray-400">Used for address autocomplete. Requires Places API enabled.</p>
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">

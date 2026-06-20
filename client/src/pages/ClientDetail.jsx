@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
 import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, X, UserX, UserCheck } from 'lucide-react';
 import api from '../lib/api';
+import AddressAutocomplete from '../components/AddressAutocomplete';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Input from '../components/ui/Input';
@@ -459,7 +460,7 @@ export default function ClientDetail() {
                 </select>
               </div>
               <div className="col-span-2">
-                <Input label="Address" value={form.address} onChange={e => set('address', e.target.value)} />
+                <AddressAutocomplete label="Address" value={form.address} onChange={v => set('address', v)} />
               </div>
             </div>
 
