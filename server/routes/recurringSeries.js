@@ -203,7 +203,7 @@ router.patch('/:id', auth, (req, res) => {
 
   const { practitioner_id, client_id, start_time, end_time, notes, title,
     location_type, location_id, location_other, items, apply_from,
-    end_type, end_date, end_occurrences, freq } = req.body;
+    end_type, end_date, end_occurrences, freq, freq_change_from } = req.body;
 
   const changes = [];
 
@@ -287,16 +287,18 @@ router.patch('/:id', auth, (req, res) => {
     if (generated > 0) changes.push(`Generated ${generated} new appointments`);
   }
 
-  // If frequency changed, cancel future scheduled appointments and regenerate
+  // If frequency changed, cancel appointments from the change date and regenerate
   if (freq && freq !== series.freq) {
-    const today = new Date().toISOString().slice(0, 10);
+    const changeFrom = freq_change_from || new Date().toISOString().slice(0, 10);
     const cancelled = db.prepare(
       "UPDATE appointments SET status='cancelled' WHERE series_id=? AND start_time >= ? AND status='scheduled'"
-    ).run(req.params.id, today + 'T00:00');
-    changes.push(`Frequency: ${FREQ_LABELS[series.freq] || series.freq} → ${FREQ_LABELS[freq] || freq}. Cancelled ${cancelled.changes} future appointments`);
+    ).run(req.params.id, changeFrom + 'T00:00');
+    changes.push(`Frequency: ${FREQ_LABELS[series.freq] || series.freq} → ${FREQ_LABELS[freq] || freq} from ${changeFrom}. Cancelled ${cancelled.changes} appointments`);
 
-    // Reset generated_until so regeneration starts fresh
-    db.prepare('UPDATE recurring_series SET generated_until=NULL WHERE id=?').run(req.params.id);
+    // Reset generated_until so regeneration starts fresh from the change date
+    db.prepare('UPDATE recurring_series SET generated_until=? WHERE id=?').run(
+      new Date(new Date(changeFrom).getTime() - 86400000).toISOString().slice(0, 10), req.params.id
+    );
     const updatedSeries = db.prepare('SELECT * FROM recurring_series WHERE id=?').get(req.params.id);
     const generated = generateForSeries(updatedSeries, getHorizon());
     if (generated > 0) changes.push(`Regenerated ${generated} appointments at new frequency`);
