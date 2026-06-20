@@ -13,7 +13,7 @@ const CLIENT_SELECT = `
   LEFT JOIN funding_periods fp_active ON fp_active.id = (
     SELECT id FROM funding_periods
     WHERE client_id = c.id
-      AND DATE(start_date) <= DATE('now') AND DATE(end_date) >= DATE('now')
+      AND (start_date IS NULL OR DATE(start_date) <= DATE('now')) AND (end_date IS NULL OR DATE(end_date) >= DATE('now'))
     ORDER BY start_date DESC LIMIT 1
   )
   LEFT JOIN funds_managers fm_active ON fm_active.id = fp_active.funds_manager_id

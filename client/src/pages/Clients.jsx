@@ -112,7 +112,7 @@ function FundingTab({ clientId }) {
   };
 
   const today = localToday();
-  const isActive = p => p.start_date <= today && p.end_date >= today;
+  const isActive = p => (!p.start_date || p.start_date <= today) && (!p.end_date || p.end_date >= today);
 
   if (!clientId) return <p className="text-sm text-gray-400 py-6 text-center">Save the client first to manage funding periods.</p>;
 
@@ -130,9 +130,13 @@ function FundingTab({ clientId }) {
                 <Badge color={FUNDING_COLOR[p.funding_type] || 'gray'}>{p.funding_type}</Badge>
                 {isActive(p) && <span className="text-xs text-indigo-600 font-medium">Active</span>}
               </div>
-              <p className="text-sm text-gray-700 mt-1">
-                {format(parseISO(p.start_date), 'd MMM yyyy')} – {format(parseISO(p.end_date), 'd MMM yyyy')}
-              </p>
+              {(p.start_date || p.end_date) ? (
+                <p className="text-sm text-gray-700 mt-1">
+                  {p.start_date ? format(parseISO(p.start_date), 'd MMM yyyy') : '—'} – {p.end_date ? format(parseISO(p.end_date), 'd MMM yyyy') : 'ongoing'}
+                </p>
+              ) : (
+                <p className="text-sm text-gray-400 mt-1">No dates set (open-ended)</p>
+              )}
               {p.funds_manager_name && (
                 <p className="text-xs text-gray-500">Funder: {p.funds_manager_name}</p>
               )}
@@ -193,7 +197,7 @@ function FundingTab({ clientId }) {
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="secondary" size="sm" onClick={cancel}>Cancel</Button>
             <Button size="sm" onClick={save}
-              disabled={saving || !form.funding_type || !form.start_date || !form.end_date}>
+              disabled={saving || !form.funding_type}>
               {saving ? 'Saving…' : editing === 'new' ? 'Add period' : 'Save changes'}
             </Button>
           </div>

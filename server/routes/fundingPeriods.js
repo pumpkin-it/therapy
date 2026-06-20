@@ -18,22 +18,25 @@ router.get('/', auth, (req, res) => {
 router.post('/', auth, (req, res) => {
   const { client_id, funding_type, funds_manager_id, start_date, end_date } = req.body;
 
-  // Check for overlaps
-  const overlaps = db.prepare(`
-    SELECT id FROM funding_periods
-    WHERE client_id = ?
-      AND DATE(start_date) <= DATE(?) AND DATE(end_date) >= DATE(?)
-  `).all(client_id, end_date, start_date);
+  // Check for overlaps (only when both periods have dates)
+  if (start_date || end_date) {
+    const overlaps = db.prepare(`
+      SELECT id FROM funding_periods
+      WHERE client_id = ?
+        AND (start_date IS NULL OR DATE(start_date) <= DATE(?))
+        AND (end_date IS NULL OR DATE(end_date) >= DATE(?))
+    `).all(client_id, end_date || '9999-12-31', start_date || '0000-01-01');
 
-  if (overlaps.length) {
-    return res.status(422).json({ error: 'This period overlaps with an existing funding period.' });
+    if (overlaps.length) {
+      return res.status(422).json({ error: 'This period overlaps with an existing funding period.' });
+    }
   }
 
   const { client_identifier } = req.body;
   const result = db.prepare(`
     INSERT INTO funding_periods (client_id, funding_type, funds_manager_id, client_identifier, start_date, end_date)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(client_id, funding_type, funds_manager_id || null, client_identifier || null, start_date, end_date);
+  `).run(client_id, funding_type, funds_manager_id || null, client_identifier || null, start_date || null, end_date || null);
 
   res.status(201).json(db.prepare(`
     SELECT fp.*, fm.name AS funds_manager_name
@@ -47,20 +50,23 @@ router.patch('/:id', auth, (req, res) => {
   const existing = db.prepare('SELECT client_id FROM funding_periods WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
 
-  // Check for overlaps excluding self
-  const overlaps = db.prepare(`
-    SELECT id FROM funding_periods
-    WHERE client_id = ? AND id != ?
-      AND DATE(start_date) <= DATE(?) AND DATE(end_date) >= DATE(?)
-  `).all(existing.client_id, req.params.id, end_date, start_date);
+  // Check for overlaps excluding self (only when dates exist)
+  if (start_date || end_date) {
+    const overlaps = db.prepare(`
+      SELECT id FROM funding_periods
+      WHERE client_id = ? AND id != ?
+        AND (start_date IS NULL OR DATE(start_date) <= DATE(?))
+        AND (end_date IS NULL OR DATE(end_date) >= DATE(?))
+    `).all(existing.client_id, req.params.id, end_date || '9999-12-31', start_date || '0000-01-01');
 
-  if (overlaps.length) {
-    return res.status(422).json({ error: 'This period overlaps with an existing funding period.' });
+    if (overlaps.length) {
+      return res.status(422).json({ error: 'This period overlaps with an existing funding period.' });
+    }
   }
 
   db.prepare(`
     UPDATE funding_periods SET funding_type=?, funds_manager_id=?, client_identifier=?, start_date=?, end_date=? WHERE id=?
-  `).run(funding_type, funds_manager_id || null, client_identifier || null, start_date, end_date, req.params.id);
+  `).run(funding_type, funds_manager_id || null, client_identifier || null, start_date || null, end_date || null, req.params.id);
 
   res.json(db.prepare(`
     SELECT fp.*, fm.name AS funds_manager_name
