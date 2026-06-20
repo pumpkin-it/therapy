@@ -63,7 +63,11 @@ router.get('/', auth, (req, res) => {
   const { status, client_id, funds_manager_id } = req.query;
   let where = '1=1';
   const params = [];
-  if (status)           { where += ' AND i.status=?';           params.push(status); }
+  if (status) {
+    const statuses = status.split(',');
+    where += ` AND i.status IN (${statuses.map(() => '?').join(',')})`;
+    params.push(...statuses);
+  }
   if (client_id)        { where += ' AND i.client_id=?';        params.push(client_id); }
   if (funds_manager_id) { where += ' AND i.funds_manager_id=?'; params.push(funds_manager_id); }
 

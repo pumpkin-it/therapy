@@ -252,7 +252,7 @@ export default function Invoices() {
       </div>
 
       {tab === 'to_send' && <ToSendTab />}
-      {tab === 'to_receive' && <InvoiceListTab status="sent" emptyMsg="No invoices awaiting payment." />}
+      {tab === 'to_receive' && <InvoiceListTab status="draft,sent" emptyMsg="No invoices awaiting payment." />}
       {tab === 'paid' && <InvoiceListTab status="paid" emptyMsg="No paid invoices." />}
     </div>
   );
