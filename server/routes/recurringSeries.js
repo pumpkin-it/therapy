@@ -334,15 +334,20 @@ router.patch('/:id', auth, (req, res) => {
     if (updates.location_id !== undefined) apptUpdates.location_id = updates.location_id;
     if (updates.location_other !== undefined) apptUpdates.location_other = updates.location_other;
 
-    // For time changes, shift each appointment's time
-    if (start_time && end_time) {
+    // For time changes, update start and/or end time on each future appointment
+    if (start_time || end_time) {
       const existing = db.prepare('SELECT start_time, end_time FROM appointments WHERE id=?').get(appt.id);
-      const oldTimeOfDay = series.start_time.slice(11);
-      const newTimeOfDay = start_time.slice(11);
-      if (oldTimeOfDay !== newTimeOfDay) {
-        apptUpdates.start_time = existing.start_time.slice(0, 11) + newTimeOfDay;
-        const newEndTimeOfDay = end_time.slice(11);
-        apptUpdates.end_time = existing.end_time.slice(0, 11) + newEndTimeOfDay;
+      if (start_time) {
+        const newStartTime = start_time.slice(11);
+        if (newStartTime !== series.start_time.slice(11)) {
+          apptUpdates.start_time = existing.start_time.slice(0, 11) + newStartTime;
+        }
+      }
+      if (end_time) {
+        const newEndTime = end_time.slice(11);
+        if (newEndTime !== series.end_time.slice(11)) {
+          apptUpdates.end_time = existing.end_time.slice(0, 11) + newEndTime;
+        }
       }
     }
 
