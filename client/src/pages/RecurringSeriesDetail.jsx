@@ -72,7 +72,7 @@ export default function RecurringSeriesDetail() {
         </button>
         <div className="flex-1">
           <h1 className="text-2xl font-semibold"><span className="font-mono text-base text-indigo-500 mr-2">SER-{String(series.id).padStart(5,'0')}</span>{series.client_name}</h1>
-          <p className="text-sm text-gray-500">{series.practitioner_name} · {FREQ_LABEL[series.freq]} on {DAY_NAMES[series.day_of_week]}s</p>
+          <p className="text-sm text-gray-500">{series.practitioner_name} · {FREQ_LABEL[series.freq]} on {DAY_NAMES[series.day_of_week]}s starting {series.start_time?.slice(0,10)}</p>
         </div>
         <Button variant={series.active ? 'secondary' : 'primary'} size="sm" onClick={toggleActive}>
           {series.active ? <><Pause className="h-3.5 w-3.5" /> Pause series</> : <><Play className="h-3.5 w-3.5" /> Resume series</>}

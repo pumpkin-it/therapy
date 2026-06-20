@@ -34,14 +34,19 @@ function generateForSeries(series, horizon) {
   const lastAppt = db.prepare("SELECT start_time FROM appointments WHERE series_id=? AND status != 'cancelled' ORDER BY start_time DESC LIMIT 1").get(series.id);
 
   // Start from the day after the last generated appointment, or from the series start
+  const durMs = new Date(series.end_time) - new Date(series.start_time);
   let st, et;
   if (lastAppt) {
     st = addInterval(lastAppt.start_time, series.freq);
-    const durMs = new Date(series.end_time) - new Date(series.start_time);
     et = new Date(new Date(st).getTime() + durMs).toISOString().slice(0, 16);
   } else {
-    st = series.start_time;
-    et = series.end_time;
+    // Adjust start to the correct day_of_week
+    const startDt = new Date(series.start_time);
+    let diff = series.day_of_week - startDt.getDay();
+    if (diff < 0) diff += 7;
+    if (diff > 0) startDt.setDate(startDt.getDate() + diff);
+    st = startDt.toISOString().slice(0, 11) + series.start_time.slice(11);
+    et = new Date(new Date(st).getTime() + durMs).toISOString().slice(0, 16);
   }
 
   const insertAppt = db.prepare(`
