@@ -21,6 +21,17 @@ export const STATUS_CLASS = {
 export const HOUR_START = 6;
 export const HOUR_COUNT = 16; // 6am–9pm
 export const HOURS = Array.from({ length: HOUR_COUNT }, (_, i) => i + HOUR_START);
+const SLOT_COUNT = HOUR_COUNT * 4; // 15-min slots
+
+function calcTimeFromClick(e, containerEl) {
+  const rect = containerEl.getBoundingClientRect();
+  const y = e.clientY - rect.top;
+  const pct = y / rect.clientHeight;
+  const totalMin = pct * HOUR_COUNT * 60;
+  const h = Math.floor(totalMin / 60) + HOUR_START;
+  const m = Math.floor(totalMin % 60 / 15) * 15;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+}
 
 export const apptRef = id => `APT-${String(id).padStart(5,'0')}`;
 
@@ -102,7 +113,7 @@ export function overlapLayout(appts) {
 
 // ─── Day View ────────────────────────────────────────────────────────────────
 
-export function DayView({ date, appointments, practitioners, filteredPractitionerId, onClickAppt, onClickSlot }) {
+export function DayView({ date, appointments, practitioners, filteredPractitionerId, onClickAppt, onClickSlot, dateStr }) {
   const cols = filteredPractitionerId
     ? practitioners.filter(p => p.id === Number(filteredPractitionerId))
     : practitioners;
@@ -120,23 +131,27 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
           </div>
         ))}
 
-        <div className="relative border-r border-gray-100" style={{ height: '780px' }}>
+        <div className="relative border-r border-gray-100" style={{ height: `${SLOT_COUNT * 12}px` }}>
           {HOURS.map(h => (
             <div key={h} className="absolute right-2 text-xs text-gray-400" style={{ top: `${((h - HOUR_START) / HOUR_COUNT) * 100}%` }}>
               {h % 12 || 12}{h < 12 ? 'am' : 'pm'}
             </div>
           ))}
-          {HOURS.map(h => (
-            <div key={`l${h}`} className="absolute w-full border-t border-gray-100" style={{ top: `${((h - HOUR_START) / HOUR_COUNT) * 100}%` }} />
-          ))}
+          {Array.from({ length: SLOT_COUNT }, (_, i) => {
+            const isHour = i % 4 === 0;
+            return <div key={i} className={`absolute w-full ${isHour ? 'border-t border-gray-200' : 'border-t border-gray-50'}`}
+              style={{ top: `${(i / SLOT_COUNT) * 100}%` }} />;
+          })}
         </div>
 
         {cols.map(p => (
-          <div key={p.id} className="relative border-l border-gray-100 cursor-pointer" style={{ height: '780px' }}
-            onClick={e => { if (e.target === e.currentTarget) onClickSlot(); }}>
-            {HOURS.map(h => (
-              <div key={h} className="absolute w-full border-t border-gray-100" style={{ top: `${((h - HOUR_START) / HOUR_COUNT) * 100}%` }} />
-            ))}
+          <div key={p.id} className="relative border-l border-gray-100 cursor-pointer" style={{ height: `${SLOT_COUNT * 12}px` }}
+            onClick={e => { if (e.target.closest('[data-appt]')) return; const time = calcTimeFromClick(e, e.currentTarget); onClickSlot({ date: dateStr || format(date, 'yyyy-MM-dd'), time, practitionerId: p.id }); }}>
+            {Array.from({ length: SLOT_COUNT }, (_, i) => {
+              const isHour = i % 4 === 0;
+              return <div key={i} className={`absolute w-full ${isHour ? 'border-t border-gray-200' : 'border-t border-gray-50'}`}
+                style={{ top: `${(i / SLOT_COUNT) * 100}%`, height: `${100 / SLOT_COUNT}%` }} />;
+            })}
             {(() => {
               const pAppts = appointments.filter(a => a.practitioner_id === p.id);
               const layout = overlapLayout(pAppts);
@@ -154,7 +169,7 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
                   ))}
                   <div
                     onClick={e => { e.stopPropagation(); onClickAppt(appt); }}
-                    title={apptRef(appt.id)}
+                    data-appt title={apptRef(appt.id)}
                     className={cn('absolute rounded border px-1.5 py-1 text-xs cursor-pointer overflow-hidden hover:shadow transition-shadow', STATUS_CLASS[appt.status] || STATUS_CLASS.scheduled)}
                     style={{ ...getStyle(appt.start_time, appt.end_time), left: ol.left, width: ol.width }}
                   >
@@ -175,7 +190,7 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
 
 // ─── Week View ────────────────────────────────────────────────────────────────
 
-export function WeekView({ date, appointments, practitioners, filteredPractitionerId, onClickAppt, onClickDay }) {
+export function WeekView({ date, appointments, practitioners, filteredPractitionerId, onClickAppt, onClickDay, onClickSlot }) {
   const weekStart = startOfWeek(date, { weekStartsOn: 1 });
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const today = startOfDay(new Date());
@@ -201,22 +216,27 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
           </div>
         ))}
 
-        <div className="relative border-r border-gray-100" style={{ height: '780px' }}>
+        <div className="relative border-r border-gray-100" style={{ height: `${SLOT_COUNT * 12}px` }}>
           {HOURS.map(h => (
             <div key={h} className="absolute right-2 text-xs text-gray-400" style={{ top: `${((h - HOUR_START) / HOUR_COUNT) * 100}%` }}>
               {h % 12 || 12}{h < 12 ? 'am' : 'pm'}
             </div>
           ))}
-          {HOURS.map(h => (
-            <div key={`l${h}`} className="absolute w-full border-t border-gray-100" style={{ top: `${((h - HOUR_START) / HOUR_COUNT) * 100}%` }} />
-          ))}
+          {Array.from({ length: SLOT_COUNT }, (_, i) => {
+            const isHour = i % 4 === 0;
+            return <div key={i} className={`absolute w-full ${isHour ? 'border-t border-gray-200' : 'border-t border-gray-50'}`}
+              style={{ top: `${(i / SLOT_COUNT) * 100}%` }} />;
+          })}
         </div>
 
         {days.map(day => (
-          <div key={day.toISOString()} className={cn('relative border-l border-gray-100', isSameDay(day, today) && 'bg-indigo-50/20')} style={{ height: '780px' }}>
-            {HOURS.map(h => (
-              <div key={h} className="absolute w-full border-t border-gray-100" style={{ top: `${((h - HOUR_START) / HOUR_COUNT) * 100}%` }} />
-            ))}
+          <div key={day.toISOString()} className={cn('relative border-l border-gray-100 cursor-pointer', isSameDay(day, today) && 'bg-indigo-50/20')} style={{ height: `${SLOT_COUNT * 12}px` }}
+            onClick={e => { if (onClickSlot && !e.target.closest('[data-appt]')) { const time = calcTimeFromClick(e, e.currentTarget); onClickSlot({ date: format(day, 'yyyy-MM-dd'), time }); } }}>
+            {Array.from({ length: SLOT_COUNT }, (_, i) => {
+              const isHour = i % 4 === 0;
+              return <div key={i} className={`absolute w-full ${isHour ? 'border-t border-gray-200' : 'border-t border-gray-50'}`}
+                style={{ top: `${(i / SLOT_COUNT) * 100}%`, height: `${100 / SLOT_COUNT}%` }} />;
+            })}
             {(() => {
               const dayAppts = filteredAppts.filter(a => isSameDay(new Date(a.start_time), day));
               const layout = overlapLayout(dayAppts);
@@ -234,7 +254,7 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
                   ))}
                   <div
                     onClick={() => onClickAppt(appt)}
-                    title={apptRef(appt.id)}
+                    data-appt title={apptRef(appt.id)}
                     className="absolute rounded border px-1.5 py-1 text-xs cursor-pointer overflow-hidden hover:shadow transition-shadow"
                     style={{ ...getStyle(appt.start_time, appt.end_time), left: ol.left, width: ol.width, borderColor: practitionerColor(appt.practitioner_id), background: practitionerColor(appt.practitioner_id) + '22', color: '#111' }}
                   >
@@ -299,7 +319,7 @@ export function MonthView({ date, appointments, practitioners, filteredPractitio
                 {dayAppts.slice(0, 3).map(appt => (
                   <div key={appt.id}
                     onClick={e => { e.stopPropagation(); onClickAppt(appt); }}
-                    title={apptRef(appt.id)}
+                    data-appt title={apptRef(appt.id)}
                     className="truncate rounded px-1 py-0.5 text-xs font-medium cursor-pointer hover:opacity-80"
                     style={{ background: practitionerColor(appt.practitioner_id) + '33', color: '#111', borderLeft: `3px solid ${practitionerColor(appt.practitioner_id)}` }}
                   >

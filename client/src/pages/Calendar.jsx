@@ -93,17 +93,19 @@ export default function Calendar() {
         </label>
 
         <div className="ml-auto">
-          <Button onClick={() => setModal('new')}><Plus className="h-4 w-4" /> New appointment</Button>
+          <Button onClick={() => setModal({ _new: true, date: dateStr })}><Plus className="h-4 w-4" /> New appointment</Button>
         </div>
       </div>
 
       {view === 'day' && (
         <DayView date={date} appointments={visibleAppointments} practitioners={practitioners}
-          filteredPractitionerId={practitionerFilter} onClickAppt={setModal} onClickSlot={() => setModal('new')} />
+          filteredPractitionerId={practitionerFilter} onClickAppt={setModal} dateStr={dateStr}
+          onClickSlot={slot => setModal({ _new: true, ...slot })} />
       )}
       {view === 'week' && (
         <WeekView date={date} appointments={visibleAppointments} practitioners={practitioners}
-          filteredPractitionerId={practitionerFilter} onClickAppt={setModal} onClickDay={goToDay} />
+          filteredPractitionerId={practitionerFilter} onClickAppt={setModal} onClickDay={goToDay}
+          onClickSlot={slot => setModal({ _new: true, ...slot })} />
       )}
       {view === 'month' && (
         <MonthView date={date} appointments={visibleAppointments} practitioners={practitioners}
@@ -112,8 +114,10 @@ export default function Calendar() {
 
       {modal !== null && (
         <AppointmentModal
-          appointment={modal === 'new' ? null : modal}
-          defaultDate={dateStr}
+          appointment={modal === 'new' || modal?._new ? null : modal}
+          defaultDate={modal?._new ? modal.date : dateStr}
+          defaultTime={modal?._new ? modal.time : null}
+          defaultPractitioner={modal?._new ? modal.practitionerId : null}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); load(); }}
           onRefresh={() => load()}

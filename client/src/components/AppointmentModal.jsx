@@ -188,7 +188,7 @@ function NotifyBtn({ label, target, status, onClick }) {
   );
 }
 
-export default function AppointmentModal({ appointment, defaultDate, onClose, onSaved, onRefresh }) {
+export default function AppointmentModal({ appointment, defaultDate, defaultTime, defaultPractitioner, onClose, onSaved, onRefresh }) {
   const editing = !!appointment;
   const [practitioners, setPractitioners] = useState([]);
   const [clients, setClients] = useState([]);
@@ -200,14 +200,21 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
   const [notifyStatus, setNotifyStatus] = useState({});
   const [conflicts, setConflicts] = useState([]);
 
-  const initSplit = iso => splitDT(iso || `${defaultDate}T09:00`);
+  const initStartTime = defaultTime || '09:00';
+  const initEndTime = (() => {
+    if (!defaultTime) return '10:00';
+    const [h, m] = defaultTime.split(':').map(Number);
+    return `${String(h + 1).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+  })();
+
+  const initSplit = iso => splitDT(iso || `${defaultDate}T${initStartTime}`);
   const [startDate, setStartDate] = useState(defaultDate);
-  const [startTime, setStartTime] = useState('09:00');
+  const [startTime, setStartTime] = useState(initStartTime);
   const [endDate,   setEndDate]   = useState(defaultDate);
-  const [endTime,   setEndTime]   = useState('10:00');
+  const [endTime,   setEndTime]   = useState(initEndTime);
 
   const [form, setForm] = useState({
-    practitioner_id: '',
+    practitioner_id: defaultPractitioner || '',
     client_id: '',
     location_type: 'home',
     location_id: '',
