@@ -90,7 +90,7 @@ function AddFundsManagerInline({ initialName, onClose, onSaved }) {
 }
 
 // ─── Funding tab ──────────────────────────────────────────────────────────────
-const EMPTY_PERIOD = { funding_type: '', funds_manager_id: '', client_identifier: '', start_date: '', end_date: '' };
+const EMPTY_PERIOD = { funding_type: '', funds_manager_id: '', client_identifier: '', start_date: '', end_date: '', ndis_management: '', self_managed_email: '' };
 
 function FundingTab({ clientId }) {
   const [periods, setPeriods] = useState([]);
@@ -109,7 +109,7 @@ function FundingTab({ clientId }) {
   const handleAddFM = name => new Promise(resolve => setAddFMName({ name, resolve }));
   const set = (k, v) => { setForm(f => ({ ...f, [k]: v })); setOverlapWarning(''); };
   const openAdd  = () => { setEditing('new'); setForm(EMPTY_PERIOD); setOverlapWarning(''); };
-  const openEdit = p  => { setEditing(p); setForm({ funding_type: p.funding_type, funds_manager_id: p.funds_manager_id || '', client_identifier: p.client_identifier || '', start_date: p.start_date, end_date: p.end_date }); setOverlapWarning(''); };
+  const openEdit = p  => { setEditing(p); setForm({ funding_type: p.funding_type, funds_manager_id: p.funds_manager_id || '', client_identifier: p.client_identifier || '', start_date: p.start_date, end_date: p.end_date, ndis_management: p.ndis_management || '', self_managed_email: p.self_managed_email || '' }); setOverlapWarning(''); };
   const cancel   = () => { setEditing(null); setOverlapWarning(''); };
 
   const save = async () => {
@@ -148,7 +148,9 @@ function FundingTab({ clientId }) {
                   {p.start_date ? format(parseISO(p.start_date), 'd MMM yyyy') : '—'} – {p.end_date ? format(parseISO(p.end_date), 'd MMM yyyy') : 'ongoing'}
                 </p>
               )}
+              {p.ndis_management && <p className="text-xs text-gray-500">{p.ndis_management === 'plan' ? 'Plan managed' : p.ndis_management === 'agency' ? 'Agency managed' : 'Self managed'}</p>}
               {p.funds_manager_name && <p className="text-xs text-gray-500">Funder: {p.funds_manager_name}</p>}
+              {p.self_managed_email && <p className="text-xs text-gray-500">Invoice email: {p.self_managed_email}</p>}
               {p.client_identifier && <p className="text-xs text-gray-500">Client ID: {p.client_identifier}</p>}
             </div>
             <div className="flex gap-1 shrink-0">
@@ -175,10 +177,35 @@ function FundingTab({ clientId }) {
                 {['NDIS', 'Medicare', 'Private', 'Aged Care', 'Other'].map(f => <option key={f}>{f}</option>)}
               </select>
             </div>
-            <div className="space-y-1">
-              <label className="block text-sm font-medium text-gray-700">Funder <span className="text-gray-400">(optional)</span></label>
-              <SearchSelect options={fmOptions} value={form.funds_manager_id} onChange={v => set('funds_manager_id', v)} placeholder="None" onAddNew={handleAddFM} addNewLabel="Add funder" />
-            </div>
+            {form.funding_type === 'NDIS' ? (
+              <div className="space-y-1">
+                <label className="block text-sm font-medium text-gray-700">Management type</label>
+                <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" value={form.ndis_management} onChange={e => { set('ndis_management', e.target.value); if (e.target.value !== 'plan') set('funds_manager_id', ''); if (e.target.value !== 'self') set('self_managed_email', ''); }}>
+                  <option value="">Select…</option>
+                  <option value="plan">Plan managed</option>
+                  <option value="agency">Agency managed</option>
+                  <option value="self">Self managed</option>
+                </select>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <label className="block text-sm font-medium text-gray-700">Funder <span className="text-gray-400">(optional)</span></label>
+                <SearchSelect options={fmOptions} value={form.funds_manager_id} onChange={v => set('funds_manager_id', v)} placeholder="None" onAddNew={handleAddFM} addNewLabel="Add funder" />
+              </div>
+            )}
+            {form.funding_type === 'NDIS' && form.ndis_management === 'plan' && (
+              <div className="col-span-2 space-y-1">
+                <label className="block text-sm font-medium text-gray-700">Plan manager</label>
+                <SearchSelect options={fmOptions} value={form.funds_manager_id} onChange={v => set('funds_manager_id', v)} placeholder="Select funder…" onAddNew={handleAddFM} addNewLabel="Add funder" />
+              </div>
+            )}
+            {form.funding_type === 'NDIS' && form.ndis_management === 'self' && (
+              <div className="col-span-2 space-y-1">
+                <label className="block text-sm font-medium text-gray-700">Invoice email</label>
+                <input type="email" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+                  value={form.self_managed_email} onChange={e => set('self_managed_email', e.target.value)} placeholder="client@example.com" />
+              </div>
+            )}
             <div className="col-span-2 space-y-1">
               <label className="block text-sm font-medium text-gray-700">Client ID <span className="text-gray-400">(optional)</span></label>
               <input className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"

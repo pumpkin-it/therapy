@@ -207,6 +207,8 @@ try { db.exec(`
   )
 `); } catch {}
 try { db.exec(`ALTER TABLE funding_periods ADD COLUMN client_identifier TEXT`); } catch {}
+try { db.exec(`ALTER TABLE funding_periods ADD COLUMN ndis_management TEXT`); } catch {}
+try { db.exec(`ALTER TABLE funding_periods ADD COLUMN self_managed_email TEXT`); } catch {}
 try { db.exec(`ALTER TABLE services ADD COLUMN gst_rate REAL`); } catch {}
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN provider_number TEXT`); } catch {}
 try { db.exec(`ALTER TABLE appointments ADD COLUMN late_cancel_pct REAL`); } catch {}
@@ -229,6 +231,7 @@ try { db.exec(`ALTER TABLE invoices ADD COLUMN appointment_id INTEGER REFERENCES
 try { db.exec(`ALTER TABLE invoices ADD COLUMN funds_manager_id INTEGER REFERENCES funds_managers(id)`); } catch {}
 try { db.exec(`ALTER TABLE invoices ADD COLUMN practitioner_id INTEGER REFERENCES practitioners(id)`); } catch {}
 try { db.exec(`ALTER TABLE invoices ADD COLUMN last_reminder_at TEXT`); } catch {}
+try { db.exec(`ALTER TABLE invoices ADD COLUMN self_managed_email TEXT`); } catch {}
 try { db.exec(`ALTER TABLE invoices ADD COLUMN reminder_count INTEGER DEFAULT 0`); } catch {}
 try { db.exec(`ALTER TABLE appointments ADD COLUMN series_id INTEGER REFERENCES recurring_series(id)`); } catch {}
 

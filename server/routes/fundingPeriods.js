@@ -16,7 +16,7 @@ router.get('/', auth, (req, res) => {
 });
 
 router.post('/', auth, (req, res) => {
-  const { client_id, funding_type, funds_manager_id, start_date, end_date } = req.body;
+  const { client_id, funding_type, funds_manager_id, start_date, end_date, ndis_management, self_managed_email } = req.body;
 
   // Check for overlaps (only when both periods have dates)
   if (start_date || end_date) {
@@ -34,9 +34,9 @@ router.post('/', auth, (req, res) => {
 
   const { client_identifier } = req.body;
   const result = db.prepare(`
-    INSERT INTO funding_periods (client_id, funding_type, funds_manager_id, client_identifier, start_date, end_date)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(client_id, funding_type, funds_manager_id || null, client_identifier || null, start_date || null, end_date || null);
+    INSERT INTO funding_periods (client_id, funding_type, funds_manager_id, client_identifier, start_date, end_date, ndis_management, self_managed_email)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(client_id, funding_type, funds_manager_id || null, client_identifier || null, start_date || null, end_date || null, ndis_management || null, self_managed_email || null);
 
   res.status(201).json(db.prepare(`
     SELECT fp.*, fm.name AS funds_manager_name
@@ -46,7 +46,7 @@ router.post('/', auth, (req, res) => {
 });
 
 router.patch('/:id', auth, (req, res) => {
-  const { funding_type, funds_manager_id, client_identifier, start_date, end_date } = req.body;
+  const { funding_type, funds_manager_id, client_identifier, start_date, end_date, ndis_management, self_managed_email } = req.body;
   const existing = db.prepare('SELECT client_id FROM funding_periods WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
 
@@ -65,8 +65,8 @@ router.patch('/:id', auth, (req, res) => {
   }
 
   db.prepare(`
-    UPDATE funding_periods SET funding_type=?, funds_manager_id=?, client_identifier=?, start_date=?, end_date=? WHERE id=?
-  `).run(funding_type, funds_manager_id || null, client_identifier || null, start_date || null, end_date || null, req.params.id);
+    UPDATE funding_periods SET funding_type=?, funds_manager_id=?, client_identifier=?, start_date=?, end_date=?, ndis_management=?, self_managed_email=? WHERE id=?
+  `).run(funding_type, funds_manager_id || null, client_identifier || null, start_date || null, end_date || null, ndis_management || null, self_managed_email || null, req.params.id);
 
   res.json(db.prepare(`
     SELECT fp.*, fm.name AS funds_manager_name

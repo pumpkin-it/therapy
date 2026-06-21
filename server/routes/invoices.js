@@ -31,7 +31,7 @@ router.get('/to-send', auth, (req, res) => {
     SELECT a.id, a.start_time, a.end_time, a.client_id, a.practitioner_id, a.location, a.notes, a.series_id,
       c.first_name || ' ' || c.last_name AS client_name,
       p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number, p.color AS practitioner_color,
-      fp.funds_manager_id,
+      fp.funds_manager_id, fp.ndis_management, fp.self_managed_email,
       fm.name AS funds_manager_name, fm.email AS funds_manager_email
     FROM appointments a
     JOIN clients c ON c.id = a.client_id
@@ -121,7 +121,7 @@ router.post('/generate', auth, (req, res) => {
       SELECT a.*,
         c.first_name || ' ' || c.last_name AS client_name, c.address AS client_address, c.email AS client_email,
         p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number, p.title AS practitioner_title,
-        fp.funds_manager_id
+        fp.funds_manager_id, fp.self_managed_email AS fp_self_email
       FROM appointments a
       JOIN clients c ON c.id = a.client_id
       JOIN practitioners p ON p.id = a.practitioner_id
@@ -174,10 +174,10 @@ router.post('/generate', auth, (req, res) => {
 
     const r = db.prepare(`
       INSERT INTO invoices (invoice_number, client_id, practitioner_id, appointment_id, funds_manager_id,
-        issue_date, due_date, subtotal, tax_rate, tax_amount, total, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft')
+        issue_date, due_date, subtotal, tax_rate, tax_amount, total, status, self_managed_email)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
     `).run(invoiceNumber, appt.client_id, appt.practitioner_id, apptId,
-      appt.funds_manager_id || null, issueDate, dueDate, subtotal, 0, taxAmount, total);
+      appt.funds_manager_id || null, issueDate, dueDate, subtotal, 0, taxAmount, total, appt.fp_self_email || null);
 
     const insertItem = db.prepare(`
       INSERT INTO invoice_items (invoice_id, appointment_item_id, service_date, code, description, quantity, unit_rate, line_total, gst_rate, gst_amount, gst_type)
@@ -210,7 +210,7 @@ router.post('/:id/send', auth, async (req, res) => {
   `).get(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Not found' });
 
-  const recipient = inv.funds_manager_email || inv.client_email;
+  const recipient = inv.funds_manager_email || inv.self_managed_email || inv.client_email;
   if (!recipient) return res.status(422).json({ error: 'No email address for funder or client' });
 
   inv.items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id=?').all(req.params.id);
@@ -320,7 +320,7 @@ async function sendOverdueReminders() {
 
   let sent = 0;
   for (const inv of overdue) {
-    const recipient = inv.funds_manager_email || inv.client_email;
+    const recipient = inv.funds_manager_email || inv.self_managed_email || inv.client_email;
     if (!recipient) continue;
     try {
       const { sendReminderEmail } = require('../services/mailer');
