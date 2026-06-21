@@ -55,6 +55,52 @@ export function travelBlocks(appt) {
   return blocks;
 }
 
+// ─── Overlap layout ─────────────────────────────────────────────────────────
+// Returns a map of appt.id → { left: '...%', width: '...%' }
+export function overlapLayout(appts) {
+  if (!appts.length) return {};
+  const sorted = [...appts].sort((a, b) => new Date(a.start_time) - new Date(b.start_time));
+  const columns = []; // each column is an array of appts
+  const colMap = {};  // appt.id → column index
+
+  for (const appt of sorted) {
+    const s = new Date(appt.start_time).getTime();
+    let placed = false;
+    for (let c = 0; c < columns.length; c++) {
+      const last = columns[c][columns[c].length - 1];
+      if (new Date(last.end_time).getTime() <= s) {
+        columns[c].push(appt);
+        colMap[appt.id] = c;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      colMap[appt.id] = columns.length;
+      columns.push([appt]);
+    }
+  }
+
+  // For each appointment, find how many columns overlap with it
+  const result = {};
+  for (const appt of sorted) {
+    const s = new Date(appt.start_time).getTime();
+    const e = new Date(appt.end_time).getTime();
+    let maxCols = 1;
+    for (const other of sorted) {
+      if (other.id === appt.id) continue;
+      const os = new Date(other.start_time).getTime();
+      const oe = new Date(other.end_time).getTime();
+      if (os < e && oe > s) maxCols++;
+    }
+    const totalCols = Math.max(maxCols, columns.length);
+    const col = colMap[appt.id];
+    const w = 100 / totalCols;
+    result[appt.id] = { left: `${col * w}%`, width: `${w}%` };
+  }
+  return result;
+}
+
 // ─── Day View ────────────────────────────────────────────────────────────────
 
 export function DayView({ date, appointments, practitioners, filteredPractitionerId, onClickAppt, onClickSlot }) {
@@ -92,14 +138,17 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
             {HOURS.map(h => (
               <div key={h} className="absolute w-full border-t border-gray-100" style={{ top: `${((h - HOUR_START) / HOUR_COUNT) * 100}%` }} />
             ))}
-            {appointments
-              .filter(a => a.practitioner_id === p.id)
-              .map(appt => (
+            {(() => {
+              const pAppts = appointments.filter(a => a.practitioner_id === p.id);
+              const layout = overlapLayout(pAppts);
+              return pAppts.map(appt => {
+                const ol = layout[appt.id] || { left: '0%', width: '100%' };
+                return (
                 <div key={appt.id}>
                   {travelBlocks(appt).map(tb => (
                     <div key={`${appt.id}-${tb.key}`}
-                      className="absolute inset-x-1 rounded border px-1.5 py-0.5 text-xs overflow-hidden pointer-events-none"
-                      style={{ ...getStyle(tb.startISO, tb.endISO), borderColor: p.color, background: p.color + '22' }}
+                      className="absolute rounded border px-1.5 py-0.5 text-xs overflow-hidden pointer-events-none"
+                      style={{ ...getStyle(tb.startISO, tb.endISO), left: ol.left, width: ol.width, borderColor: p.color, background: p.color + '22' }}
                     >
                       <div className="truncate" style={{ color: p.color }}>Travel</div>
                     </div>
@@ -107,15 +156,17 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
                   <div
                     onClick={e => { e.stopPropagation(); onClickAppt(appt); }}
                     title={apptRef(appt.id)}
-                    className={cn('absolute inset-x-1 rounded border px-1.5 py-1 text-xs cursor-pointer overflow-hidden hover:shadow transition-shadow', STATUS_CLASS[appt.status] || STATUS_CLASS.scheduled)}
-                    style={getStyle(appt.start_time, appt.end_time)}
+                    className={cn('absolute rounded border px-1.5 py-1 text-xs cursor-pointer overflow-hidden hover:shadow transition-shadow', STATUS_CLASS[appt.status] || STATUS_CLASS.scheduled)}
+                    style={{ ...getStyle(appt.start_time, appt.end_time), left: ol.left, width: ol.width }}
                   >
                     {appt.series_id && <span className="absolute bottom-0.5 right-0.5 h-3.5 w-3.5 rounded-full bg-indigo-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">R</span>}
                     <div className="font-medium truncate">{appt.client_name}</div>
                     <div className="text-gray-500">{fmtTime(appt.start_time)}–{fmtTime(appt.end_time)}</div>
                   </div>
                 </div>
-              ))}
+                );
+              });
+            })()}
           </div>
         ))}
       </div>
@@ -167,14 +218,17 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
             {HOURS.map(h => (
               <div key={h} className="absolute w-full border-t border-gray-100" style={{ top: `${((h - HOUR_START) / HOUR_COUNT) * 100}%` }} />
             ))}
-            {filteredAppts
-              .filter(a => isSameDay(new Date(a.start_time), day))
-              .map(appt => (
+            {(() => {
+              const dayAppts = filteredAppts.filter(a => isSameDay(new Date(a.start_time), day));
+              const layout = overlapLayout(dayAppts);
+              return dayAppts.map(appt => {
+                const ol = layout[appt.id] || { left: '0%', width: '100%' };
+                return (
                 <div key={appt.id}>
                   {travelBlocks(appt).map(tb => (
                     <div key={`${appt.id}-${tb.key}`}
-                      className="absolute inset-x-1 rounded border px-1 py-0.5 text-xs overflow-hidden pointer-events-none"
-                      style={{ ...getStyle(tb.startISO, tb.endISO), borderColor: practitionerColor(appt.practitioner_id), background: practitionerColor(appt.practitioner_id) + '22' }}
+                      className="absolute rounded border px-1 py-0.5 text-xs overflow-hidden pointer-events-none"
+                      style={{ ...getStyle(tb.startISO, tb.endISO), left: ol.left, width: ol.width, borderColor: practitionerColor(appt.practitioner_id), background: practitionerColor(appt.practitioner_id) + '22' }}
                     >
                       <div className="truncate text-[10px]" style={{ color: practitionerColor(appt.practitioner_id) }}>Travel</div>
                     </div>
@@ -182,15 +236,17 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
                   <div
                     onClick={() => onClickAppt(appt)}
                     title={apptRef(appt.id)}
-                    className="absolute inset-x-1 rounded border px-1.5 py-1 text-xs cursor-pointer overflow-hidden hover:shadow transition-shadow"
-                    style={{ ...getStyle(appt.start_time, appt.end_time), borderColor: practitionerColor(appt.practitioner_id), background: practitionerColor(appt.practitioner_id) + '22', color: '#111' }}
+                    className="absolute rounded border px-1.5 py-1 text-xs cursor-pointer overflow-hidden hover:shadow transition-shadow"
+                    style={{ ...getStyle(appt.start_time, appt.end_time), left: ol.left, width: ol.width, borderColor: practitionerColor(appt.practitioner_id), background: practitionerColor(appt.practitioner_id) + '22', color: '#111' }}
                   >
                     {appt.series_id && <span className="absolute bottom-0.5 right-0.5 h-3.5 w-3.5 rounded-full bg-indigo-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">R</span>}
                     <div className="font-medium truncate">{appt.client_name}</div>
                     <div className="opacity-60">{fmtTime(appt.start_time)}</div>
                   </div>
                 </div>
-              ))}
+                );
+              });
+            })()}
           </div>
         ))}
       </div>

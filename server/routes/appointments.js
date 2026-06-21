@@ -75,6 +75,34 @@ router.get('/', auth, (req, res) => {
   res.json(appointments.map(a => ({ ...a, items: itemsByAppt[a.id] || [] })));
 });
 
+// Check for scheduling conflicts
+router.get('/check-conflicts', auth, (req, res) => {
+  const { practitioner_id, client_id, start_time, end_time, exclude_id } = req.query;
+  if (!start_time || !end_time) return res.json({ conflicts: [] });
+  const conflicts = [];
+  const excl = exclude_id ? [exclude_id] : [];
+  const exclSQL = exclude_id ? ' AND a.id != ?' : '';
+  if (practitioner_id) {
+    const rows = db.prepare(`
+      SELECT c.first_name || ' ' || c.last_name AS client_name
+      FROM appointments a JOIN clients c ON c.id = a.client_id
+      WHERE a.practitioner_id = ? AND a.status != 'cancelled' AND a.start_time < ? AND a.end_time > ? ${exclSQL}
+    `).all(practitioner_id, end_time, start_time, ...excl);
+    const pName = db.prepare("SELECT first_name || ' ' || last_name AS name FROM practitioners WHERE id=?").get(practitioner_id);
+    for (const r of rows) conflicts.push({ type: 'practitioner', message: `${pName?.name} already has an appointment with ${r.client_name} at this time` });
+  }
+  if (client_id) {
+    const rows = db.prepare(`
+      SELECT p.first_name || ' ' || p.last_name AS practitioner_name
+      FROM appointments a JOIN practitioners p ON p.id = a.practitioner_id
+      WHERE a.client_id = ? AND a.status != 'cancelled' AND a.start_time < ? AND a.end_time > ? ${exclSQL}
+    `).all(client_id, end_time, start_time, ...excl);
+    const cName = db.prepare("SELECT first_name || ' ' || last_name AS name FROM clients WHERE id=?").get(client_id);
+    for (const r of rows) conflicts.push({ type: 'client', message: `${cName?.name} already has an appointment with ${r.practitioner_name} at this time` });
+  }
+  res.json({ conflicts });
+});
+
 router.get('/:id', auth, (req, res) => {
   const appt = db.prepare(`${APPT_SELECT} WHERE a.id = ?`).get(req.params.id);
   if (!appt) return res.status(404).json({ error: 'Not found' });

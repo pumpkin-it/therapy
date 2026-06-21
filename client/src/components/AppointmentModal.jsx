@@ -197,7 +197,8 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState(editing ? appointment.id : null);
   const [error, setError] = useState('');
-  const [notifyStatus, setNotifyStatus] = useState({}); // keyed by target: 'practitioner'|'client'
+  const [notifyStatus, setNotifyStatus] = useState({});
+  const [conflicts, setConflicts] = useState([]);
 
   const initSplit = iso => splitDT(iso || `${defaultDate}T09:00`);
   const [startDate, setStartDate] = useState(defaultDate);
@@ -293,6 +294,22 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
       return { ...f, items: f.items.map(i => i.service_id ? { ...i, quantity: sessionHours } : i) };
     });
   }, [sessionHours]);
+
+  // Check for scheduling conflicts
+  useEffect(() => {
+    const st = joinDT(startDate, startTime);
+    const et = joinDT(endDate, endTime);
+    if (!form.practitioner_id && !form.client_id) { setConflicts([]); return; }
+    if (!st || !et) { setConflicts([]); return; }
+    const params = new URLSearchParams({ start_time: st, end_time: et });
+    if (form.practitioner_id) params.set('practitioner_id', form.practitioner_id);
+    if (form.client_id) params.set('client_id', form.client_id);
+    if (editing) params.set('exclude_id', appointment.id);
+    const t = setTimeout(() => {
+      api.get(`/appointments/check-conflicts?${params}`).then(r => setConflicts(r.data.conflicts || [])).catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+  }, [form.practitioner_id, form.client_id, startDate, startTime, endDate, endTime]);
 
   const setItem = (idx, k, v) => setForm(f => {
     const items = [...f.items];
@@ -548,6 +565,17 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
             </div>
           </div>
         </div>
+
+        {/* Conflict warnings */}
+        {conflicts.length > 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 space-y-1">
+            {conflicts.map((c, i) => (
+              <p key={i} className="text-sm text-amber-800 flex items-start gap-2">
+                <span className="text-amber-500 mt-0.5 shrink-0">⚠</span> {c.message}
+              </p>
+            ))}
+          </div>
+        )}
 
         {/* Location + Status */}
         <div className="grid grid-cols-2 gap-3">
