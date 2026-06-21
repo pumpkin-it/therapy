@@ -257,6 +257,15 @@ router.patch('/:id', auth, (req, res) => {
     else { updates.location = location_other || 'Other'; updates.location_other = location_other; }
   }
 
+  // Update day_of_week if start_time date changed
+  if (start_time) {
+    const newDow = new Date(start_time).getDay();
+    if (newDow !== series.day_of_week) {
+      updates.day_of_week = newDow;
+      changes.push(`Day: ${DAY_NAMES[series.day_of_week]} → ${DAY_NAMES[newDow]}`);
+    }
+  }
+
   // Handle end type changes
   if (end_type !== undefined) {
     const oldEndType = series.end_type;
@@ -341,19 +350,34 @@ router.patch('/:id', auth, (req, res) => {
     if (updates.location_id !== undefined) apptUpdates.location_id = updates.location_id;
     if (updates.location_other !== undefined) apptUpdates.location_other = updates.location_other;
 
-    // For time changes, update start and/or end time on each future appointment
+    // For date/time changes, shift each future appointment
     if (start_time || end_time) {
       const existing = db.prepare('SELECT start_time, end_time FROM appointments WHERE id=?').get(appt.id);
+
       if (start_time) {
-        const newStartTime = start_time.slice(11);
-        if (newStartTime !== series.start_time.slice(11)) {
-          apptUpdates.start_time = existing.start_time.slice(0, 11) + newStartTime;
+        const oldDay = new Date(series.start_time).getDay();
+        const newDay = new Date(start_time).getDay();
+        const dayShift = newDay - oldDay;
+        const newTimeOfDay = start_time.slice(11);
+        const oldTimeOfDay = series.start_time.slice(11);
+
+        if (dayShift !== 0 || newTimeOfDay !== oldTimeOfDay) {
+          const existDate = new Date(existing.start_time);
+          if (dayShift !== 0) existDate.setDate(existDate.getDate() + dayShift);
+          apptUpdates.start_time = localDate(existDate) + 'T' + newTimeOfDay;
         }
       }
       if (end_time) {
         const newEndTime = end_time.slice(11);
-        if (newEndTime !== series.end_time.slice(11)) {
-          apptUpdates.end_time = existing.end_time.slice(0, 11) + newEndTime;
+        const oldEndTime = series.end_time.slice(11);
+        const oldDay = new Date(series.start_time).getDay();
+        const newDay = start_time ? new Date(start_time).getDay() : oldDay;
+        const dayShift = newDay - oldDay;
+
+        if (dayShift !== 0 || newEndTime !== oldEndTime) {
+          const existDate = new Date(existing.end_time);
+          if (dayShift !== 0) existDate.setDate(existDate.getDate() + dayShift);
+          apptUpdates.end_time = localDate(existDate) + 'T' + newEndTime;
         }
       }
     }
@@ -367,13 +391,15 @@ router.patch('/:id', auth, (req, res) => {
     if (items) {
       db.prepare('DELETE FROM appointment_items WHERE appointment_id=?').run(appt.id);
       const insertItem = db.prepare(`
-        INSERT INTO appointment_items (appointment_id, service_id, description, quantity, unit_rate, travel_time_min, travel_km, prep_time_min, item_notes, notes_min)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO appointment_items (appointment_id, service_id, description, quantity, unit_rate, travel_time_min, travel_time_to, travel_time_from, travel_km, prep_time_min, item_notes, notes_min)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const item of items) {
+        const travelTotal = (item.travel_time_to || 0) + (item.travel_time_from || 0);
         insertItem.run(appt.id, item.service_id || null, item.description, item.quantity || 1,
-          item.unit_rate, item.travel_time_min || null, item.travel_km || null,
-          item.prep_time_min || null, item.item_notes || null, item.notes_min || null);
+          item.unit_rate, travelTotal || item.travel_time_min || null,
+          item.travel_time_to || null, item.travel_time_from || null,
+          item.travel_km || null, item.prep_time_min || null, item.item_notes || null, item.notes_min || null);
       }
     }
   }
