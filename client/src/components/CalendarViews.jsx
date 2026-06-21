@@ -405,19 +405,20 @@ export function EmbeddedCalendar({ clientId, practitionerId }) {
           ))}
         </div>
         <div className="ml-auto">
-          <Button size="sm" onClick={() => setModal('new')}><Plus className="h-4 w-4" /> New</Button>
+          <Button size="sm" onClick={() => setModal({ _new: true, date: defaultDate })}><Plus className="h-4 w-4" /> New</Button>
         </div>
       </div>
 
       {view === 'day' && (
         <DayView date={date} appointments={appointments} practitioners={practitioners}
-          filteredPractitionerId={practitionerId || ''}
-          onClickAppt={setModal} onClickSlot={() => setModal('new')} />
+          filteredPractitionerId={practitionerId || ''} dateStr={defaultDate}
+          onClickAppt={setModal} onClickSlot={slot => setModal({ _new: true, ...slot })} />
       )}
       {view === 'week' && (
         <WeekView date={date} appointments={appointments} practitioners={practitioners}
           filteredPractitionerId={practitionerId || ''}
-          onClickAppt={setModal} onClickDay={goToDay} />
+          onClickAppt={setModal} onClickDay={goToDay}
+          onClickSlot={slot => setModal({ _new: true, ...slot })} />
       )}
       {view === 'month' && (
         <MonthView date={date} appointments={appointments} practitioners={practitioners}
@@ -427,8 +428,10 @@ export function EmbeddedCalendar({ clientId, practitionerId }) {
 
       {modal !== null && (
         <AppointmentModal
-          appointment={modal === 'new' ? null : modal}
-          defaultDate={defaultDate}
+          appointment={modal === 'new' || modal?._new ? null : modal}
+          defaultDate={modal?._new ? modal.date : defaultDate}
+          defaultTime={modal?._new ? modal.time : null}
+          defaultPractitioner={modal?._new ? modal.practitionerId : null}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); load(); }}
           onRefresh={() => load()}
