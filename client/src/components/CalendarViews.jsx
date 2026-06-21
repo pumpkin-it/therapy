@@ -131,7 +131,7 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
           </div>
         ))}
 
-        <div className="relative border-r border-gray-100" style={{ height: `${SLOT_COUNT * 12}px` }}>
+        <div className="relative border-r border-gray-100" style={{ height: `${SLOT_COUNT * 20}px` }}>
           {HOURS.map(h => (
             <div key={h} className="absolute right-2 text-xs text-gray-400" style={{ top: `${((h - HOUR_START) / HOUR_COUNT) * 100}%` }}>
               {h % 12 || 12}{h < 12 ? 'am' : 'pm'}
@@ -145,7 +145,7 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
         </div>
 
         {cols.map(p => (
-          <div key={p.id} className="relative border-l border-gray-100 cursor-pointer" style={{ height: `${SLOT_COUNT * 12}px` }}
+          <div key={p.id} className="relative border-l border-gray-100 cursor-pointer" style={{ height: `${SLOT_COUNT * 20}px` }}
             onClick={e => { if (e.target.closest('[data-appt]')) return; const time = calcTimeFromClick(e, e.currentTarget); onClickSlot({ date: dateStr || format(date, 'yyyy-MM-dd'), time, practitionerId: p.id }); }}>
             {Array.from({ length: SLOT_COUNT }, (_, i) => {
               const isHour = i % 4 === 0;
@@ -216,7 +216,7 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
           </div>
         ))}
 
-        <div className="relative border-r border-gray-100" style={{ height: `${SLOT_COUNT * 12}px` }}>
+        <div className="relative border-r border-gray-100" style={{ height: `${SLOT_COUNT * 20}px` }}>
           {HOURS.map(h => (
             <div key={h} className="absolute right-2 text-xs text-gray-400" style={{ top: `${((h - HOUR_START) / HOUR_COUNT) * 100}%` }}>
               {h % 12 || 12}{h < 12 ? 'am' : 'pm'}
@@ -230,7 +230,7 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
         </div>
 
         {days.map(day => (
-          <div key={day.toISOString()} className={cn('relative border-l border-gray-100 cursor-pointer', isSameDay(day, today) && 'bg-indigo-50/20')} style={{ height: `${SLOT_COUNT * 12}px` }}
+          <div key={day.toISOString()} className={cn('relative border-l border-gray-100 cursor-pointer', isSameDay(day, today) && 'bg-indigo-50/20')} style={{ height: `${SLOT_COUNT * 20}px` }}
             onClick={e => { if (onClickSlot && !e.target.closest('[data-appt]')) { const time = calcTimeFromClick(e, e.currentTarget); onClickSlot({ date: format(day, 'yyyy-MM-dd'), time }); } }}>
             {Array.from({ length: SLOT_COUNT }, (_, i) => {
               const isHour = i % 4 === 0;
