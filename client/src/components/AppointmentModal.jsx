@@ -524,7 +524,7 @@ export default function AppointmentModal({ appointment, defaultDate, onClose, on
             <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
               value={form.client_id} onChange={e => setField('client_id', e.target.value)}>
               <option value="">Select…</option>
-              {clients.map(c => <option key={c.id} value={c.id}>{c.last_name}, {c.first_name}</option>)}
+              {clients.map(c => <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>)}
             </select>
           </div>
         </div>

@@ -462,7 +462,7 @@ export default function Clients() {
                 <tr key={c.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/clients/${c.id}`)}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-900">{c.last_name}, {c.first_name}</span>
+                      <span className="font-medium text-gray-900">{c.first_name} {c.last_name}</span>
                       {c.alert && <Bell className="h-3.5 w-3.5 text-amber-500 shrink-0" title={c.alert} />}
                     </div>
                   </td>
