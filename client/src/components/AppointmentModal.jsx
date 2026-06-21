@@ -307,14 +307,14 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     const st = joinDT(startDate, startTime);
     const et = joinDT(endDate, endTime);
     if (!form.practitioner_id && !form.client_id) { setConflicts([]); return; }
-    if (!st || !et) { setConflicts([]); return; }
+    if (!st || !et || st >= et) { setConflicts([]); return; }
     const params = new URLSearchParams({ start_time: st, end_time: et });
     if (form.practitioner_id) params.set('practitioner_id', form.practitioner_id);
     if (form.client_id) params.set('client_id', form.client_id);
     if (editing) params.set('exclude_id', appointment.id);
     const t = setTimeout(() => {
-      api.get(`/appointments/check-conflicts?${params}`).then(r => setConflicts(r.data.conflicts || [])).catch(() => {});
-    }, 300);
+      api.get(`/appointments/check-conflicts?${params}`).then(r => setConflicts(r.data.conflicts || [])).catch(() => setConflicts([]));
+    }, 500);
     return () => clearTimeout(t);
   }, [form.practitioner_id, form.client_id, startDate, startTime, endDate, endTime]);
 

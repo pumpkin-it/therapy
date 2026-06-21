@@ -26,8 +26,8 @@ const SLOT_COUNT = HOUR_COUNT * 4; // 15-min slots
 function calcTimeFromClick(e, containerEl) {
   const rect = containerEl.getBoundingClientRect();
   const y = e.clientY - rect.top;
-  const pct = y / rect.clientHeight;
-  const totalMin = pct * HOUR_COUNT * 60;
+  const pct = y / rect.height;
+  const totalMin = Math.max(0, Math.min(pct * HOUR_COUNT * 60, HOUR_COUNT * 60 - 15));
   const h = Math.floor(totalMin / 60) + HOUR_START;
   const m = Math.floor(totalMin % 60 / 15) * 15;
   return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
