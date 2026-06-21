@@ -413,7 +413,8 @@ router.post('/from-appointment', auth, (req, res) => {
   const items = db.prepare('SELECT * FROM appointment_items WHERE appointment_id=?').all(appointment_id);
   const itemsJson = JSON.stringify(items.map(i => ({
     service_id: i.service_id, description: i.description, quantity: i.quantity,
-    unit_rate: i.unit_rate, travel_time_min: i.travel_time_min, travel_km: i.travel_km,
+    unit_rate: i.unit_rate, travel_time_min: i.travel_time_min,
+    travel_time_to: i.travel_time_to, travel_time_from: i.travel_time_from, travel_km: i.travel_km,
     prep_time_min: i.prep_time_min, item_notes: i.item_notes, notes_min: i.notes_min,
   })));
 

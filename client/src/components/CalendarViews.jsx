@@ -81,19 +81,18 @@ export function overlapLayout(appts) {
     }
   }
 
-  // For each appointment, find how many columns overlap with it
+  // For each appointment, count the max concurrent overlaps in its time range
   const result = {};
   for (const appt of sorted) {
     const s = new Date(appt.start_time).getTime();
     const e = new Date(appt.end_time).getTime();
-    let maxCols = 1;
-    for (const other of sorted) {
-      if (other.id === appt.id) continue;
-      const os = new Date(other.start_time).getTime();
-      const oe = new Date(other.end_time).getTime();
-      if (os < e && oe > s) maxCols++;
-    }
-    const totalCols = Math.max(maxCols, columns.length);
+    // Find all appointments overlapping with this one (including itself)
+    const overlapping = sorted.filter(o => {
+      const os = new Date(o.start_time).getTime();
+      const oe = new Date(o.end_time).getTime();
+      return os < e && oe > s;
+    });
+    const totalCols = overlapping.length;
     const col = colMap[appt.id];
     const w = 100 / totalCols;
     result[appt.id] = { left: `${col * w}%`, width: `${w}%` };
