@@ -132,6 +132,7 @@ try { db.exec(`
   )
 `); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN funds_manager_id INTEGER REFERENCES funds_managers(id)`); } catch {}
+try { db.exec(`ALTER TABLE funds_managers ADD COLUMN phone TEXT`); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN plan_start_date TEXT`); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN plan_end_date TEXT`); } catch {}
 
