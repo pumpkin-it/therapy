@@ -425,7 +425,7 @@ export default function ClientDetail() {
         <div className="flex-1">
           <div className="flex items-center gap-2">
             <h1 className={`text-2xl font-semibold ${client.active === 0 ? 'text-gray-400' : ''}`}>
-              {isNew ? 'New Client' : `${client.first_name} ${client.last_name}`}
+              {isNew ? 'New Client' : <><span className="font-mono text-base text-indigo-500 mr-2">CLI-{String(client.id).padStart(5,'0')}</span>{client.first_name} {client.last_name}</>}
             </h1>
             {!isNew && client.active === 0 && <span className="text-xs bg-gray-100 text-gray-500 rounded-full px-2 py-0.5 font-medium">Inactive</span>}
           </div>

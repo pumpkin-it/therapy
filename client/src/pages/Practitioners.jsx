@@ -187,7 +187,7 @@ export default function Users() {
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
                     <span className="h-3 w-3 rounded-full shrink-0" style={{ background: u.color }} />
-                    <span className="font-medium text-gray-900">{u.first_name} {u.last_name}</span>
+                    <span className="font-medium text-gray-900"><span className="font-mono text-xs text-purple-400 mr-1.5">USR-{String(u.id).padStart(5,'0')}</span>{u.first_name} {u.last_name}</span>
                   </div>
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-600">{u.title || '—'}</td>

@@ -73,7 +73,7 @@ export default function FundsManagers() {
             )}
             {fms.map(fm => (
               <tr key={fm.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium text-gray-900">{fm.name}</td>
+                <td className="px-4 py-3 font-medium text-gray-900"><span className="font-mono text-xs text-amber-400 mr-1.5">FND-{String(fm.id).padStart(5,'0')}</span>{fm.name}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{fm.email}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{fm.phone || '—'}</td>
                 <td className="px-4 py-3 text-right">
