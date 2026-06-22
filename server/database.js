@@ -285,6 +285,7 @@ try { db.exec(`ALTER TABLE appointments ADD COLUMN location_other TEXT`); } catc
 try { db.exec(`ALTER TABLE appointments ADD COLUMN funding_period_id INTEGER REFERENCES funding_periods(id)`); } catch {}
 try { db.exec(`ALTER TABLE appointment_items ADD COLUMN item_notes TEXT`); } catch {}
 try { db.exec(`ALTER TABLE services ADD COLUMN notes_rate REAL`); } catch {}
+try { db.exec(`UPDATE services SET gst_type='FRE' WHERE gst_type='GST' OR gst_type IS NULL`); } catch {}
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS client_files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

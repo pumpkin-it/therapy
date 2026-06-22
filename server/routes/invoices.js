@@ -115,13 +115,15 @@ router.get('/export-myob', auth, (req, res) => {
       SELECT i.*,
         c.first_name || ' ' || c.last_name AS client_name, c.id AS cid,
         p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number,
-        fp.funding_type, fp.client_identifier
+        fp.funding_type, fp.client_identifier,
+        ft.id AS funding_type_id
       FROM invoices i
       JOIN clients c ON c.id = i.client_id
       LEFT JOIN practitioners p ON p.id = i.practitioner_id
       LEFT JOIN funding_periods fp ON fp.client_id = i.client_id
         AND (fp.start_date IS NULL OR fp.start_date = '' OR fp.start_date <= i.issue_date)
         AND (fp.end_date IS NULL OR fp.end_date = '' OR fp.end_date >= i.issue_date)
+      LEFT JOIN funding_types ft ON ft.name = fp.funding_type
       WHERE i.id = ?
     `).get(id);
     if (!inv) continue;
@@ -138,17 +140,19 @@ router.get('/export-myob', auth, (req, res) => {
         return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
       };
       const note = [item.code, item.description].filter(Boolean).join(' - ');
+      const ftRef = inv.funding_type_id ? `FT-${String(inv.funding_type_id).padStart(5,'0')}` : '';
+      const clientRef = `CLI-${String(inv.cid).padStart(5,'0')}`;
       const row = [
         fmtDate(invDate),
         fmtDate(item.service_date),
-        csvEscape(inv.funding_type || ''),
-        item.quantity,
+        ftRef,
+        Number(item.quantity).toFixed(2),
         csvEscape(note),
         item.unit_rate.toFixed(2),
         item.line_total.toFixed(2),
         csvEscape(inv.client_name),
         item.gst_type || 'GST',
-        inv.client_identifier || inv.cid,
+        clientRef,
         csvEscape(inv.client_name),
         csvEscape(`${inv.practitioner_name || ''} - ${inv.provider_number || ''}`)
       ];
@@ -192,7 +196,8 @@ router.get('/export-myob-appointments', auth, (req, res) => {
       SELECT a.*, c.first_name || ' ' || c.last_name AS client_name, c.id AS cid,
         p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number,
         COALESCE(fp_direct.funding_type, fp_date.funding_type) AS funding_type,
-        COALESCE(fp_direct.client_identifier, fp_date.client_identifier) AS client_identifier
+        COALESCE(fp_direct.client_identifier, fp_date.client_identifier) AS client_identifier,
+        ft.id AS funding_type_id
       FROM appointments a
       JOIN clients c ON c.id = a.client_id
       JOIN practitioners p ON p.id = a.practitioner_id
@@ -200,6 +205,7 @@ router.get('/export-myob-appointments', auth, (req, res) => {
       LEFT JOIN funding_periods fp_date ON a.funding_period_id IS NULL AND fp_date.client_id = a.client_id
         AND (fp_date.start_date IS NULL OR fp_date.start_date = '' OR fp_date.start_date <= DATE(a.start_time))
         AND (fp_date.end_date IS NULL OR fp_date.end_date = '' OR fp_date.end_date >= DATE(a.start_time))
+      LEFT JOIN funding_types ft ON ft.name = COALESCE(fp_direct.funding_type, fp_date.funding_type)
       WHERE a.id = ?
     `).get(apptId);
     if (!appt) continue;
@@ -224,19 +230,21 @@ router.get('/export-myob-appointments', auth, (req, res) => {
       const s = String(v ?? '');
       return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
     };
+    const ftRef = appt.funding_type_id ? `FT-${String(appt.funding_type_id).padStart(5,'0')}` : '';
+    const clientRef = `CLI-${String(appt.cid).padStart(5,'0')}`;
     const addRow = (code, desc, qty, rate, gstType) => {
       const amount = qty * rate;
       rows.push([
         fmtDate(invDate),
         fmtDate(serviceDate),
-        csvEscape(appt.funding_type || ''),
-        qty,
+        ftRef,
+        Number(qty).toFixed(2),
         csvEscape([code, desc].filter(Boolean).join(' - ')),
         rate.toFixed(2),
         amount.toFixed(2),
         csvEscape(appt.client_name),
         gstType,
-        appt.client_identifier || appt.cid,
+        clientRef,
         csvEscape(appt.client_name),
         csvEscape(`${appt.practitioner_name || ''} - ${appt.provider_number || ''}`)
       ].join(','));
