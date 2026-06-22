@@ -7,6 +7,11 @@ const colors = {
   yellow: 'bg-yellow-100 text-yellow-800',
   red:    'bg-red-100 text-red-800',
   purple: 'bg-purple-100 text-purple-800',
+  orange: 'bg-orange-100 text-orange-800',
+  amber:  'bg-amber-100 text-amber-800',
+  indigo: 'bg-indigo-100 text-indigo-800',
+  pink:   'bg-pink-100 text-pink-800',
+  teal:   'bg-teal-100 text-teal-800',
 };
 
 export default function Badge({ children, color = 'gray' }) {
