@@ -33,6 +33,7 @@ app.use('/api/recurring-series', require('./routes/recurringSeries'));
 app.use('/api/disciplines',      require('./routes/disciplines'));
 app.use('/api/audit-logs',       require('./routes/auditLogs'));
 app.use('/api/gst-rates',        require('./routes/gstRates'));
+app.use('/api/funding-types',    require('./routes/fundingTypes'));
 
 // Logo is public; all other uploads require auth
 app.get('/uploads/logo', (req, res) => {

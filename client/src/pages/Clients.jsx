@@ -68,10 +68,11 @@ function FundingTab({ clientId }) {
   const [saving, setSaving] = useState(false);
   const [addFMName, setAddFMName] = useState(null);
 
+  const [fundingTypesList, setFundingTypesList] = useState([]);
   const loadPeriods = () => api.get(`/funding-periods?client_id=${clientId}`).then(r => setPeriods(r.data));
   const loadFMs = () => api.get('/funds-managers').then(r => setFundsManagers(r.data));
 
-  useEffect(() => { if (clientId) { loadPeriods(); loadFMs(); } }, [clientId]);
+  useEffect(() => { if (clientId) { loadPeriods(); loadFMs(); api.get('/funding-types').then(r => setFundingTypesList(r.data)); } }, [clientId]);
 
   const fmOptions = fundsManagers.map(fm => ({
     value: fm.id,
@@ -169,7 +170,7 @@ function FundingTab({ clientId }) {
               <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
                 value={form.funding_type} onChange={e => set('funding_type', e.target.value)}>
                 <option value="">Select…</option>
-                {['NDIS', 'Medicare', 'Private', 'Other'].map(f => <option key={f}>{f}</option>)}
+                {fundingTypesList.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
               </select>
             </div>
             <div className="space-y-1">

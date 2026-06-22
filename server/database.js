@@ -207,6 +207,16 @@ try { db.exec(`
   )
 `); } catch {}
 try { db.exec(`ALTER TABLE funding_periods ADD COLUMN client_identifier TEXT`); } catch {}
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS funding_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    color TEXT DEFAULT 'gray',
+    has_ndis_management INTEGER DEFAULT 0,
+    active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
 try { db.exec(`ALTER TABLE funding_periods ADD COLUMN ndis_management TEXT`); } catch {}
 try { db.exec(`ALTER TABLE funding_periods ADD COLUMN self_managed_email TEXT`); } catch {}
 try { db.exec(`ALTER TABLE services ADD COLUMN gst_rate REAL`); } catch {}
@@ -335,6 +345,17 @@ const defaults = {
 const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
 for (const [key, value] of Object.entries(defaults)) {
   insertSetting.run(key, value);
+}
+
+// Seed default funding types
+const ftCount = db.prepare('SELECT COUNT(*) as c FROM funding_types').get().c;
+if (ftCount === 0) {
+  const ins = db.prepare('INSERT INTO funding_types (name, color, has_ndis_management) VALUES (?, ?, ?)');
+  ins.run('NDIS', 'blue', 1);
+  ins.run('Medicare', 'green', 0);
+  ins.run('Private', 'purple', 0);
+  ins.run('Aged Care', 'orange', 0);
+  ins.run('Other', 'gray', 0);
 }
 
 // Seed default GST rate

@@ -11,7 +11,7 @@ import SearchSelect from '../components/ui/SearchSelect';
 import { EmbeddedCalendar } from '../components/CalendarViews';
 import { localToday } from '../lib/utils';
 
-const FUNDING_COLOR = { NDIS: 'blue', Medicare: 'green', Private: 'purple', 'Aged Care': 'orange', Other: 'gray' };
+const FUNDING_COLOR_FALLBACK = { NDIS: 'blue', Medicare: 'green', Private: 'purple', 'Aged Care': 'orange', Other: 'gray' };
 
 // ─── Date input helper (reliable cross-browser) ───────────────────────────────
 function DateInput({ label, value, onChange }) {
@@ -101,9 +101,13 @@ function FundingTab({ clientId }) {
   const [saving, setSaving] = useState(false);
   const [addFMName, setAddFMName] = useState(null);
 
+  const [fundingTypesList, setFundingTypesList] = useState([]);
   const loadPeriods = () => api.get(`/funding-periods?client_id=${clientId}`).then(r => setPeriods(r.data));
   const loadFMs    = () => api.get('/funds-managers').then(r => setFundsManagers(r.data));
-  useEffect(() => { loadPeriods(); loadFMs(); }, []);
+  useEffect(() => { loadPeriods(); loadFMs(); api.get('/funding-types').then(r => setFundingTypesList(r.data)); }, []);
+
+  const FUNDING_COLOR = Object.fromEntries(fundingTypesList.map(ft => [ft.name, ft.color]));
+  const ndisTypes = fundingTypesList.filter(ft => ft.has_ndis_management).map(ft => ft.name);
 
   const fmOptions = fundsManagers.map(fm => ({ value: fm.id, label: fm.email ? `${fm.name} — ${fm.email}` : fm.name }));
   const handleAddFM = name => new Promise(resolve => setAddFMName({ name, resolve }));
@@ -174,10 +178,10 @@ function FundingTab({ clientId }) {
               <label className="block text-sm font-medium text-gray-700">Funding type</label>
               <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" value={form.funding_type} onChange={e => set('funding_type', e.target.value)}>
                 <option value="">Select…</option>
-                {['NDIS', 'Medicare', 'Private', 'Aged Care', 'Other'].map(f => <option key={f}>{f}</option>)}
+                {fundingTypesList.map(f => <option key={f.id} value={f.name}>{f.name}</option>)}
               </select>
             </div>
-            {form.funding_type === 'NDIS' ? (
+            {ndisTypes.includes(form.funding_type) ? (
               <div className="space-y-1">
                 <label className="block text-sm font-medium text-gray-700">Management type</label>
                 <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" value={form.ndis_management} onChange={e => { set('ndis_management', e.target.value); if (e.target.value !== 'plan') set('funds_manager_id', ''); if (e.target.value !== 'self') set('self_managed_email', ''); }}>
@@ -193,13 +197,13 @@ function FundingTab({ clientId }) {
                 <SearchSelect options={fmOptions} value={form.funds_manager_id} onChange={v => set('funds_manager_id', v)} placeholder="None" onAddNew={handleAddFM} addNewLabel="Add funder" />
               </div>
             )}
-            {form.funding_type === 'NDIS' && form.ndis_management === 'plan' && (
+            {ndisTypes.includes(form.funding_type) && form.ndis_management === 'plan' && (
               <div className="col-span-2 space-y-1">
                 <label className="block text-sm font-medium text-gray-700">Plan manager</label>
                 <SearchSelect options={fmOptions} value={form.funds_manager_id} onChange={v => set('funds_manager_id', v)} placeholder="Select funder…" onAddNew={handleAddFM} addNewLabel="Add funder" />
               </div>
             )}
-            {form.funding_type === 'NDIS' && form.ndis_management === 'self' && (
+            {ndisTypes.includes(form.funding_type) && form.ndis_management === 'self' && (
               <div className="col-span-2 space-y-1">
                 <label className="block text-sm font-medium text-gray-700">Invoice email</label>
                 <input type="email" className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
@@ -430,7 +434,7 @@ export default function ClientDetail() {
             {!isNew && client.active === 0 && <span className="text-xs bg-gray-100 text-gray-500 rounded-full px-2 py-0.5 font-medium">Inactive</span>}
           </div>
           {!isNew && client.active_funding_type && (
-            <Badge color={FUNDING_COLOR[client.active_funding_type] || 'gray'} className="mt-0.5">{client.active_funding_type}</Badge>
+            <Badge color={FUNDING_COLOR_FALLBACK[client.active_funding_type] || 'gray'} className="mt-0.5">{client.active_funding_type}</Badge>
           )}
         </div>
         {!isNew && (
