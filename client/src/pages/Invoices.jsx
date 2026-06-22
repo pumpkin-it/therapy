@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Download, Send, CheckCircle, XCircle, FileText } from 'lucide-react';
+import { Download, Send, CheckCircle, XCircle, FileText, FileSpreadsheet } from 'lucide-react';
 import { format, startOfWeek, endOfWeek, subWeeks, addWeeks } from 'date-fns';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
@@ -18,6 +18,7 @@ function ToSendTab() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [selected, setSelected] = useState([]);
   const [generating, setGenerating] = useState(false);
+  const [myobDate, setMyobDate] = useState(localToday());
 
   const weekStart = startOfWeek(addWeeks(new Date(), weekOffset), { weekStartsOn: 1 });
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
@@ -39,6 +40,11 @@ function ToSendTab() {
 
   const toggle = id => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
   const toggleAll = () => setSelected(s => s.length === appointments.length ? [] : appointments.map(a => a.id));
+
+  const exportMyob = () => {
+    const ids = selected.join(',');
+    window.open(`/api/invoices/export-myob-appointments?appointment_ids=${ids}&invoice_date=${myobDate}`, '_blank');
+  };
 
   const generate = async () => {
     if (!selected.length) return;
@@ -129,9 +135,21 @@ function ToSendTab() {
 
           <div className="flex items-center justify-between">
             <span className="text-sm text-gray-500">{selected.length} of {appointments.length} selected</span>
-            <Button onClick={generate} disabled={generating || !selected.length}>
-              <FileText className="h-4 w-4" /> {generating ? 'Generating…' : `Generate ${selected.length} invoice${selected.length !== 1 ? 's' : ''}`}
-            </Button>
+            <div className="flex items-center gap-2">
+              {selected.length > 0 && (
+                <>
+                  <label className="text-sm text-gray-600">Invoice Date:</label>
+                  <input type="date" className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
+                    value={myobDate} onChange={e => setMyobDate(e.target.value)} />
+                  <Button variant="secondary" onClick={exportMyob} disabled={!selected.length}>
+                    <FileSpreadsheet className="h-4 w-4" /> Export MYOB CSV
+                  </Button>
+                </>
+              )}
+              <Button onClick={generate} disabled={generating || !selected.length}>
+                <FileText className="h-4 w-4" /> {generating ? 'Generating…' : `Generate ${selected.length} invoice${selected.length !== 1 ? 's' : ''}`}
+              </Button>
+            </div>
           </div>
         </>
       )}

@@ -87,6 +87,170 @@ router.get('/', auth, (req, res) => {
   res.json(invoices);
 });
 
+// ─── Export MYOB CSV ───────────────────────────────────────────────────────
+router.get('/export-myob', auth, (req, res) => {
+  const { invoice_ids, invoice_date } = req.query;
+  if (!invoice_ids) return res.status(400).json({ error: 'No invoice_ids provided' });
+
+  const ids = invoice_ids.split(',').map(Number).filter(Boolean);
+  if (!ids.length) return res.status(400).json({ error: 'No valid invoice IDs' });
+
+  const invDate = invoice_date || new Date().toISOString().slice(0, 10);
+  const fmtDate = d => {
+    if (!d) return '';
+    const [y, m, day] = d.split('-');
+    return `${day}/${m}/${y}`;
+  };
+
+  const headers = ['Date','Detail Date','Activity ID','Hours/Units','Note','Rate','Amount','Journal Memo','Tax Code','Card ID','Customer PO','Comment'];
+  const rows = [headers.join(',')];
+
+  let first = true;
+  for (const id of ids) {
+    const inv = db.prepare(`
+      SELECT i.*,
+        c.first_name || ' ' || c.last_name AS client_name, c.id AS cid,
+        p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number,
+        fp.funding_type, fp.client_identifier
+      FROM invoices i
+      JOIN clients c ON c.id = i.client_id
+      LEFT JOIN practitioners p ON p.id = i.practitioner_id
+      LEFT JOIN funding_periods fp ON fp.client_id = i.client_id
+        AND (fp.start_date IS NULL OR fp.start_date = '' OR fp.start_date <= i.issue_date)
+        AND (fp.end_date IS NULL OR fp.end_date = '' OR fp.end_date >= i.issue_date)
+      WHERE i.id = ?
+    `).get(id);
+    if (!inv) continue;
+
+    const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id=?').all(id);
+    if (!items.length) continue;
+
+    if (!first) rows.push(',,,,,,,,,,,');
+    first = false;
+
+    for (const item of items) {
+      const csvEscape = v => {
+        const s = String(v ?? '');
+        return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const note = [item.code, item.description].filter(Boolean).join(' - ');
+      const row = [
+        fmtDate(invDate),
+        fmtDate(item.service_date),
+        csvEscape(inv.funding_type || ''),
+        item.quantity,
+        csvEscape(note),
+        item.unit_rate.toFixed(2),
+        item.line_total.toFixed(2),
+        csvEscape(inv.client_name),
+        item.gst_type || 'GST',
+        inv.client_identifier || inv.cid,
+        csvEscape(inv.client_name),
+        csvEscape(`${inv.practitioner_name || ''} - ${inv.provider_number || ''}`)
+      ];
+      rows.push(row.join(','));
+    }
+  }
+
+  const csv = rows.join('\r\n') + '\r\n';
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="MYOB_Import_${invDate}.csv"`);
+  res.send(csv);
+});
+
+// ─── Export MYOB CSV from appointments (before invoice generation) ─────────
+router.get('/export-myob-appointments', auth, (req, res) => {
+  const { appointment_ids, invoice_date } = req.query;
+  if (!appointment_ids) return res.status(400).json({ error: 'No appointment_ids provided' });
+
+  const ids = appointment_ids.split(',').map(Number).filter(Boolean);
+  if (!ids.length) return res.status(400).json({ error: 'No valid appointment IDs' });
+
+  const invDate = invoice_date || new Date().toISOString().slice(0, 10);
+  const fmtDate = d => {
+    if (!d) return '';
+    const [y, m, day] = d.split('-');
+    return `${day}/${m}/${y}`;
+  };
+
+  const apptDate = appt => appt.start_time ? appt.start_time.slice(0, 10) : '';
+  const gstRateForDate = d => {
+    const row = db.prepare('SELECT rate FROM gst_rates WHERE effective_from <= ? ORDER BY effective_from DESC LIMIT 1').get(d);
+    return row ? row.rate : 0.1;
+  };
+
+  const headers = ['Date','Detail Date','Activity ID','Hours/Units','Note','Rate','Amount','Journal Memo','Tax Code','Card ID','Customer PO','Comment'];
+  const rows = [headers.join(',')];
+
+  let first = true;
+  for (const apptId of ids) {
+    const appt = db.prepare(`
+      SELECT a.*, c.first_name || ' ' || c.last_name AS client_name, c.id AS cid,
+        p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number,
+        fp.funding_type, fp.client_identifier
+      FROM appointments a
+      JOIN clients c ON c.id = a.client_id
+      JOIN practitioners p ON p.id = a.practitioner_id
+      LEFT JOIN funding_periods fp ON fp.client_id = a.client_id
+        AND (fp.start_date IS NULL OR fp.start_date = '' OR fp.start_date <= DATE(a.start_time))
+        AND (fp.end_date IS NULL OR fp.end_date = '' OR fp.end_date >= DATE(a.start_time))
+      WHERE a.id = ?
+    `).get(apptId);
+    if (!appt) continue;
+
+    const items = db.prepare(`
+      SELECT ai.*, s.name AS service_name, s.code AS service_code,
+        s.travel_rate_per_hour, s.km_rate, s.notes_rate,
+        s.travel_code, s.km_code, s.notes_code,
+        COALESCE(s.gst_type, 'GST') AS gst_type
+      FROM appointment_items ai LEFT JOIN services s ON s.id = ai.service_id
+      WHERE ai.appointment_id = ?
+    `).all(apptId);
+    if (!items.length) continue;
+
+    if (!first) rows.push(',,,,,,,,,,,');
+    first = false;
+
+    const serviceDate = apptDate(appt);
+    const globalGstRate = gstRateForDate(serviceDate);
+
+    const csvEscape = v => {
+      const s = String(v ?? '');
+      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const addRow = (code, desc, qty, rate, gstType) => {
+      const amount = qty * rate;
+      rows.push([
+        fmtDate(invDate),
+        fmtDate(serviceDate),
+        csvEscape(appt.funding_type || ''),
+        qty,
+        csvEscape([code, desc].filter(Boolean).join(' - ')),
+        rate.toFixed(2),
+        amount.toFixed(2),
+        csvEscape(appt.client_name),
+        gstType,
+        appt.client_identifier || appt.cid,
+        csvEscape(appt.client_name),
+        csvEscape(`${appt.practitioner_name || ''} - ${appt.provider_number || ''}`)
+      ].join(','));
+    };
+
+    for (const item of items) {
+      const gstType = item.gst_type || 'GST';
+      addRow(item.service_code || '', item.service_name || item.description, item.quantity, item.unit_rate, gstType);
+      if (item.travel_time_min) addRow(item.travel_code || '', `Travel time (${item.travel_time_min} min)`, item.travel_time_min / 60, item.travel_rate_per_hour || item.unit_rate, gstType);
+      if (item.travel_km && item.km_rate) addRow(item.km_code || '', `Travel distance (${item.travel_km} km)`, item.travel_km, item.km_rate, gstType);
+      if (item.notes_min) addRow(item.notes_code || '', `Clinical notes (${item.notes_min} min)`, item.notes_min / 60, item.notes_rate || item.unit_rate, gstType);
+    }
+  }
+
+  const csv = rows.join('\r\n') + '\r\n';
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="MYOB_Import_${invDate}.csv"`);
+  res.send(csv);
+});
+
 // ─── Get single invoice with items ──────────────────────────────────────────
 router.get('/:id', auth, (req, res) => {
   const inv = db.prepare(`
