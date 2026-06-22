@@ -125,16 +125,16 @@ function addInterval(date, freq) {
 }
 
 router.post('/', auth, (req, res) => {
-  const { practitioner_id, client_id, location_type, location_id, location_other, title, start_time, end_time, notes, status, items = [], recurrence } = req.body;
+  const { practitioner_id, client_id, location_type, location_id, location_other, title, start_time, end_time, notes, status, items = [], recurrence, funding_period_id } = req.body;
   const { locationText, resolvedLocationId, locationOther } = resolveLocation(location_type, location_id, location_other);
 
   const insertAppt = db.prepare(`
-    INSERT INTO appointments (practitioner_id, client_id, location, location_id, location_other, title, start_time, end_time, notes, status)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO appointments (practitioner_id, client_id, location, location_id, location_other, title, start_time, end_time, notes, status, funding_period_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const createOne = (st, et) => {
-    const r = insertAppt.run(practitioner_id, client_id, locationText, resolvedLocationId, locationOther, title||null, st, et, notes||null, status||'scheduled');
+    const r = insertAppt.run(practitioner_id, client_id, locationText, resolvedLocationId, locationOther, title||null, st, et, notes||null, status||'scheduled', funding_period_id||null);
     insertItems(r.lastInsertRowid, items);
     return r.lastInsertRowid;
   };
@@ -155,16 +155,16 @@ router.post('/', auth, (req, res) => {
 });
 
 router.patch('/:id', auth, (req, res) => {
-  const { practitioner_id, client_id, location_type, location_id, location_other, title, start_time, end_time, notes, status, items, late_cancel_pct, late_cancel_billable } = req.body;
+  const { practitioner_id, client_id, location_type, location_id, location_other, title, start_time, end_time, notes, status, items, late_cancel_pct, late_cancel_billable, funding_period_id } = req.body;
   const { locationText, resolvedLocationId, locationOther } = resolveLocation(location_type, location_id, location_other);
   const before = db.prepare('SELECT * FROM appointments WHERE id=?').get(req.params.id);
 
   db.prepare(`
     UPDATE appointments SET practitioner_id=?, client_id=?, location=?, location_id=?, location_other=?, title=?, start_time=?, end_time=?, notes=?, status=?,
-      late_cancel_pct=?, late_cancel_billable=?
+      late_cancel_pct=?, late_cancel_billable=?, funding_period_id=?
     WHERE id=?
   `).run(practitioner_id, client_id, locationText, resolvedLocationId, locationOther, title||null, start_time, end_time, notes||null, status||'scheduled',
-    late_cancel_pct ?? null, late_cancel_billable ? 1 : 0, req.params.id);
+    late_cancel_pct ?? null, late_cancel_billable ? 1 : 0, funding_period_id || null, req.params.id);
 
   if (items) {
     db.prepare('DELETE FROM appointment_items WHERE appointment_id=?').run(req.params.id);

@@ -282,6 +282,7 @@ try { db.exec(`ALTER TABLE clients ADD COLUMN emergency_contact_email TEXT`); } 
 try { db.exec(`ALTER TABLE appointment_items ADD COLUMN notes_min INTEGER`); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN alert TEXT`); } catch {}
 try { db.exec(`ALTER TABLE appointments ADD COLUMN location_other TEXT`); } catch {}
+try { db.exec(`ALTER TABLE appointments ADD COLUMN funding_period_id INTEGER REFERENCES funding_periods(id)`); } catch {}
 try { db.exec(`ALTER TABLE appointment_items ADD COLUMN item_notes TEXT`); } catch {}
 try { db.exec(`ALTER TABLE services ADD COLUMN notes_rate REAL`); } catch {}
 try { db.exec(`

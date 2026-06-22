@@ -28,17 +28,21 @@ router.get('/to-send', auth, (req, res) => {
   if (to)              { where += ' AND a.start_time <= ?';      params.push(to + 'T23:59'); }
 
   const rows = db.prepare(`
-    SELECT a.id, a.start_time, a.end_time, a.client_id, a.practitioner_id, a.location, a.notes, a.series_id,
+    SELECT a.id, a.start_time, a.end_time, a.client_id, a.practitioner_id, a.location, a.notes, a.series_id, a.funding_period_id,
       c.first_name || ' ' || c.last_name AS client_name,
       p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number, p.color AS practitioner_color,
-      fp.funds_manager_id, fp.ndis_management, fp.self_managed_email,
+      COALESCE(fp_direct.funds_manager_id, fp_date.funds_manager_id) AS funds_manager_id,
+      COALESCE(fp_direct.ndis_management, fp_date.ndis_management) AS ndis_management,
+      COALESCE(fp_direct.self_managed_email, fp_date.self_managed_email) AS self_managed_email,
       fm.name AS funds_manager_name, fm.email AS funds_manager_email
     FROM appointments a
     JOIN clients c ON c.id = a.client_id
     JOIN practitioners p ON p.id = a.practitioner_id
-    LEFT JOIN funding_periods fp ON fp.client_id = a.client_id
-      AND (fp.start_date IS NULL OR fp.start_date = '' OR fp.start_date <= DATE(a.start_time)) AND (fp.end_date IS NULL OR fp.end_date = '' OR fp.end_date >= DATE(a.start_time))
-    LEFT JOIN funds_managers fm ON fm.id = fp.funds_manager_id
+    LEFT JOIN funding_periods fp_direct ON fp_direct.id = a.funding_period_id
+    LEFT JOIN funding_periods fp_date ON a.funding_period_id IS NULL AND fp_date.client_id = a.client_id
+      AND (fp_date.start_date IS NULL OR fp_date.start_date = '' OR fp_date.start_date <= DATE(a.start_time))
+      AND (fp_date.end_date IS NULL OR fp_date.end_date = '' OR fp_date.end_date >= DATE(a.start_time))
+    LEFT JOIN funds_managers fm ON fm.id = COALESCE(fp_direct.funds_manager_id, fp_date.funds_manager_id)
     WHERE ${where}
     ORDER BY a.start_time ASC
   `).all(...params);
@@ -187,13 +191,15 @@ router.get('/export-myob-appointments', auth, (req, res) => {
     const appt = db.prepare(`
       SELECT a.*, c.first_name || ' ' || c.last_name AS client_name, c.id AS cid,
         p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number,
-        fp.funding_type, fp.client_identifier
+        COALESCE(fp_direct.funding_type, fp_date.funding_type) AS funding_type,
+        COALESCE(fp_direct.client_identifier, fp_date.client_identifier) AS client_identifier
       FROM appointments a
       JOIN clients c ON c.id = a.client_id
       JOIN practitioners p ON p.id = a.practitioner_id
-      LEFT JOIN funding_periods fp ON fp.client_id = a.client_id
-        AND (fp.start_date IS NULL OR fp.start_date = '' OR fp.start_date <= DATE(a.start_time))
-        AND (fp.end_date IS NULL OR fp.end_date = '' OR fp.end_date >= DATE(a.start_time))
+      LEFT JOIN funding_periods fp_direct ON fp_direct.id = a.funding_period_id
+      LEFT JOIN funding_periods fp_date ON a.funding_period_id IS NULL AND fp_date.client_id = a.client_id
+        AND (fp_date.start_date IS NULL OR fp_date.start_date = '' OR fp_date.start_date <= DATE(a.start_time))
+        AND (fp_date.end_date IS NULL OR fp_date.end_date = '' OR fp_date.end_date >= DATE(a.start_time))
       WHERE a.id = ?
     `).get(apptId);
     if (!appt) continue;
@@ -285,12 +291,15 @@ router.post('/generate', auth, (req, res) => {
       SELECT a.*,
         c.first_name || ' ' || c.last_name AS client_name, c.address AS client_address, c.email AS client_email,
         p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number, p.title AS practitioner_title,
-        fp.funds_manager_id, fp.self_managed_email AS fp_self_email
+        COALESCE(fp_direct.funds_manager_id, fp_date.funds_manager_id) AS funds_manager_id,
+        COALESCE(fp_direct.self_managed_email, fp_date.self_managed_email) AS fp_self_email
       FROM appointments a
       JOIN clients c ON c.id = a.client_id
       JOIN practitioners p ON p.id = a.practitioner_id
-      LEFT JOIN funding_periods fp ON fp.client_id = a.client_id
-        AND (fp.start_date IS NULL OR fp.start_date = '' OR fp.start_date <= DATE(a.start_time)) AND (fp.end_date IS NULL OR fp.end_date = '' OR fp.end_date >= DATE(a.start_time))
+      LEFT JOIN funding_periods fp_direct ON fp_direct.id = a.funding_period_id
+      LEFT JOIN funding_periods fp_date ON a.funding_period_id IS NULL AND fp_date.client_id = a.client_id
+        AND (fp_date.start_date IS NULL OR fp_date.start_date = '' OR fp_date.start_date <= DATE(a.start_time))
+        AND (fp_date.end_date IS NULL OR fp_date.end_date = '' OR fp_date.end_date >= DATE(a.start_time))
       WHERE a.id = ? AND a.is_invoiced = 0
     `).get(apptId);
 

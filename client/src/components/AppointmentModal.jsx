@@ -199,6 +199,8 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
   const [error, setError] = useState('');
   const [notifyStatus, setNotifyStatus] = useState({});
   const [conflicts, setConflicts] = useState([]);
+  const [fundingPeriods, setFundingPeriods] = useState([]);
+  const [fundingPeriodId, setFundingPeriodId] = useState(editing ? (appointment.funding_period_id || '') : '');
 
   const initStartTime = defaultTime || '09:00';
   const initEndTime = (() => {
@@ -273,6 +275,19 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
       });
     }
   }, []);
+
+  useEffect(() => {
+    if (!form.client_id) { setFundingPeriods([]); setFundingPeriodId(''); return; }
+    api.get(`/funding-periods?client_id=${form.client_id}`).then(r => {
+      const fps = r.data || [];
+      setFundingPeriods(fps);
+      if (editing && appointment.funding_period_id) return;
+      if (fps.length === 1) { setFundingPeriodId(fps[0].id); return; }
+      const apptDate = startDate || localToday();
+      const match = fps.find(fp => (!fp.start_date || fp.start_date <= apptDate) && (!fp.end_date || fp.end_date >= apptDate));
+      setFundingPeriodId(match ? match.id : '');
+    }).catch(() => setFundingPeriods([]));
+  }, [form.client_id]);
 
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -356,6 +371,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
         end_time:   joinDT(endDate,   endTime),
         practitioner_id: Number(form.practitioner_id),
         client_id:       Number(form.client_id),
+        funding_period_id: fundingPeriodId ? Number(fundingPeriodId) : null,
         location_id: form.location_type === 'clinic' && form.location_id ? Number(form.location_id) : null,
         location_other: form.location_type === 'other' ? form.location_other : null,
         items: form.items.map(i => ({
@@ -552,6 +568,22 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
             </select>
           </div>
         </div>
+
+        {/* Funder */}
+        {fundingPeriods.length > 0 && (
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-gray-700">Funder</label>
+            <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              value={fundingPeriodId} onChange={e => setFundingPeriodId(e.target.value)}>
+              <option value="">Select funder…</option>
+              {fundingPeriods.map(fp => (
+                <option key={fp.id} value={fp.id}>
+                  {fp.funding_type}{fp.funds_manager_name ? ` — ${fp.funds_manager_name}` : ''} ({fp.start_date} to {fp.end_date})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Date / Time — split inputs */}
         <div className="grid grid-cols-2 gap-3">
