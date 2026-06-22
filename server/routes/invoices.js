@@ -17,6 +17,59 @@ function getSettings() {
   return Object.fromEntries(rows.map(r => [r.key, r.value]));
 }
 
+const fmtDateDMY = d => {
+  if (!d) return '';
+  const [y, m, day] = d.split('-');
+  return `${day}/${m}/${y}`;
+};
+
+const csvEscape = v => {
+  const s = String(v ?? '');
+  return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+};
+
+const INVOICE_SELECT = `
+  SELECT i.*,
+    c.first_name || ' ' || c.last_name AS client_name, c.email AS client_email, c.address AS client_address,
+    p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number, p.title AS practitioner_title,
+    fm.name AS funds_manager_name, fm.email AS funds_manager_email
+  FROM invoices i
+  JOIN clients c ON c.id = i.client_id
+  LEFT JOIN practitioners p ON p.id = i.practitioner_id
+  LEFT JOIN funds_managers fm ON fm.id = i.funds_manager_id
+`;
+
+const FP_JOIN_DIRECT_DATE = `
+  LEFT JOIN funding_periods fp_direct ON fp_direct.id = a.funding_period_id
+  LEFT JOIN funding_periods fp_date ON a.funding_period_id IS NULL AND fp_date.client_id = a.client_id
+    AND (fp_date.start_date IS NULL OR fp_date.start_date = '' OR fp_date.start_date <= DATE(a.start_time))
+    AND (fp_date.end_date IS NULL OR fp_date.end_date = '' OR fp_date.end_date >= DATE(a.start_time))
+`;
+
+const MYOB_HEADERS = ['Date','Detail Date','Activity ID','Hours/Units','Note','Rate','Amount','Journal Memo','Tax Code','Card ID','Customer PO','Comment'];
+
+function getInvoiceWithItems(id) {
+  const inv = db.prepare(`${INVOICE_SELECT} WHERE i.id=?`).get(id);
+  if (inv) inv.items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id=?').all(id);
+  return inv;
+}
+
+function invoiceWithSettings(inv) {
+  const settings = getSettings();
+  return {
+    ...inv,
+    practice_name: settings.practice_name,
+    practice_abn: settings.practice_abn,
+    practice_email: settings.practice_email,
+    practice_phone: settings.practice_phone,
+    practice_address: settings.practice_address,
+    bank_account_name: settings.bank_account_name,
+    bank_bsb: settings.bank_bsb,
+    bank_account_number: settings.bank_account_number,
+    remittance_email: settings.remittance_email,
+  };
+}
+
 // ─── "To Send": completed, uninvoiced appointments ──────────────────────────
 router.get('/to-send', auth, (req, res) => {
   const { client_id, practitioner_id, from, to } = req.query;
@@ -38,16 +91,12 @@ router.get('/to-send', auth, (req, res) => {
     FROM appointments a
     JOIN clients c ON c.id = a.client_id
     JOIN practitioners p ON p.id = a.practitioner_id
-    LEFT JOIN funding_periods fp_direct ON fp_direct.id = a.funding_period_id
-    LEFT JOIN funding_periods fp_date ON a.funding_period_id IS NULL AND fp_date.client_id = a.client_id
-      AND (fp_date.start_date IS NULL OR fp_date.start_date = '' OR fp_date.start_date <= DATE(a.start_time))
-      AND (fp_date.end_date IS NULL OR fp_date.end_date = '' OR fp_date.end_date >= DATE(a.start_time))
+    ${FP_JOIN_DIRECT_DATE}
     LEFT JOIN funds_managers fm ON fm.id = COALESCE(fp_direct.funds_manager_id, fp_date.funds_manager_id)
     WHERE ${where}
     ORDER BY a.start_time ASC
   `).all(...params);
 
-  // Attach items to each appointment
   const ids = rows.map(r => r.id);
   const items = ids.length
     ? db.prepare(`
@@ -100,14 +149,7 @@ router.get('/export-myob', auth, (req, res) => {
   if (!ids.length) return res.status(400).json({ error: 'No valid invoice IDs' });
 
   const invDate = invoice_date || new Date().toISOString().slice(0, 10);
-  const fmtDate = d => {
-    if (!d) return '';
-    const [y, m, day] = d.split('-');
-    return `${day}/${m}/${y}`;
-  };
-
-  const headers = ['Date','Detail Date','Activity ID','Hours/Units','Note','Rate','Amount','Journal Memo','Tax Code','Card ID','Customer PO','Comment'];
-  const rows = [headers.join(',')];
+  const rows = [MYOB_HEADERS.join(',')];
 
   let first = true;
   for (const id of ids) {
@@ -134,17 +176,14 @@ router.get('/export-myob', auth, (req, res) => {
     if (!first) rows.push(',,,,,,,,,,,');
     first = false;
 
+    const ftRef = inv.funding_type_id ? `FT-${String(inv.funding_type_id).padStart(5,'0')}` : '';
+    const clientRef = `CLI-${String(inv.cid).padStart(5,'0')}`;
+
     for (const item of items) {
-      const csvEscape = v => {
-        const s = String(v ?? '');
-        return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
-      };
       const note = [item.code, item.description].filter(Boolean).join(' - ');
-      const ftRef = inv.funding_type_id ? `FT-${String(inv.funding_type_id).padStart(5,'0')}` : '';
-      const clientRef = `CLI-${String(inv.cid).padStart(5,'0')}`;
-      const row = [
-        fmtDate(invDate),
-        fmtDate(item.service_date),
+      rows.push([
+        fmtDateDMY(invDate),
+        fmtDateDMY(item.service_date),
         ftRef,
         Number(item.quantity).toFixed(2),
         csvEscape(note),
@@ -155,8 +194,7 @@ router.get('/export-myob', auth, (req, res) => {
         clientRef,
         csvEscape(inv.client_name),
         csvEscape(`${inv.practitioner_name || ''} - ${inv.provider_number || ''}`)
-      ];
-      rows.push(row.join(','));
+      ].join(','));
     }
   }
 
@@ -175,20 +213,7 @@ router.get('/export-myob-appointments', auth, (req, res) => {
   if (!ids.length) return res.status(400).json({ error: 'No valid appointment IDs' });
 
   const invDate = invoice_date || new Date().toISOString().slice(0, 10);
-  const fmtDate = d => {
-    if (!d) return '';
-    const [y, m, day] = d.split('-');
-    return `${day}/${m}/${y}`;
-  };
-
-  const apptDate = appt => appt.start_time ? appt.start_time.slice(0, 10) : '';
-  const gstRateForDate = d => {
-    const row = db.prepare('SELECT rate FROM gst_rates WHERE effective_from <= ? ORDER BY effective_from DESC LIMIT 1').get(d);
-    return row ? row.rate : 0.1;
-  };
-
-  const headers = ['Date','Detail Date','Activity ID','Hours/Units','Note','Rate','Amount','Journal Memo','Tax Code','Card ID','Customer PO','Comment'];
-  const rows = [headers.join(',')];
+  const rows = [MYOB_HEADERS.join(',')];
 
   let first = true;
   for (const apptId of ids) {
@@ -201,10 +226,7 @@ router.get('/export-myob-appointments', auth, (req, res) => {
       FROM appointments a
       JOIN clients c ON c.id = a.client_id
       JOIN practitioners p ON p.id = a.practitioner_id
-      LEFT JOIN funding_periods fp_direct ON fp_direct.id = a.funding_period_id
-      LEFT JOIN funding_periods fp_date ON a.funding_period_id IS NULL AND fp_date.client_id = a.client_id
-        AND (fp_date.start_date IS NULL OR fp_date.start_date = '' OR fp_date.start_date <= DATE(a.start_time))
-        AND (fp_date.end_date IS NULL OR fp_date.end_date = '' OR fp_date.end_date >= DATE(a.start_time))
+      ${FP_JOIN_DIRECT_DATE}
       LEFT JOIN funding_types ft ON ft.name = COALESCE(fp_direct.funding_type, fp_date.funding_type)
       WHERE a.id = ?
     `).get(apptId);
@@ -223,20 +245,15 @@ router.get('/export-myob-appointments', auth, (req, res) => {
     if (!first) rows.push(',,,,,,,,,,,');
     first = false;
 
-    const serviceDate = apptDate(appt);
-    const globalGstRate = gstRateForDate(serviceDate);
-
-    const csvEscape = v => {
-      const s = String(v ?? '');
-      return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
-    };
+    const serviceDate = appt.start_time ? appt.start_time.slice(0, 10) : '';
     const ftRef = appt.funding_type_id ? `FT-${String(appt.funding_type_id).padStart(5,'0')}` : '';
     const clientRef = `CLI-${String(appt.cid).padStart(5,'0')}`;
+
     const addRow = (code, desc, qty, rate, gstType) => {
       const amount = qty * rate;
       rows.push([
-        fmtDate(invDate),
-        fmtDate(serviceDate),
+        fmtDateDMY(invDate),
+        fmtDateDMY(serviceDate),
         ftRef,
         Number(qty).toFixed(2),
         csvEscape([code, desc].filter(Boolean).join(' - ')),
@@ -267,19 +284,8 @@ router.get('/export-myob-appointments', auth, (req, res) => {
 
 // ─── Get single invoice with items ──────────────────────────────────────────
 router.get('/:id', auth, (req, res) => {
-  const inv = db.prepare(`
-    SELECT i.*,
-      c.first_name || ' ' || c.last_name AS client_name, c.email AS client_email, c.address AS client_address,
-      p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number, p.title AS practitioner_title,
-      fm.name AS funds_manager_name, fm.email AS funds_manager_email
-    FROM invoices i
-    JOIN clients c ON c.id = i.client_id
-    LEFT JOIN practitioners p ON p.id = i.practitioner_id
-    LEFT JOIN funds_managers fm ON fm.id = i.funds_manager_id
-    WHERE i.id=?
-  `).get(req.params.id);
+  const inv = getInvoiceWithItems(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Not found' });
-  inv.items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id=?').all(req.params.id);
   res.json(inv);
 });
 
@@ -290,7 +296,6 @@ router.post('/generate', auth, (req, res) => {
 
   const settings = getSettings();
   const paymentTermsDays = parseInt(settings.invoice_payment_terms_days || '14');
-  const taxRate = parseFloat(settings.tax_rate || '0.1');
 
   const created = [];
 
@@ -304,10 +309,7 @@ router.post('/generate', auth, (req, res) => {
       FROM appointments a
       JOIN clients c ON c.id = a.client_id
       JOIN practitioners p ON p.id = a.practitioner_id
-      LEFT JOIN funding_periods fp_direct ON fp_direct.id = a.funding_period_id
-      LEFT JOIN funding_periods fp_date ON a.funding_period_id IS NULL AND fp_date.client_id = a.client_id
-        AND (fp_date.start_date IS NULL OR fp_date.start_date = '' OR fp_date.start_date <= DATE(a.start_time))
-        AND (fp_date.end_date IS NULL OR fp_date.end_date = '' OR fp_date.end_date >= DATE(a.start_time))
+      ${FP_JOIN_DIRECT_DATE}
       WHERE a.id = ? AND a.is_invoiced = 0
     `).get(apptId);
 
@@ -324,12 +326,10 @@ router.post('/generate', auth, (req, res) => {
 
     if (!items.length) continue;
 
-    // Look up the applicable GST rate for the appointment date
     const apptDate = appt.start_time ? appt.start_time.slice(0, 10) : new Date().toISOString().slice(0, 10);
     const gstRateRow = db.prepare('SELECT rate FROM gst_rates WHERE effective_from <= ? ORDER BY effective_from DESC LIMIT 1').get(apptDate);
     const globalGstRate = gstRateRow ? gstRateRow.rate : 0.1;
 
-    // Build line items including travel/notes with codes and per-line GST
     const lineItems = [];
     for (const item of items) {
       const gstType = item.gst_type || 'GST';
@@ -378,37 +378,13 @@ router.post('/generate', auth, (req, res) => {
 
 // ─── Send invoice to funder (or client if no funder) ────────────────────────
 router.post('/:id/send', auth, async (req, res) => {
-  const inv = db.prepare(`
-    SELECT i.*,
-      c.first_name || ' ' || c.last_name AS client_name, c.email AS client_email, c.address AS client_address,
-      p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number, p.title AS practitioner_title,
-      fm.name AS funds_manager_name, fm.email AS funds_manager_email
-    FROM invoices i
-    JOIN clients c ON c.id = i.client_id
-    LEFT JOIN practitioners p ON p.id = i.practitioner_id
-    LEFT JOIN funds_managers fm ON fm.id = i.funds_manager_id
-    WHERE i.id=?
-  `).get(req.params.id);
+  const inv = getInvoiceWithItems(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Not found' });
 
   const recipient = inv.funds_manager_email || inv.self_managed_email || inv.client_email;
   if (!recipient) return res.status(422).json({ error: 'No email address for funder or client' });
 
-  inv.items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id=?').all(req.params.id);
-  const settings = getSettings();
-
-  const pdf = await generateInvoicePdf({
-    ...inv,
-    practice_name: settings.practice_name,
-    practice_abn: settings.practice_abn,
-    practice_email: settings.practice_email,
-    practice_phone: settings.practice_phone,
-    practice_address: settings.practice_address,
-    bank_account_name: settings.bank_account_name,
-    bank_bsb: settings.bank_bsb,
-    bank_account_number: settings.bank_account_number,
-    remittance_email: settings.remittance_email,
-  });
+  const pdf = await generateInvoicePdf(invoiceWithSettings(inv));
 
   await sendInvoiceEmail(recipient, inv.invoice_number, pdf);
   db.prepare("UPDATE invoices SET status='sent', sent_at=? WHERE id=?").run(new Date().toISOString(), req.params.id);
@@ -418,33 +394,10 @@ router.post('/:id/send', auth, async (req, res) => {
 
 // ─── PDF download ───────────────────────────────────────────────────────────
 router.get('/:id/pdf', auth, async (req, res) => {
-  const inv = db.prepare(`
-    SELECT i.*,
-      c.first_name || ' ' || c.last_name AS client_name, c.email AS client_email, c.address AS client_address,
-      p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number, p.title AS practitioner_title,
-      fm.name AS funds_manager_name, fm.email AS funds_manager_email
-    FROM invoices i
-    JOIN clients c ON c.id = i.client_id
-    LEFT JOIN practitioners p ON p.id = i.practitioner_id
-    LEFT JOIN funds_managers fm ON fm.id = i.funds_manager_id
-    WHERE i.id=?
-  `).get(req.params.id);
+  const inv = getInvoiceWithItems(req.params.id);
   if (!inv) return res.status(404).json({ error: 'Not found' });
-  inv.items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id=?').all(req.params.id);
-  const settings = getSettings();
 
-  const pdf = await generateInvoicePdf({
-    ...inv,
-    practice_name: settings.practice_name,
-    practice_abn: settings.practice_abn,
-    practice_email: settings.practice_email,
-    practice_phone: settings.practice_phone,
-    practice_address: settings.practice_address,
-    bank_account_name: settings.bank_account_name,
-    bank_bsb: settings.bank_bsb,
-    bank_account_number: settings.bank_account_number,
-    remittance_email: settings.remittance_email,
-  });
+  const pdf = await generateInvoicePdf(invoiceWithSettings(inv));
 
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${inv.invoice_number}.pdf"`);

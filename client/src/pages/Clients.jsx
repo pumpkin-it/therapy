@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Plus, ChevronRight, Pencil, Trash2, AlertTriangle, Bell } from 'lucide-react';
-import { format, parseISO, isWithinInterval, parseISO as parse } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';

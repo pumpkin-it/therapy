@@ -206,7 +206,6 @@ try { db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `); } catch {}
-try { db.exec(`ALTER TABLE funding_periods ADD COLUMN client_identifier TEXT`); } catch {}
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS funding_types (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
