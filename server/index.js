@@ -17,23 +17,33 @@ app.use(express.json());
 // Initialise DB on startup
 require('./database');
 
-app.use('/api/auth',          require('./routes/auth'));
-app.use('/api/settings',      require('./routes/settings'));
-app.use('/api/practitioners', require('./routes/practitioners'));
-app.use('/api/clients',       require('./routes/clients'));
-app.use('/api/services',      require('./routes/services'));
-app.use('/api/appointments',  require('./routes/appointments'));
-app.use('/api/invoices',       require('./routes/invoices'));
-app.use('/api/funds-managers', require('./routes/fundsManagers'));
-app.use('/api/locations',      require('./routes/locations'));
-app.use('/api/case-notes',      require('./routes/caseNotes'));
-app.use('/api/funding-periods', require('./routes/fundingPeriods'));
-app.use('/api/client-files',   require('./routes/clientFiles'));
-app.use('/api/recurring-series', require('./routes/recurringSeries'));
-app.use('/api/disciplines',      require('./routes/disciplines'));
-app.use('/api/audit-logs',       require('./routes/auditLogs'));
-app.use('/api/gst-rates',        require('./routes/gstRates'));
-app.use('/api/funding-types',    require('./routes/fundingTypes'));
+const auth = require('./middleware/auth');
+const perm = require('./middleware/requirePermission');
+
+app.use('/api/auth',            require('./routes/auth'));
+
+// All routes below require authentication
+app.use('/api', (req, res, next) => {
+  if (req.path.startsWith('/auth') || req.path === '/health') return next();
+  auth(req, res, next);
+});
+
+app.use('/api/settings',        perm('settings'), require('./routes/settings'));
+app.use('/api/practitioners',   perm('users'), require('./routes/practitioners'));
+app.use('/api/clients',         perm('clients'), require('./routes/clients'));
+app.use('/api/services',        perm('services'), require('./routes/services'));
+app.use('/api/appointments',    perm('calendar'), require('./routes/appointments'));
+app.use('/api/invoices',        perm('invoices'), require('./routes/invoices'));
+app.use('/api/funds-managers',  perm('funds_managers'), require('./routes/fundsManagers'));
+app.use('/api/locations',       perm('locations'), require('./routes/locations'));
+app.use('/api/case-notes',      perm('clients'), require('./routes/caseNotes'));
+app.use('/api/funding-periods', perm('clients'), require('./routes/fundingPeriods'));
+app.use('/api/client-files',    perm('clients'), require('./routes/clientFiles'));
+app.use('/api/recurring-series', perm('calendar'), require('./routes/recurringSeries'));
+app.use('/api/disciplines',     perm('services'), require('./routes/disciplines'));
+app.use('/api/audit-logs',      require('./routes/auditLogs'));
+app.use('/api/gst-rates',       perm('settings'), require('./routes/gstRates'));
+app.use('/api/funding-types',   perm('settings'), require('./routes/fundingTypes'));
 
 // Logo is public; all other uploads require auth
 app.get('/uploads/logo', (req, res) => {

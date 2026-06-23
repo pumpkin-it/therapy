@@ -20,7 +20,7 @@ const ROLE_COLORS = {
   finance:      'bg-amber-100 text-amber-700',
 };
 
-const EMPTY = { first_name: '', last_name: '', title: '', email: '', phone: '', color: '#6366f1', provider_number: '', role: 'practitioner', gender: '', discipline_id: '' };
+const EMPTY = { first_name: '', last_name: '', title: '', email: '', phone: '', color: '#6366f1', provider_number: '', role: 'practitioner', gender: '', discipline_id: '', password: '' };
 
 function UserModal({ user, onClose, onSaved }) {
   const [form, setForm] = useState(user || EMPTY);
@@ -110,6 +110,14 @@ function UserModal({ user, onClose, onSaved }) {
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="space-y-1">
+          <label className="block text-sm font-medium text-gray-700">{user ? 'New Password' : 'Password'}</label>
+          <input type="password" value={form.password || ''} onChange={e => set('password', e.target.value)}
+            placeholder={user ? 'Leave blank to keep current' : 'Set login password'}
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+          <p className="text-xs text-gray-400">Required for login. Leave blank if this user doesn't need to log in.</p>
         </div>
 
         <div className="space-y-1">

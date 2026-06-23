@@ -58,7 +58,6 @@ export default function Login() {
           >
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
-          <p className="text-center text-xs text-gray-400">Default: admin@practice.com / admin123</p>
         </form>
       </div>
     </div>

@@ -1,5 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import Sidebar from './components/layout/Sidebar';
+import Login from './pages/Login';
 import Calendar from './pages/Calendar';
 import Clients from './pages/Clients';
 import ClientDetail from './pages/ClientDetail';
@@ -13,29 +15,58 @@ import AuditLog from './pages/AuditLog';
 import RecurringSeries from './pages/RecurringSeries';
 import RecurringSeriesDetail from './pages/RecurringSeriesDetail';
 
+function AuthenticatedApp() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-50">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-600 border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    );
+  }
+
+  const p = user.permissions || {};
+
+  return (
+    <div className="flex h-screen overflow-hidden bg-gray-50">
+      <Sidebar />
+      <main className="flex-1 overflow-y-auto p-6">
+        <Routes>
+          {p.calendar && <Route path="/calendar" element={<Calendar />} />}
+          {p.clients && <Route path="/clients" element={<Clients />} />}
+          {p.clients && <Route path="/clients/:id" element={<ClientDetail />} />}
+          {p.users && <Route path="/practitioners" element={<Practitioners />} />}
+          {p.funds_managers && <Route path="/funds-managers" element={<FundsManagers />} />}
+          {p.locations && <Route path="/locations" element={<Locations />} />}
+          {p.services && <Route path="/services" element={<Services />} />}
+          {p.calendar && <Route path="/recurring-series" element={<RecurringSeries />} />}
+          {p.calendar && <Route path="/recurring-series/:id" element={<RecurringSeriesDetail />} />}
+          {p.invoices && <Route path="/invoices" element={<Invoices />} />}
+          <Route path="/audit-log" element={<AuditLog />} />
+          {p.settings && <Route path="/settings" element={<Settings />} />}
+          <Route path="*" element={<Navigate to={p.calendar ? '/calendar' : p.clients ? '/clients' : p.invoices ? '/invoices' : '/audit-log'} replace />} />
+        </Routes>
+      </main>
+    </div>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
-      <div className="flex h-screen overflow-hidden bg-gray-50">
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto p-6">
-          <Routes>
-            <Route path="/calendar"      element={<Calendar />} />
-            <Route path="/clients"       element={<Clients />} />
-            <Route path="/clients/:id"   element={<ClientDetail />} />
-            <Route path="/practitioners" element={<Practitioners />} />
-            <Route path="/funds-managers" element={<FundsManagers />} />
-            <Route path="/locations"      element={<Locations />} />
-            <Route path="/services"      element={<Services />} />
-            <Route path="/recurring-series"     element={<RecurringSeries />} />
-            <Route path="/recurring-series/:id" element={<RecurringSeriesDetail />} />
-            <Route path="/invoices"      element={<Invoices />} />
-            <Route path="/audit-log"      element={<AuditLog />} />
-            <Route path="/settings"      element={<Settings />} />
-            <Route path="*"              element={<Navigate to="/calendar" replace />} />
-          </Routes>
-        </main>
-      </div>
+      <AuthProvider>
+        <AuthenticatedApp />
+      </AuthProvider>
     </BrowserRouter>
   );
 }

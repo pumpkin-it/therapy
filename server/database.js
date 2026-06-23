@@ -225,6 +225,7 @@ try { db.exec(`ALTER TABLE appointments ADD COLUMN late_cancel_billable INTEGER 
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN role TEXT DEFAULT 'practitioner'`); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN gender TEXT`); } catch {}
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN gender TEXT`); } catch {}
+try { db.exec(`ALTER TABLE practitioners ADD COLUMN password_hash TEXT`); } catch {}
 
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS disciplines (
@@ -365,13 +366,27 @@ if (gstCount === 0) {
   db.prepare("INSERT INTO gst_rates (rate, effective_from) VALUES (0.1, '2000-07-01')").run();
 }
 
-// Seed default admin user
+// Seed default admin user (legacy users table)
 const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
 if (userCount === 0) {
   const hash = bcrypt.hashSync('admin123', 10);
   db.prepare("INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, 'admin')")
     .run('Administrator', 'admin@practice.com', hash);
-  console.log('Default admin created: admin@practice.com / admin123');
+}
+
+// Ensure at least one practitioner can log in (owner role with default password)
+const loginablePracs = db.prepare("SELECT COUNT(*) as c FROM practitioners WHERE password_hash IS NOT NULL").get().c;
+if (loginablePracs === 0) {
+  const firstPrac = db.prepare("SELECT id, first_name, last_name, email FROM practitioners WHERE active = 1 ORDER BY id LIMIT 1").get();
+  if (firstPrac) {
+    const hash = bcrypt.hashSync('admin123', 10);
+    db.prepare("UPDATE practitioners SET password_hash = ?, role = 'owner' WHERE id = ?").run(hash, firstPrac.id);
+    console.log(`Default login set for ${firstPrac.first_name} ${firstPrac.last_name} (${firstPrac.email}) — password: admin123`);
+  } else {
+    const hash = bcrypt.hashSync('admin123', 10);
+    db.prepare("INSERT INTO practitioners (first_name, last_name, email, role, password_hash) VALUES ('Admin', 'User', 'admin@practice.com', 'owner', ?)").run(hash);
+    console.log('Created default admin practitioner: admin@practice.com / admin123');
+  }
 }
 
 module.exports = db;
