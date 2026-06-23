@@ -278,6 +278,9 @@ router.patch('/:id', auth, (req, res) => {
       const cancelled = db.prepare(
         "UPDATE appointments SET status='cancelled' WHERE series_id=? AND start_time > ? AND status='scheduled'"
       ).run(req.params.id, end_date + 'T23:59');
+      if (end_date <= new Date().toISOString().slice(0, 10)) {
+        updates.active = 0;
+      }
       if (cancelled.changes > 0) {
         changes.push(`End date set to ${end_date} — cancelled ${cancelled.changes} appointments after that date`);
       } else {
