@@ -20,6 +20,7 @@ require('./database');
 const auth = require('./middleware/auth');
 const perm = require('./middleware/requirePermission');
 
+app.use('/api/cal',             require('./routes/calendarFeed'));
 app.use('/api/auth',            require('./routes/auth'));
 
 // All routes below require authentication

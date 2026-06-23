@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Pencil, UserX, UserCheck, Calendar, ArrowLeft, PlusCircle } from 'lucide-react';
+import { Plus, Pencil, UserX, UserCheck, Calendar, ArrowLeft, PlusCircle, Link2 } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
@@ -140,6 +140,8 @@ export default function Users() {
   const [activeFilter, setActiveFilter] = useState('1');
   const [roleFilter, setRoleFilter] = useState('');
   const [calendarUser, setCalendarUser] = useState(null);
+  const [calUrlUser, setCalUrlUser] = useState(null);
+  const [copied, setCopied] = useState(false);
 
   const load = () => api.get(`/practitioners?active=${activeFilter}`).then(r => setUsers(r.data));
   useEffect(() => { load(); }, [activeFilter]);
@@ -217,6 +219,11 @@ export default function Users() {
                     <Button variant="ghost" size="sm" title="View calendar" onClick={() => setCalendarUser(u)}>
                       <Calendar className="h-3.5 w-3.5 text-indigo-400" />
                     </Button>
+                    {u.cal_token && (
+                      <Button variant="ghost" size="sm" title="Calendar subscription URL" onClick={() => { setCalUrlUser(u); setCopied(false); }}>
+                        <Link2 className="h-3.5 w-3.5 text-green-500" />
+                      </Button>
+                    )}
                     <Button variant="ghost" size="sm" onClick={() => setModal(u)}>
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
@@ -240,6 +247,34 @@ export default function Users() {
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); load(); }}
         />
+      )}
+
+      {calUrlUser && (
+        <Modal title={`${calUrlUser.first_name} ${calUrlUser.last_name} — Calendar Subscription`} onClose={() => setCalUrlUser(null)}>
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600">Add this URL as a calendar subscription in Apple Calendar, Google Calendar, or Outlook to auto-sync appointments.</p>
+            <div className="flex gap-2">
+              <input readOnly value={`${window.location.origin}/api/cal/${calUrlUser.cal_token}.ics`}
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm bg-gray-50 font-mono text-xs" />
+              <Button size="sm" onClick={() => {
+                navigator.clipboard.writeText(`${window.location.origin}/api/cal/${calUrlUser.cal_token}.ics`);
+                setCopied(true); setTimeout(() => setCopied(false), 2000);
+              }}>
+                {copied ? 'Copied!' : 'Copy'}
+              </Button>
+            </div>
+            <div className="border-t border-gray-100 pt-3 flex items-center justify-between">
+              <p className="text-xs text-gray-400">Regenerating the token will invalidate the current subscription.</p>
+              <Button variant="ghost" size="sm" onClick={async () => {
+                const { cal_token } = await api.post(`/practitioners/${calUrlUser.id}/reset-cal-token`).then(r => r.data);
+                setCalUrlUser({ ...calUrlUser, cal_token });
+                load();
+              }}>
+                Regenerate URL
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

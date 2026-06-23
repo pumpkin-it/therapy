@@ -226,6 +226,7 @@ try { db.exec(`ALTER TABLE practitioners ADD COLUMN role TEXT DEFAULT 'practitio
 try { db.exec(`ALTER TABLE clients ADD COLUMN gender TEXT`); } catch {}
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN gender TEXT`); } catch {}
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN password_hash TEXT`); } catch {}
+try { db.exec(`ALTER TABLE practitioners ADD COLUMN cal_token TEXT`); } catch {}
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS push_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -405,6 +406,13 @@ if (loginablePracs === 0) {
     db.prepare("INSERT INTO practitioners (first_name, last_name, email, role, password_hash) VALUES ('Admin', 'User', 'admin@practice.com', 'owner', ?)").run(hash);
     console.log('Created default admin practitioner: admin@practice.com / admin123');
   }
+}
+
+// Generate calendar tokens for practitioners that don't have one
+const crypto = require('crypto');
+const pracsWithoutToken = db.prepare("SELECT id FROM practitioners WHERE cal_token IS NULL").all();
+for (const p of pracsWithoutToken) {
+  db.prepare("UPDATE practitioners SET cal_token = ? WHERE id = ?").run(crypto.randomBytes(20).toString('hex'), p.id);
 }
 
 module.exports = db;

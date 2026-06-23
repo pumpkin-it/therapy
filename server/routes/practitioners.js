@@ -52,6 +52,13 @@ router.patch('/:id/active', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+router.post('/:id/reset-cal-token', auth, (req, res) => {
+  const crypto = require('crypto');
+  const token = crypto.randomBytes(20).toString('hex');
+  db.prepare('UPDATE practitioners SET cal_token = ? WHERE id = ?').run(token, req.params.id);
+  res.json({ cal_token: token });
+});
+
 router.delete('/:id', auth, (req, res) => {
   db.prepare('UPDATE practitioners SET active = 0 WHERE id = ?').run(req.params.id);
   audit.log('user', Number(req.params.id), 'deactivated', 'User deactivated');
