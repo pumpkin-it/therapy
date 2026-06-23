@@ -23,11 +23,11 @@ router.get('/', auth, (req, res) => {
 });
 
 router.post('/', auth, (req, res) => {
-  const { appointment_id, client_id, practitioner_id, note } = req.body;
+  const { appointment_id, client_id, note } = req.body;
   const result = db.prepare(`
     INSERT INTO case_notes (appointment_id, client_id, practitioner_id, note)
     VALUES (?, ?, ?, ?)
-  `).run(appointment_id || null, client_id, practitioner_id || null, note);
+  `).run(appointment_id || null, client_id, req.user.id, note);
   res.status(201).json(db.prepare(`
     SELECT cn.*, p.first_name || ' ' || p.last_name AS practitioner_name
     FROM case_notes cn LEFT JOIN practitioners p ON p.id = cn.practitioner_id
