@@ -28,7 +28,7 @@ function addInterval(iso, freq) {
   return d.toISOString().slice(0, 16);
 }
 
-function CaseNotesSection({ appointmentId, clientId, practitionerId }) {
+function CaseNotesSection({ appointmentId, clientId }) {
   const [notes, setNotes] = useState([]);
   const [draft, setDraft] = useState('');
   const [editingId, setEditingId] = useState(null);
@@ -42,7 +42,7 @@ function CaseNotesSection({ appointmentId, clientId, practitionerId }) {
     if (!draft.trim()) return;
     setSaving(true);
     try {
-      await api.post('/case-notes', { appointment_id: appointmentId, client_id: clientId, practitioner_id: practitionerId || null, note: draft.trim() });
+      await api.post('/case-notes', { appointment_id: appointmentId, client_id: clientId, note: draft.trim() });
       setDraft(''); load();
     } finally { setSaving(false); }
   };
@@ -919,7 +919,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
 
         {editing && (
           <div className="border-t border-gray-100 pt-4">
-            <CaseNotesSection appointmentId={appointment.id} clientId={appointment.client_id} practitionerId={form.practitioner_id} />
+            <CaseNotesSection appointmentId={appointment.id} clientId={appointment.client_id} />
           </div>
         )}
 
