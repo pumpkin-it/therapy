@@ -37,7 +37,7 @@ export default function Calendar() {
     api.get(`/appointments?${params}`).then(r => setAppointments(r.data));
   };
 
-  useEffect(() => { api.get('/practitioners?role=practitioner').then(r => setPractitioners(r.data)); }, []);
+  useEffect(() => { api.get('/practitioners').then(r => setPractitioners(r.data)); }, []);
   useEffect(() => { load(); }, [dateStr, view]);
 
   const nav = delta => {
