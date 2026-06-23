@@ -8,7 +8,7 @@ const CLIENT_SELECT = `
     fp_active.funding_type AS active_funding_type,
     fp_active.start_date AS active_period_start,
     fp_active.end_date AS active_period_end,
-    fm_active.name AS active_funds_manager_name,
+    CASE WHEN fp_active.ndis_management = 'self' AND fm_active.name IS NULL THEN 'Self Managed' ELSE fm_active.name END AS active_funds_manager_name,
     fm_legacy.name AS funds_manager_name, fm_legacy.email AS funds_manager_email
   FROM clients c
   LEFT JOIN funding_periods fp_active ON fp_active.id = (
