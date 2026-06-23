@@ -226,6 +226,16 @@ try { db.exec(`ALTER TABLE practitioners ADD COLUMN role TEXT DEFAULT 'practitio
 try { db.exec(`ALTER TABLE clients ADD COLUMN gender TEXT`); } catch {}
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN gender TEXT`); } catch {}
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN password_hash TEXT`); } catch {}
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS password_resets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    practitioner_id INTEGER NOT NULL REFERENCES practitioners(id),
+    token TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    used INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
 
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS disciplines (

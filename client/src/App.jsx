@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Sidebar from './components/layout/Sidebar';
 import Login from './pages/Login';
+import ResetPassword from './pages/ResetPassword';
 import Calendar from './pages/Calendar';
 import Clients from './pages/Clients';
 import ClientDetail from './pages/ClientDetail';
@@ -30,6 +31,7 @@ function AuthenticatedApp() {
     return (
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );

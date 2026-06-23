@@ -173,4 +173,4 @@ async function sendReminderEmail(toEmail, invoiceNumber, total, dueDate) {
   });
 }
 
-module.exports = { sendInvoiceEmail, sendAppointmentNotification, sendTestEmail, sendReminderEmail };
+module.exports = { sendInvoiceEmail, sendAppointmentNotification, sendTestEmail, sendReminderEmail, graphSend };
