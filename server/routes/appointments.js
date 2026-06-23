@@ -3,6 +3,7 @@ const db = require('../database');
 const auth = require('../middleware/auth');
 const { sendAppointmentNotification } = require('../services/mailer');
 const audit = require('../services/audit');
+const { notifyAppointmentChange } = require('../services/push');
 
 const APPT_SELECT = `
   SELECT a.*,
@@ -151,6 +152,7 @@ router.post('/', auth, (req, res) => {
 
   const apptId = createOne(start_time, end_time);
   audit.log('appointment', apptId, 'created', `APT-${String(apptId).padStart(5,'0')} created for ${start_time}`);
+  notifyAppointmentChange(apptId, 'created').catch(() => {});
   res.status(201).json(withItems(db.prepare(`${APPT_SELECT} WHERE a.id=?`).get(apptId)));
 });
 
@@ -173,6 +175,7 @@ router.patch('/:id', auth, (req, res) => {
 
   const changes = audit.diff(before, { practitioner_id, client_id, start_time, end_time, status, location: locationText }, ['practitioner_id','client_id','start_time','end_time','status','location']);
   if (changes) audit.log('appointment', Number(req.params.id), 'updated', changes, { ref: `APT-${String(req.params.id).padStart(5,'0')}` });
+  notifyAppointmentChange(Number(req.params.id), 'updated').catch(() => {});
 
   const updated = withItems(db.prepare(`${APPT_SELECT} WHERE a.id=?`).get(req.params.id));
   res.json(updated);
@@ -184,6 +187,7 @@ router.patch('/:id/status', auth, (req, res) => {
   db.prepare('UPDATE appointments SET status=?, late_cancel_pct=?, late_cancel_billable=? WHERE id=?')
     .run(status, late_cancel_pct ?? null, late_cancel_billable ? 1 : 0, req.params.id);
   audit.log('appointment', Number(req.params.id), 'status_changed', `Status: ${before?.status} → ${status}`, { ref: `APT-${String(req.params.id).padStart(5,'0')}` });
+  if (status === 'cancelled') notifyAppointmentChange(Number(req.params.id), 'cancelled').catch(() => {});
   res.json({ ok: true });
 });
 

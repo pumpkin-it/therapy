@@ -41,6 +41,7 @@ app.use('/api/funding-periods', perm('clients'), require('./routes/fundingPeriod
 app.use('/api/client-files',    perm('clients'), require('./routes/clientFiles'));
 app.use('/api/recurring-series', perm('calendar'), require('./routes/recurringSeries'));
 app.use('/api/disciplines',     perm('services'), require('./routes/disciplines'));
+app.use('/api/push',            require('./routes/push'));
 app.use('/api/audit-logs',      require('./routes/auditLogs'));
 app.use('/api/gst-rates',       perm('settings'), require('./routes/gstRates'));
 app.use('/api/funding-types',   perm('settings'), require('./routes/fundingTypes'));
