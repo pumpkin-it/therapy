@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Plus, ChevronRight, Pencil, Trash2, AlertTriangle, Bell } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
@@ -326,14 +326,34 @@ function ClientModal({ client, onClose, onSaved }) {
     regular_medication: client.regular_medication || '',
   } : { ...EMPTY_CLIENT });
   const [saving, setSaving] = useState(false);
+  const [duplicates, setDuplicates] = useState([]);
+  const [error, setError] = useState('');
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const dupTimer = useRef(null);
+
+  useEffect(() => {
+    clearTimeout(dupTimer.current);
+    if (!form.first_name && !form.last_name && !form.email) { setDuplicates([]); return; }
+    dupTimer.current = setTimeout(() => {
+      const params = new URLSearchParams();
+      if (form.first_name) params.set('first_name', form.first_name);
+      if (form.last_name) params.set('last_name', form.last_name);
+      if (form.email) params.set('email', form.email);
+      if (client?.id) params.set('exclude_id', client.id);
+      api.get(`/clients/check-duplicates?${params}`).then(r => setDuplicates(r.data)).catch(() => {});
+    }, 500);
+    return () => clearTimeout(dupTimer.current);
+  }, [form.first_name, form.last_name, form.email]);
 
   const save = async () => {
     setSaving(true);
+    setError('');
     try {
       if (client) await api.patch(`/clients/${client.id}`, form);
       else        await api.post('/clients', form);
       onSaved();
+    } catch (e) {
+      if (e.response?.status === 409) setError(e.response.data.message);
     } finally { setSaving(false); }
   };
 
@@ -392,6 +412,13 @@ function ClientModal({ client, onClose, onSaved }) {
         {tab === 'notes'   && <CaseNotesTab clientId={client?.id} />}
       </div>
 
+      {duplicates.length > 0 && (
+        <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+          <p className="font-medium">Possible duplicate{duplicates.length > 1 ? 's' : ''}:</p>
+          {duplicates.map(d => <p key={d.id} className="text-xs mt-0.5">{d.first_name} {d.last_name} — {d.match_type === 'email' ? `email: ${d.email}` : d.email || 'no email'}{d.ndis_number ? ` (NDIS: ${d.ndis_number})` : ''}</p>)}
+        </div>
+      )}
+      {error && <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{error}</div>}
       {(tab === 'details' || tab === 'medical' || !client) && (
         <div className="flex justify-end gap-2 mt-5 pt-4 border-t border-gray-100">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>

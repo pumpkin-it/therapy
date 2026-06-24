@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Plus, Pencil, UserX, UserCheck, Calendar, ArrowLeft, PlusCircle, Link2 } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
@@ -27,9 +27,23 @@ function UserModal({ user, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [disciplines, setDisciplines] = useState([]);
   const [newDiscipline, setNewDiscipline] = useState('');
+  const [duplicates, setDuplicates] = useState([]);
+  const [error, setError] = useState('');
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const dupTimer = useRef(null);
 
   useEffect(() => { api.get('/disciplines').then(r => setDisciplines(r.data)); }, []);
+
+  useEffect(() => {
+    clearTimeout(dupTimer.current);
+    if (!form.first_name || !form.last_name) { setDuplicates([]); return; }
+    dupTimer.current = setTimeout(() => {
+      const params = new URLSearchParams({ first_name: form.first_name, last_name: form.last_name });
+      if (user?.id) params.set('exclude_id', user.id);
+      api.get(`/practitioners/check-duplicates?${params}`).then(r => setDuplicates(r.data)).catch(() => {});
+    }, 500);
+    return () => clearTimeout(dupTimer.current);
+  }, [form.first_name, form.last_name]);
 
   const addDiscipline = async () => {
     if (!newDiscipline.trim()) return;
@@ -41,10 +55,13 @@ function UserModal({ user, onClose, onSaved }) {
 
   const save = async () => {
     setSaving(true);
+    setError('');
     try {
       if (user) await api.patch(`/practitioners/${user.id}`, form);
       else      await api.post('/practitioners', form);
       onSaved();
+    } catch (e) {
+      if (e.response?.status === 409) setError(e.response.data.message);
     } finally { setSaving(false); }
   };
 
@@ -126,6 +143,13 @@ function UserModal({ user, onClose, onSaved }) {
             className="h-9 w-20 rounded border border-gray-300 p-1 cursor-pointer" />
         </div>
       </div>
+      {duplicates.length > 0 && (
+        <div className="mt-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+          <p className="font-medium">Possible duplicate{duplicates.length > 1 ? 's' : ''}:</p>
+          {duplicates.map(d => <p key={d.id} className="text-xs mt-0.5">{d.first_name} {d.last_name} — {d.email || 'no email'} ({d.role})</p>)}
+        </div>
+      )}
+      {error && <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{error}</div>}
       <div className="flex justify-end gap-2 mt-5">
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
         <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>

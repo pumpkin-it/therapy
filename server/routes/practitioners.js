@@ -16,6 +16,16 @@ router.get('/', auth, (req, res) => {
   res.json(rows);
 });
 
+router.get('/check-duplicates', auth, (req, res) => {
+  const { first_name, last_name, exclude_id } = req.query;
+  if (!first_name && !last_name) return res.json([]);
+  const conditions = ['LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?)'];
+  const params = [first_name || '', last_name || ''];
+  if (exclude_id) { conditions.push('id != ?'); params.push(exclude_id); }
+  const matches = db.prepare(`SELECT id, first_name, last_name, email, role FROM practitioners WHERE ${conditions.join(' AND ')}`).all(...params);
+  res.json(matches);
+});
+
 router.get('/:id', auth, (req, res) => {
   const row = db.prepare('SELECT * FROM practitioners WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
@@ -24,6 +34,10 @@ router.get('/:id', auth, (req, res) => {
 
 router.post('/', auth, (req, res) => {
   const { first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password } = req.body;
+  if (email) {
+    const existing = db.prepare('SELECT id FROM practitioners WHERE LOWER(email) = LOWER(?) LIMIT 1').get(email);
+    if (existing) return res.status(409).json({ field: 'email', message: `A user with email "${email}" already exists` });
+  }
   const hash = password ? bcrypt.hashSync(password, 10) : null;
   const result = db.prepare(
     'INSERT INTO practitioners (first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
@@ -34,6 +48,10 @@ router.post('/', auth, (req, res) => {
 
 router.patch('/:id', auth, (req, res) => {
   const { first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password } = req.body;
+  if (email) {
+    const existing = db.prepare('SELECT id FROM practitioners WHERE LOWER(email) = LOWER(?) AND id != ? LIMIT 1').get(email, req.params.id);
+    if (existing) return res.status(409).json({ field: 'email', message: `A user with email "${email}" already exists` });
+  }
   const before = db.prepare('SELECT * FROM practitioners WHERE id=?').get(req.params.id);
   db.prepare(
     'UPDATE practitioners SET first_name=?, last_name=?, title=?, email=?, phone=?, color=?, provider_number=?, role=?, gender=?, discipline_id=? WHERE id=?'

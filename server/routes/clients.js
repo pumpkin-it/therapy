@@ -38,6 +38,29 @@ router.get('/', auth, (req, res) => {
   res.json(rows);
 });
 
+router.get('/check-duplicates', auth, (req, res) => {
+  const { first_name, last_name, email, exclude_id } = req.query;
+  const matches = [];
+  const seen = new Set();
+  if (first_name && last_name) {
+    const conditions = ['LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?)'];
+    const params = [first_name, last_name];
+    if (exclude_id) { conditions.push('id != ?'); params.push(exclude_id); }
+    for (const r of db.prepare(`SELECT id, first_name, last_name, email, ndis_number FROM clients WHERE ${conditions.join(' AND ')}`).all(...params)) {
+      matches.push({ ...r, match_type: 'name' }); seen.add(r.id);
+    }
+  }
+  if (email) {
+    const conditions = ["LOWER(email) = LOWER(?)"];
+    const params = [email];
+    if (exclude_id) { conditions.push('id != ?'); params.push(exclude_id); }
+    for (const r of db.prepare(`SELECT id, first_name, last_name, email, ndis_number FROM clients WHERE ${conditions.join(' AND ')}`).all(...params)) {
+      if (!seen.has(r.id)) matches.push({ ...r, match_type: 'email' });
+    }
+  }
+  res.json(matches);
+});
+
 router.get('/:id', auth, (req, res) => {
   const client = db.prepare(`${CLIENT_SELECT} WHERE c.id = ?`).get(req.params.id);
   if (!client) return res.status(404).json({ error: 'Not found' });
@@ -57,6 +80,10 @@ router.post('/', auth, (req, res) => {
     emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
     diagnosis, allergies, regular_medication, gender,
   } = req.body;
+  if (ndis_number) {
+    const existing = db.prepare('SELECT id FROM clients WHERE LOWER(ndis_number) = LOWER(?) LIMIT 1').get(ndis_number);
+    if (existing) return res.status(409).json({ field: 'ndis_number', message: `A client with NDIS number "${ndis_number}" already exists` });
+  }
   const result = db.prepare(`
     INSERT INTO clients (first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes, alert,
       emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
@@ -78,6 +105,10 @@ router.patch('/:id', auth, (req, res) => {
     emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
     diagnosis, allergies, regular_medication, gender,
   } = req.body;
+  if (ndis_number) {
+    const existing = db.prepare('SELECT id FROM clients WHERE LOWER(ndis_number) = LOWER(?) AND id != ? LIMIT 1').get(ndis_number, req.params.id);
+    if (existing) return res.status(409).json({ field: 'ndis_number', message: `A client with NDIS number "${ndis_number}" already exists` });
+  }
   const before = db.prepare('SELECT * FROM clients WHERE id=?').get(req.params.id);
   db.prepare(`
     UPDATE clients SET
