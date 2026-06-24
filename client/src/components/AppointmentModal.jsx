@@ -379,9 +379,9 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
           service_id:      i.service_id ? Number(i.service_id) : null,
           quantity:        Number(i.quantity),
           unit_rate:       Number(i.unit_rate),
-          travel_time_to:  form.location_type === 'home' && i.travel_time_to ? Number(i.travel_time_to) : null,
-          travel_time_from: form.location_type === 'home' && i.travel_time_from ? Number(i.travel_time_from) : null,
-          travel_km:       form.location_type === 'home' && i.travel_km ? Number(i.travel_km) : null,
+          travel_time_to:  form.location_type !== 'clinic' && i.travel_time_to ? Number(i.travel_time_to) : null,
+          travel_time_from: form.location_type !== 'clinic' && i.travel_time_from ? Number(i.travel_time_from) : null,
+          travel_km:       form.location_type !== 'clinic' && i.travel_km ? Number(i.travel_km) : null,
           notes_min:       i.notes_min ? Number(i.notes_min) : null,
         })),
         recurrence: recurrence.enabled ? {
@@ -543,7 +543,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     ? services.filter(s => !s.discipline_id || s.discipline_id === selectedPractitioner.discipline_id)
     : services;
 
-  const isHome = form.location_type === 'home';
+  const isHome = form.location_type === 'home' || form.location_type === 'other';
 
   return (
     <Modal title={editing ? `Edit Appointment — APT-${String(appointment.id).padStart(5,'0')}` : 'New Appointment'} onClose={onClose} wide>
