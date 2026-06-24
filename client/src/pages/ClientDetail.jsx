@@ -118,6 +118,10 @@ function FundingTab({ clientId }) {
 
   const save = async () => {
     setOverlapWarning('');
+    if (ndisTypes.includes(form.funding_type) && !form.client_identifier?.trim()) {
+      setOverlapWarning('NDIS number is required for NDIS funding periods.');
+      return;
+    }
     const payload = { ...form, funds_manager_id: form.funds_manager_id || null };
     if (!payload.start_date || !payload.end_date) {
       if (!confirm('No period dates defined — this will save as an indefinite period. Continue?')) return;
@@ -218,9 +222,9 @@ function FundingTab({ clientId }) {
               </div>
             )}
             <div className="col-span-2 space-y-1">
-              <label className="block text-sm font-medium text-gray-700">Client ID <span className="text-gray-400">(optional)</span></label>
-              <input className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
-                value={form.client_identifier} onChange={e => set('client_identifier', e.target.value)} placeholder="e.g. NDIS participant number" />
+              <label className="block text-sm font-medium text-gray-700">{ndisTypes.includes(form.funding_type) ? 'NDIS number' : 'Client ID'} {!ndisTypes.includes(form.funding_type) && <span className="text-gray-400">(optional)</span>}</label>
+              <input className={`w-full rounded-lg border px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none ${ndisTypes.includes(form.funding_type) && !form.client_identifier ? 'border-red-300' : 'border-gray-300'}`}
+                value={form.client_identifier} onChange={e => set('client_identifier', e.target.value)} placeholder={ndisTypes.includes(form.funding_type) ? 'NDIS participant number' : 'e.g. NDIS participant number'} />
             </div>
             <ClearableDateInput label="Start date" value={form.start_date} onChange={v => set('start_date', v)} />
             <ClearableDateInput label="End date"   value={form.end_date}   onChange={v => set('end_date',   v)} />

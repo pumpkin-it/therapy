@@ -92,6 +92,10 @@ function FundingTab({ clientId }) {
 
   const save = async () => {
     setOverlapWarning('');
+    if (form.funding_type === 'NDIS' && !form.client_identifier?.trim()) {
+      setOverlapWarning('NDIS number is required for NDIS funding periods.');
+      return;
+    }
     const payload = { ...form, funds_manager_id: form.funds_manager_id || null };
     if (!payload.start_date || !payload.end_date) {
       if (!confirm('No period dates defined — this will save as an indefinite period. Continue?')) return;
@@ -193,10 +197,10 @@ function FundingTab({ clientId }) {
               ) : null}
             </div>
             <div className="col-span-2 space-y-1">
-              <label className="block text-sm font-medium text-gray-700">Client ID <span className="text-gray-400">(optional)</span></label>
-              <input className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              <label className="block text-sm font-medium text-gray-700">{form.funding_type === 'NDIS' ? 'NDIS number' : 'Client ID'} {form.funding_type !== 'NDIS' && <span className="text-gray-400">(optional)</span>}</label>
+              <input className={`w-full rounded-lg border px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 ${form.funding_type === 'NDIS' && !form.client_identifier ? 'border-red-300' : 'border-gray-300'}`}
                 value={form.client_identifier} onChange={e => set('client_identifier', e.target.value)}
-                placeholder="e.g. NDIS participant number" />
+                placeholder={form.funding_type === 'NDIS' ? 'NDIS participant number' : 'e.g. NDIS participant number'} />
             </div>
             {dateInput('Start date', form.start_date, v => set('start_date', v))}
             {dateInput('End date', form.end_date, v => set('end_date', v))}
