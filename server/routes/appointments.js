@@ -169,9 +169,18 @@ router.patch('/:id', auth, (req, res) => {
     late_cancel_pct ?? null, late_cancel_billable ? 1 : 0, funding_period_id || null, req.params.id);
 
   if (items) {
-    db.prepare('UPDATE invoice_items SET appointment_item_id = NULL WHERE appointment_item_id IN (SELECT id FROM appointment_items WHERE appointment_id = ?)').run(req.params.id);
-    db.prepare('DELETE FROM appointment_items WHERE appointment_id=?').run(req.params.id);
-    insertItems(req.params.id, items);
+    const existing = db.prepare('SELECT service_id, description, quantity, unit_rate, travel_time_to, travel_time_from, travel_km, prep_time_min, item_notes, notes_min FROM appointment_items WHERE appointment_id = ? ORDER BY id').all(req.params.id);
+    const normalize = i => JSON.stringify([
+      i.service_id||null, i.description||'', Number(i.quantity)||1, Number(i.unit_rate)||0,
+      Number(i.travel_time_to)||0, Number(i.travel_time_from)||0, Number(i.travel_km)||0,
+      Number(i.prep_time_min)||0, i.item_notes||'', Number(i.notes_min)||0,
+    ]);
+    const changed = existing.length !== items.length || existing.some((e, idx) => normalize(e) !== normalize(items[idx]));
+    if (changed) {
+      db.prepare('UPDATE invoice_items SET appointment_item_id = NULL WHERE appointment_item_id IN (SELECT id FROM appointment_items WHERE appointment_id = ?)').run(req.params.id);
+      db.prepare('DELETE FROM appointment_items WHERE appointment_id=?').run(req.params.id);
+      insertItems(req.params.id, items);
+    }
   }
 
   const changes = audit.diff(before, { practitioner_id, client_id, start_time, end_time, status, location: locationText }, ['practitioner_id','client_id','start_time','end_time','status','location']);
