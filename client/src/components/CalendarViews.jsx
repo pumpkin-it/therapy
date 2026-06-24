@@ -105,8 +105,9 @@ export function overlapLayout(appts) {
     });
     const totalCols = overlapping.length;
     const col = colMap[appt.id];
-    const w = 100 / totalCols;
-    result[appt.id] = { left: `${col * w}%`, width: `${w * 0.80}%` };
+    const totalWidth = 80;
+    const w = totalWidth / totalCols;
+    result[appt.id] = { left: `${col * w}%`, width: `${w}%` };
   }
   return result;
 }
