@@ -169,6 +169,7 @@ router.patch('/:id', auth, (req, res) => {
     late_cancel_pct ?? null, late_cancel_billable ? 1 : 0, funding_period_id || null, req.params.id);
 
   if (items) {
+    db.prepare('UPDATE invoice_items SET appointment_item_id = NULL WHERE appointment_item_id IN (SELECT id FROM appointment_items WHERE appointment_id = ?)').run(req.params.id);
     db.prepare('DELETE FROM appointment_items WHERE appointment_id=?').run(req.params.id);
     insertItems(req.params.id, items);
   }
