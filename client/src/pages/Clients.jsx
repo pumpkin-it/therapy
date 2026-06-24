@@ -87,17 +87,23 @@ function FundingTab({ clientId }) {
   };
 
   const openAdd = () => { setEditing('new'); setForm(EMPTY_PERIOD); setOverlapWarning(''); };
-  const openEdit = p => { setEditing(p); setForm({ funding_type: p.funding_type, funds_manager_id: p.funds_manager_id || '', client_identifier: p.client_identifier || '', start_date: p.start_date, end_date: p.end_date }); setOverlapWarning(''); };
+  const openEdit = p => { setEditing(p); setForm({ funding_type: p.funding_type, funds_manager_id: p.funds_manager_id || '', client_identifier: p.client_identifier || '', start_date: p.start_date === '1111-01-01' ? '' : p.start_date, end_date: p.end_date === '9999-09-09' ? '' : p.end_date }); setOverlapWarning(''); };
   const cancel = () => { setEditing(null); setOverlapWarning(''); };
 
   const save = async () => {
     setOverlapWarning('');
+    const payload = { ...form, funds_manager_id: form.funds_manager_id || null };
+    if (!payload.start_date || !payload.end_date) {
+      if (!confirm('No period dates defined — this will save as an indefinite period. Continue?')) return;
+      if (!payload.start_date) payload.start_date = '1111-01-01';
+      if (!payload.end_date) payload.end_date = '9999-09-09';
+    }
     setSaving(true);
     try {
       if (editing === 'new') {
-        await api.post('/funding-periods', { ...form, client_id: clientId, funds_manager_id: form.funds_manager_id || null });
+        await api.post('/funding-periods', { ...payload, client_id: clientId });
       } else {
-        await api.patch(`/funding-periods/${editing.id}`, { ...form, funds_manager_id: form.funds_manager_id || null });
+        await api.patch(`/funding-periods/${editing.id}`, payload);
       }
       setEditing(null);
       loadPeriods();
@@ -113,7 +119,7 @@ function FundingTab({ clientId }) {
   };
 
   const today = localToday();
-  const isActive = p => (!p.start_date || p.start_date <= today) && (!p.end_date || p.end_date >= today);
+  const isActive = p => (!p.start_date || p.start_date === '1111-01-01' || p.start_date <= today) && (!p.end_date || p.end_date === '9999-09-09' || p.end_date >= today);
 
   if (!clientId) return <p className="text-sm text-gray-400 py-6 text-center">Save the client first to manage funding periods.</p>;
 
@@ -133,7 +139,7 @@ function FundingTab({ clientId }) {
               </div>
               {(p.start_date || p.end_date) ? (
                 <p className="text-sm text-gray-700 mt-1">
-                  {p.start_date ? format(parseISO(p.start_date), 'd MMM yyyy') : '—'} – {p.end_date ? format(parseISO(p.end_date), 'd MMM yyyy') : 'ongoing'}
+                  {!p.start_date || p.start_date === '1111-01-01' ? 'Indefinite' : format(parseISO(p.start_date), 'd MMM yyyy')} – {!p.end_date || p.end_date === '9999-09-09' ? 'Indefinite' : format(parseISO(p.end_date), 'd MMM yyyy')}
                 </p>
               ) : (
                 <p className="text-sm text-gray-400 mt-1">No dates set (open-ended)</p>

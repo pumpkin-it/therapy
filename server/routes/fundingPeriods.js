@@ -36,7 +36,7 @@ router.post('/', auth, (req, res) => {
   const result = db.prepare(`
     INSERT INTO funding_periods (client_id, funding_type, funds_manager_id, client_identifier, start_date, end_date, ndis_management, self_managed_email)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(client_id, funding_type, funds_manager_id || null, client_identifier || null, start_date || null, end_date || null, ndis_management || null, self_managed_email || null);
+  `).run(client_id, funding_type, funds_manager_id || null, client_identifier || null, start_date || '1111-01-01', end_date || '9999-09-09', ndis_management || null, self_managed_email || null);
 
   res.status(201).json(db.prepare(`
     SELECT fp.*, fm.name AS funds_manager_name
@@ -66,7 +66,7 @@ router.patch('/:id', auth, (req, res) => {
 
   db.prepare(`
     UPDATE funding_periods SET funding_type=?, funds_manager_id=?, client_identifier=?, start_date=?, end_date=?, ndis_management=?, self_managed_email=? WHERE id=?
-  `).run(funding_type, funds_manager_id || null, client_identifier || null, start_date || null, end_date || null, ndis_management || null, self_managed_email || null, req.params.id);
+  `).run(funding_type, funds_manager_id || null, client_identifier || null, start_date || '1111-01-01', end_date || '9999-09-09', ndis_management || null, self_managed_email || null, req.params.id);
 
   res.json(db.prepare(`
     SELECT fp.*, fm.name AS funds_manager_name
