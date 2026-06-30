@@ -1,18 +1,116 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, Pencil, Trash2, GripVertical, X } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 
+const VARIABLES = [
+  { label: 'Client full name',   value: '{{client_name}}' },
+  { label: 'Client first name',  value: '{{client_first_name}}' },
+  { label: 'Client last name',   value: '{{client_last_name}}' },
+  { label: 'Date of birth',      value: '{{client_dob}}' },
+  { label: 'Client address',     value: '{{client_address}}' },
+  { label: 'Practitioner name',  value: '{{practitioner_name}}' },
+  { label: 'Today\'s date',      value: '{{date}}' },
+  { label: 'Practice name',      value: '{{practice_name}}' },
+];
+
+function VarChips({ onInsert }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 pt-1">
+      <span className="text-xs text-gray-400 self-center mr-1">Insert variable:</span>
+      {VARIABLES.map(v => (
+        <button
+          key={v.value}
+          type="button"
+          onClick={() => onInsert(v.value)}
+          className="rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-100 font-mono transition-colors"
+          title={v.label}
+        >
+          {v.value}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SectionEditor({ section, index, onChange, onRemove }) {
+  const contentRef = useRef();
+
+  const insertVar = (varStr) => {
+    const el = contentRef.current;
+    if (!el) return;
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const newVal = section.content.slice(0, start) + varStr + section.content.slice(end);
+    onChange('content', newVal);
+    // restore cursor after variable
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(start + varStr.length, start + varStr.length);
+    });
+  };
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
+      <div className="flex gap-2 items-start">
+        <GripVertical className="h-4 w-4 mt-2 text-gray-300 shrink-0" />
+        <div className="flex-1 space-y-2">
+          <input
+            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            placeholder="Section title (e.g. Presenting Concerns)"
+            value={section.title}
+            onChange={e => onChange('title', e.target.value)}
+          />
+        </div>
+        <button onClick={onRemove} className="mt-1 text-gray-400 hover:text-red-500 shrink-0">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="pl-6 space-y-2">
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-gray-500">
+            Static content <span className="font-normal text-gray-400">(pre-fills the report — can include variables)</span>
+          </label>
+          <textarea
+            ref={contentRef}
+            rows={4}
+            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm resize-y focus:border-indigo-500 focus:outline-none font-normal"
+            placeholder="Write the default wording for this section. Use variables like {{client_name}} to insert dynamic data."
+            value={section.content || ''}
+            onChange={e => onChange('content', e.target.value)}
+          />
+          <VarChips onInsert={insertVar} />
+        </div>
+
+        <div className="space-y-1">
+          <label className="block text-xs font-medium text-gray-500">
+            Guidance note <span className="font-normal text-gray-400">(shown as placeholder if content is empty)</span>
+          </label>
+          <input
+            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none"
+            placeholder="e.g. Describe the client's reason for referral…"
+            value={section.placeholder || ''}
+            onChange={e => onChange('placeholder', e.target.value)}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TemplateEditor({ template, onSave, onCancel }) {
   const [name, setName] = useState(template?.name || '');
   const [description, setDescription] = useState(template?.description || '');
   const [sections, setSections] = useState(
-    template?.sections?.length ? template.sections : [{ title: '', placeholder: '' }]
+    template?.sections?.length
+      ? template.sections
+      : [{ title: '', placeholder: '', content: '' }]
   );
   const [saving, setSaving] = useState(false);
 
-  const addSection = () => setSections(s => [...s, { title: '', placeholder: '' }]);
+  const addSection = () => setSections(s => [...s, { title: '', placeholder: '', content: '' }]);
   const removeSection = i => setSections(s => s.filter((_, idx) => idx !== i));
   const updateSection = (i, key, val) =>
     setSections(s => s.map((sec, idx) => idx === i ? { ...sec, [key]: val } : sec));
@@ -35,27 +133,13 @@ function TemplateEditor({ template, onSave, onCancel }) {
       <div className="space-y-2">
         <p className="text-sm font-medium text-gray-700">Sections</p>
         {sections.map((sec, i) => (
-          <div key={i} className="flex gap-2 items-start rounded-lg border border-gray-200 p-3 bg-gray-50">
-            <GripVertical className="h-4 w-4 mt-2 text-gray-300 shrink-0" />
-            <div className="flex-1 space-y-2">
-              <input
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                placeholder="Section title (e.g. Presenting Concerns)"
-                value={sec.title}
-                onChange={e => updateSection(i, 'title', e.target.value)}
-              />
-              <textarea
-                rows={2}
-                className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm resize-none focus:border-indigo-500 focus:outline-none"
-                placeholder="Placeholder / guidance text shown to practitioner"
-                value={sec.placeholder}
-                onChange={e => updateSection(i, 'placeholder', e.target.value)}
-              />
-            </div>
-            <button onClick={() => removeSection(i)} className="mt-1 text-gray-400 hover:text-red-500">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+          <SectionEditor
+            key={i}
+            section={sec}
+            index={i}
+            onChange={(key, val) => updateSection(i, key, val)}
+            onRemove={() => removeSection(i)}
+          />
         ))}
         <button
           onClick={addSection}
@@ -78,7 +162,7 @@ function TemplateEditor({ template, onSave, onCancel }) {
 export default function ReportTemplates() {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(null); // null | 'new' | template object
+  const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
 
   const load = () => {
@@ -172,7 +256,7 @@ export default function ReportTemplates() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
             <p className="font-semibold text-gray-900">Delete "{deleting.name}"?</p>
-            <p className="text-sm text-gray-500">This will hide the template from new reports. Existing reports using this template are not affected.</p>
+            <p className="text-sm text-gray-500">This will hide the template from new reports. Existing reports are not affected.</p>
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setDeleting(null)}>Cancel</Button>
               <Button variant="danger" onClick={() => handleDelete(deleting.id)}>Delete</Button>

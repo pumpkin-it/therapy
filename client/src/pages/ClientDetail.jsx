@@ -10,6 +10,7 @@ import Input from '../components/ui/Input';
 import SearchSelect from '../components/ui/SearchSelect';
 import { EmbeddedCalendar } from '../components/CalendarViews';
 import { localToday } from '../lib/utils';
+import { useAuth } from '../context/AuthContext';
 
 const FUNDING_COLOR_FALLBACK = { NDIS: 'blue', Medicare: 'green', Private: 'purple', 'Aged Care': 'orange', Other: 'gray' };
 
@@ -361,7 +362,12 @@ function CaseNotesTab({ clientId }) {
 }
 
 // ─── Reports tab ──────────────────────────────────────────────────────────────
-function ReportsTab({ clientId }) {
+function substituteVars(text, vars) {
+  if (!text) return '';
+  return text.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] !== undefined ? vars[key] : `{{${key}}}`);
+}
+
+function ReportsTab({ clientId, client, practitionerName, practiceName }) {
   const [reports, setReports] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [showNew, setShowNew] = useState(false);
@@ -376,11 +382,35 @@ function ReportsTab({ clientId }) {
   };
   useEffect(() => { load(); }, []);
 
+  const buildVars = () => {
+    const dob = client?.date_of_birth
+      ? client.date_of_birth.split('-').reverse().join('/')
+      : '';
+    const today = new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+    return {
+      client_name:       [client?.first_name, client?.last_name].filter(Boolean).join(' '),
+      client_first_name: client?.first_name || '',
+      client_last_name:  client?.last_name  || '',
+      client_dob:        dob,
+      client_address:    client?.address    || '',
+      practitioner_name: practitionerName   || '',
+      date:              today,
+      practice_name:     practiceName       || '',
+    };
+  };
+
   const pickTemplate = t => {
     setSelectedTemplate(t);
+    const vars = buildVars();
     setReportForm({
       title: t ? t.name : '',
-      sections: t ? t.sections.map(s => ({ title: s.title, placeholder: s.placeholder, content: '' })) : [{ title: '', placeholder: '', content: '' }],
+      sections: t
+        ? t.sections.map(s => ({
+            title:       s.title,
+            placeholder: s.placeholder,
+            content:     substituteVars(s.content, vars),
+          }))
+        : [{ title: '', placeholder: '', content: '' }],
     });
   };
 
@@ -573,11 +603,13 @@ export default function ClientDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const isNew = id === 'new';
+  const { user } = useAuth();
   const [client, setClient] = useState(isNew ? {} : null);
   const [tab, setTab] = useState('details');
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [practiceName, setPracticeName] = useState('');
 
   const load = () => {
     if (isNew) return;
@@ -605,7 +637,13 @@ export default function ClientDetail() {
     });
   };
 
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => {
+    load();
+    api.get('/settings').then(r => {
+      const s = r.data || {};
+      setPracticeName(s.practice_name || '');
+    }).catch(() => {});
+  }, [id]);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -747,7 +785,7 @@ export default function ClientDetail() {
 
         {tab === 'funding'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to manage funding.</p> : <FundingTab  clientId={id} />)}
         {tab === 'notes'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to add notes.</p> : <CaseNotesTab clientId={id} />)}
-        {tab === 'reports'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to create reports.</p> : <ReportsTab   clientId={id} />)}
+        {tab === 'reports'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to create reports.</p> : <ReportsTab   clientId={id} client={client} practitionerName={user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() : ''} practiceName={practiceName} />)}
         {tab === 'files'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to upload files.</p> : <FilesTab     clientId={id} />)}
         {tab === 'calendar'  && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view calendar.</p> : <EmbeddedCalendar clientId={id} />)}
       </div>
