@@ -415,6 +415,34 @@ for (const p of pracsWithoutToken) {
   db.prepare("UPDATE practitioners SET cal_token = ? WHERE id = ?").run(crypto.randomBytes(20).toString('hex'), p.id);
 }
 
+// Report templates and client reports
+db.exec(`
+  CREATE TABLE IF NOT EXISTS report_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    sections TEXT NOT NULL DEFAULT '[]',
+    created_by INTEGER,
+    active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS client_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL,
+    practitioner_id INTEGER NOT NULL,
+    template_id INTEGER,
+    template_name TEXT,
+    title TEXT NOT NULL,
+    sections TEXT NOT NULL DEFAULT '[]',
+    appointment_id INTEGER,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (client_id) REFERENCES clients(id),
+    FOREIGN KEY (practitioner_id) REFERENCES practitioners(id)
+  );
+`);
+
 // Partial unique indexes for duplicate prevention
 try { db.exec(`CREATE UNIQUE INDEX idx_practitioners_email ON practitioners(email) WHERE email IS NOT NULL AND email != ''`); } catch {}
 try { db.exec(`CREATE UNIQUE INDEX idx_clients_ndis ON clients(ndis_number) WHERE ndis_number IS NOT NULL AND ndis_number != ''`); } catch {}

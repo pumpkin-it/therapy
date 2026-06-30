@@ -15,6 +15,7 @@ import Settings from './pages/Settings';
 import AuditLog from './pages/AuditLog';
 import RecurringSeries from './pages/RecurringSeries';
 import RecurringSeriesDetail from './pages/RecurringSeriesDetail';
+import ReportTemplates from './pages/ReportTemplates';
 
 function AuthenticatedApp() {
   const { user, loading } = useAuth();
@@ -54,6 +55,7 @@ function AuthenticatedApp() {
           {p.calendar && <Route path="/recurring-series" element={<RecurringSeries />} />}
           {p.calendar && <Route path="/recurring-series/:id" element={<RecurringSeriesDetail />} />}
           {p.invoices && <Route path="/invoices" element={<Invoices />} />}
+          {p.settings && <Route path="/report-templates" element={<ReportTemplates />} />}
           <Route path="/audit-log" element={<AuditLog />} />
           {p.settings && <Route path="/settings" element={<Settings />} />}
           <Route path="*" element={<Navigate to={p.calendar ? '/calendar' : p.clients ? '/clients' : p.invoices ? '/invoices' : '/audit-log'} replace />} />

@@ -360,6 +360,207 @@ function CaseNotesTab({ clientId }) {
   );
 }
 
+// ─── Reports tab ──────────────────────────────────────────────────────────────
+function ReportsTab({ clientId }) {
+  const [reports, setReports] = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [showNew, setShowNew] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [reportForm, setReportForm] = useState({ title: '', sections: [] });
+  const [editing, setEditing] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const load = () => {
+    api.get(`/client-reports?client_id=${clientId}`).then(r => setReports(r.data));
+    api.get('/report-templates').then(r => setTemplates(r.data));
+  };
+  useEffect(() => { load(); }, []);
+
+  const pickTemplate = t => {
+    setSelectedTemplate(t);
+    setReportForm({
+      title: t ? t.name : '',
+      sections: t ? t.sections.map(s => ({ title: s.title, placeholder: s.placeholder, content: '' })) : [{ title: '', placeholder: '', content: '' }],
+    });
+  };
+
+  const startNew = () => {
+    setShowNew(true);
+    setSelectedTemplate(null);
+    setReportForm({ title: '', sections: [] });
+    setEditing(null);
+  };
+
+  const startEdit = report => {
+    setEditing(report);
+    setShowNew(false);
+    setReportForm({ title: report.title, sections: report.sections });
+    setSelectedTemplate(null);
+  };
+
+  const saveReport = async () => {
+    setSaving(true);
+    try {
+      if (editing) {
+        await api.put(`/client-reports/${editing.id}`, reportForm);
+      } else {
+        await api.post('/client-reports', {
+          client_id: clientId,
+          template_id: selectedTemplate?.id || null,
+          template_name: selectedTemplate?.name || null,
+          ...reportForm,
+        });
+      }
+      setShowNew(false);
+      setEditing(null);
+      load();
+    } finally { setSaving(false); }
+  };
+
+  const deleteReport = async id => {
+    if (!confirm('Delete this report?')) return;
+    await api.delete(`/client-reports/${id}`);
+    load();
+  };
+
+  const downloadPdf = id => {
+    const token = localStorage.getItem('token');
+    const a = document.createElement('a');
+    a.href = `/api/client-reports/${id}/pdf`;
+    a.setAttribute('target', '_blank');
+    const headers = new Headers({ Authorization: `Bearer ${token}` });
+    fetch(a.href, { headers }).then(r => r.blob()).then(blob => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'report.pdf';
+      link.click();
+      URL.revokeObjectURL(url);
+    });
+  };
+
+  const updateSection = (i, val) =>
+    setReportForm(f => ({ ...f, sections: f.sections.map((s, idx) => idx === i ? { ...s, content: val } : s) }));
+
+  const isEditorOpen = showNew || !!editing;
+
+  return (
+    <div className="space-y-4">
+      {!isEditorOpen && (
+        <div className="flex justify-end">
+          <Button size="sm" onClick={startNew}><Plus className="h-3.5 w-3.5" /> New report</Button>
+        </div>
+      )}
+
+      {isEditorOpen && (
+        <div className="space-y-4 rounded-lg border border-indigo-100 bg-indigo-50/30 p-4">
+          <p className="text-sm font-semibold text-gray-800">{editing ? 'Edit report' : 'New report'}</p>
+
+          {!editing && (
+            <div className="space-y-1">
+              <label className="block text-xs font-medium text-gray-600">Template (optional)</label>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => pickTemplate(null)}
+                  className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                    selectedTemplate === null && reportForm.sections.length === 0
+                      ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                      : 'border-gray-300 text-gray-600 hover:border-gray-400'
+                  }`}
+                >
+                  Blank
+                </button>
+                {templates.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => pickTemplate(t)}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                      selectedTemplate?.id === t.id
+                        ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                        : 'border-gray-300 text-gray-600 hover:border-gray-400'
+                    }`}
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-gray-600">Report title</label>
+            <input
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              value={reportForm.title}
+              onChange={e => setReportForm(f => ({ ...f, title: e.target.value }))}
+              placeholder="e.g. Initial Assessment – June 2025"
+            />
+          </div>
+
+          {reportForm.sections.length === 0 && !selectedTemplate && (
+            <p className="text-xs text-gray-400">Select a template above or add a blank section below.</p>
+          )}
+
+          {reportForm.sections.map((sec, i) => (
+            <div key={i} className="space-y-1.5">
+              {sec.title && <p className="text-sm font-semibold text-gray-700">{sec.title}</p>}
+              <textarea
+                rows={4}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-y focus:border-indigo-500 focus:outline-none"
+                placeholder={sec.placeholder || 'Enter your notes here…'}
+                value={sec.content || ''}
+                onChange={e => updateSection(i, e.target.value)}
+              />
+            </div>
+          ))}
+
+          {!selectedTemplate && (
+            <button
+              onClick={() => setReportForm(f => ({ ...f, sections: [...f.sections, { title: '', placeholder: '', content: '' }] }))}
+              className="text-xs text-indigo-600 hover:text-indigo-800 font-medium"
+            >
+              + Add section
+            </button>
+          )}
+
+          <div className="flex justify-end gap-2 pt-2 border-t border-indigo-100">
+            <Button variant="secondary" size="sm" onClick={() => { setShowNew(false); setEditing(null); }}>Cancel</Button>
+            <Button size="sm" onClick={saveReport} disabled={saving || !reportForm.title.trim()}>
+              {saving ? 'Saving…' : 'Save report'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {reports.length === 0 && !isEditorOpen && (
+        <p className="text-sm text-gray-400 py-6 text-center">No reports yet.</p>
+      )}
+
+      {reports.map(r => (
+        <div key={r.id} className="rounded-lg border border-gray-200 bg-white px-4 py-3 flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-gray-900">{r.title}</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {r.practitioner_name && <span>{r.practitioner_name} · </span>}
+              {r.template_name && <span className="italic">{r.template_name} · </span>}
+              {format(parseISO(r.created_at), 'd MMM yyyy')}
+            </p>
+          </div>
+          <button onClick={() => downloadPdf(r.id)} className="text-indigo-500 hover:text-indigo-700 p-1" title="Download PDF">
+            <Download className="h-4 w-4" />
+          </button>
+          <button onClick={() => startEdit(r)} className="text-gray-400 hover:text-gray-600 p-1" title="Edit">
+            <Pencil className="h-4 w-4" />
+          </button>
+          <button onClick={() => deleteReport(r.id)} className="text-red-300 hover:text-red-500 p-1" title="Delete">
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Main detail page ─────────────────────────────────────────────────────────
 const EMPTY_FORM = {
   first_name: '', last_name: '', email: '', phone: '', date_of_birth: '', address: '', gender: '',
@@ -427,7 +628,7 @@ export default function ClientDetail() {
 
   const TABS = [
     ['details', 'Details'], ['funding', 'Funding'], ['medical', 'Medical'],
-    ['notes', 'Case Notes'], ['files', 'Files'], ['calendar', 'Calendar'],
+    ['notes', 'Case Notes'], ['reports', 'Reports'], ['files', 'Files'], ['calendar', 'Calendar'],
   ];
 
   return (
@@ -546,6 +747,7 @@ export default function ClientDetail() {
 
         {tab === 'funding'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to manage funding.</p> : <FundingTab  clientId={id} />)}
         {tab === 'notes'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to add notes.</p> : <CaseNotesTab clientId={id} />)}
+        {tab === 'reports'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to create reports.</p> : <ReportsTab   clientId={id} />)}
         {tab === 'files'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to upload files.</p> : <FilesTab     clientId={id} />)}
         {tab === 'calendar'  && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view calendar.</p> : <EmbeddedCalendar clientId={id} />)}
       </div>
