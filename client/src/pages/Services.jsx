@@ -4,6 +4,7 @@ import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
+import DisciplinePicker from '../components/DisciplinePicker';
 import { currency } from '../lib/utils';
 
 const EMPTY = { name:'', description:'', code:'', default_rate:0, unit:'hour', default_duration:60, travel_rate_per_hour:'', km_rate:'', notes_rate:'', gst_type:'GST', discipline_id:'', travel_code:'', km_code:'', notes_code:'', cancel_code:'' };
@@ -11,10 +12,7 @@ const EMPTY = { name:'', description:'', code:'', default_rate:0, unit:'hour', d
 function ServiceModal({ service, onClose, onSaved }) {
   const [form, setForm] = useState(service || EMPTY);
   const [saving, setSaving] = useState(false);
-  const [disciplines, setDisciplines] = useState([]);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-
-  useEffect(() => { api.get('/disciplines').then(r => setDisciplines(r.data)); }, []);
 
   const save = async () => {
     setSaving(true);
@@ -34,14 +32,7 @@ function ServiceModal({ service, onClose, onSaved }) {
         </div>
         <div className="grid grid-cols-2 gap-4">
           <Input label="Description" value={form.description} onChange={e => set('description', e.target.value)} />
-          <div className="space-y-1">
-            <label className="block text-sm font-medium text-gray-700">Discipline</label>
-            <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              value={form.discipline_id} onChange={e => set('discipline_id', e.target.value)}>
-              <option value="">— All disciplines —</option>
-              {disciplines.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-            </select>
-          </div>
+          <DisciplinePicker value={form.discipline_id} onChange={v => set('discipline_id', v)} noneLabel="— All disciplines —" />
         </div>
         <div className="grid grid-cols-3 gap-4">
           <Input label="Default rate ($)" type="number" step="0.01" value={form.default_rate}

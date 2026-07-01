@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Pencil, UserX, UserCheck, Calendar, ArrowLeft, PlusCircle, Link2 } from 'lucide-react';
+import { Plus, Pencil, UserX, UserCheck, Calendar, ArrowLeft, Link2 } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
+import DisciplinePicker from '../components/DisciplinePicker';
 import { EmbeddedCalendar } from '../components/CalendarViews';
 
 const ROLES = [
@@ -25,14 +26,10 @@ const EMPTY = { first_name: '', last_name: '', title: '', email: '', phone: '', 
 function UserModal({ user, onClose, onSaved }) {
   const [form, setForm] = useState(user || EMPTY);
   const [saving, setSaving] = useState(false);
-  const [disciplines, setDisciplines] = useState([]);
-  const [newDiscipline, setNewDiscipline] = useState('');
   const [duplicates, setDuplicates] = useState([]);
   const [error, setError] = useState('');
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const dupTimer = useRef(null);
-
-  useEffect(() => { api.get('/disciplines').then(r => setDisciplines(r.data)); }, []);
 
   useEffect(() => {
     clearTimeout(dupTimer.current);
@@ -44,14 +41,6 @@ function UserModal({ user, onClose, onSaved }) {
     }, 500);
     return () => clearTimeout(dupTimer.current);
   }, [form.first_name, form.last_name]);
-
-  const addDiscipline = async () => {
-    if (!newDiscipline.trim()) return;
-    const res = await api.post('/disciplines', { name: newDiscipline.trim() });
-    setDisciplines(d => [...d, res.data]);
-    set('discipline_id', res.data.id);
-    setNewDiscipline('');
-  };
 
   const save = async () => {
     setSaving(true);
@@ -74,22 +63,7 @@ function UserModal({ user, onClose, onSaved }) {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <Input label="Title (e.g. OT, Psychologist)" value={form.title} onChange={e => set('title', e.target.value)} />
-          <div className="space-y-1">
-            <label className="block text-sm font-medium text-gray-700">Discipline</label>
-            <div className="flex gap-1">
-              <select className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                value={form.discipline_id} onChange={e => set('discipline_id', e.target.value)}>
-                <option value="">— None —</option>
-                {disciplines.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            </div>
-            <div className="flex gap-1 mt-1">
-              <input className="flex-1 rounded border border-gray-300 px-2 py-1 text-xs" placeholder="Add new…"
-                value={newDiscipline} onChange={e => setNewDiscipline(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && addDiscipline()} />
-              <button onClick={addDiscipline} className="text-indigo-500 hover:text-indigo-700"><PlusCircle className="h-4 w-4" /></button>
-            </div>
-          </div>
+          <DisciplinePicker value={form.discipline_id} onChange={v => set('discipline_id', v)} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <Input label="Email" type="email" value={form.email} onChange={e => set('email', e.target.value)} />

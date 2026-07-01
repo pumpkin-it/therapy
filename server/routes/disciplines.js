@@ -18,7 +18,27 @@ router.patch('/:id', auth, (req, res) => {
   res.json(db.prepare('SELECT * FROM disciplines WHERE id=?').get(req.params.id));
 });
 
+router.get('/:id/usage', auth, (req, res) => {
+  const practitioners = db.prepare('SELECT first_name, last_name FROM practitioners WHERE discipline_id = ? AND active = 1').all(req.params.id);
+  const services = db.prepare('SELECT name FROM services WHERE discipline_id = ? AND active = 1').all(req.params.id);
+  res.json({
+    practitioners: practitioners.map(p => `${p.first_name} ${p.last_name}`),
+    services: services.map(s => s.name),
+  });
+});
+
 router.delete('/:id', auth, (req, res) => {
+  const practitioners = db.prepare('SELECT first_name, last_name FROM practitioners WHERE discipline_id = ? AND active = 1').all(req.params.id);
+  const services = db.prepare('SELECT name FROM services WHERE discipline_id = ? AND active = 1').all(req.params.id);
+  if (practitioners.length || services.length) {
+    return res.status(409).json({
+      error: 'This discipline is in use and cannot be deleted.',
+      usage: {
+        practitioners: practitioners.map(p => `${p.first_name} ${p.last_name}`),
+        services: services.map(s => s.name),
+      },
+    });
+  }
   db.prepare('UPDATE disciplines SET active=0 WHERE id=?').run(req.params.id);
   res.status(204).send();
 });
