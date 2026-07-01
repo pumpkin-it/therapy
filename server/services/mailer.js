@@ -120,6 +120,9 @@ function fmtTimeOnly(iso) {
 function fmtDateOnly(iso) {
   return new Date(iso).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 }
+function fmtWeekdayLong(iso) {
+  return new Date(iso).toLocaleDateString('en-AU', { weekday: 'long' });
+}
 
 // Returns { practitionerError, clientError } — null = success, string = error msg
 async function sendAppointmentNotification(apptId, eventType, { throwOnError = false, target = 'both', scope = null } = {}) {
@@ -150,14 +153,42 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
   const location = appt.location_name || appt.location_other || appt.location || '';
   const apptDate = fmt(appt.start_time);
 
+  // For update emails, pull the before/after snapshot recorded on the audit log so we
+  // can show the old time struck through alongside the new one.
+  let before = null;
+  if (eventType === 'updated') {
+    const row = db.prepare(
+      "SELECT snapshot FROM audit_logs WHERE entity_type='appointment' AND entity_id=? AND action='updated' ORDER BY id DESC LIMIT 1"
+    ).get(appt.id);
+    if (row?.snapshot) {
+      try {
+        const snap = JSON.parse(row.snapshot);
+        if (snap.before_start_time && snap.before_end_time) before = snap;
+      } catch {}
+    }
+  }
+  const timeChanged = before && (before.before_start_time !== appt.start_time || before.before_end_time !== appt.end_time);
+
+  const freqText = (startIso, endIso) =>
+    `${FREQ_LABEL[appt.series_freq] || appt.series_freq} ${fmtWeekdayLong(startIso)} at ${fmtTimeOnly(startIso)} – ${fmtTimeOnly(endIso)}`;
+
   // For series updates/cancellations scoped to 'this_only', show just the single datetime.
   // "from <date>" is only shown on the initial creation email — for updates the "Changes
   // starting from" row covers it, and for cancellations it's misleading (the last real
   // appointment may be well before the original series start).
   let dateTimeLabel;
   if (appt.series_freq && scope !== 'this_only') {
-    const freqText = `${FREQ_LABEL[appt.series_freq] || appt.series_freq} at ${fmtTimeOnly(appt.start_time)} – ${fmtTimeOnly(appt.end_time)}`;
-    dateTimeLabel = eventType === 'created' ? `${freqText} from ${fmtDateOnly(appt.series_start)}` : freqText;
+    const newFreq = freqText(appt.start_time, appt.end_time);
+    if (eventType === 'created') {
+      dateTimeLabel = `${newFreq} from ${fmtDateOnly(appt.series_start)}`;
+    } else if (eventType === 'updated' && timeChanged) {
+      const oldFreq = freqText(before.before_start_time, before.before_end_time);
+      dateTimeLabel = `<s style="color:#999">${oldFreq}</s><br>${newFreq}`;
+    } else {
+      dateTimeLabel = newFreq;
+    }
+  } else if (eventType === 'updated' && timeChanged) {
+    dateTimeLabel = `<s style="color:#999">${fmt(before.before_start_time)}</s><br>${apptDate}`;
   } else {
     dateTimeLabel = apptDate;
   }

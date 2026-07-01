@@ -184,7 +184,10 @@ router.patch('/:id', auth, (req, res) => {
   }
 
   const changes = audit.diff(before, { practitioner_id, client_id, start_time, end_time, status, location: locationText }, ['practitioner_id','client_id','start_time','end_time','status','location']);
-  if (changes) audit.log('appointment', Number(req.params.id), 'updated', changes, { ref: `APT-${String(req.params.id).padStart(5,'0')}` });
+  if (changes) audit.log('appointment', Number(req.params.id), 'updated', changes, {
+    ref: `APT-${String(req.params.id).padStart(5,'0')}`,
+    snapshot: { before_start_time: before.start_time, before_end_time: before.end_time },
+  });
   notifyAppointmentChange(Number(req.params.id), 'updated').catch(() => {});
 
   const updated = withItems(db.prepare(`${APPT_SELECT} WHERE a.id=?`).get(req.params.id));
