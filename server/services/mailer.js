@@ -70,6 +70,17 @@ async function graphSend({ from, to, subject, html, text, attachments }) {
   }
 }
 
+// ─── Template engine ──────────────────────────────────────────────────────────
+
+function renderTemplate(text, vars) {
+  if (!text) return '';
+  return text.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
+}
+
+function getTemplate(code) {
+  return db.prepare('SELECT * FROM templates WHERE code = ? AND active = 1').get(code);
+}
+
 // ─── Email builders ───────────────────────────────────────────────────────────
 
 function fmt(iso) {
@@ -89,10 +100,14 @@ function apptTable(rows) {
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 async function sendInvoiceEmail(toEmail, invoiceNumber, pdfBuffer) {
+  const tpl = getTemplate('invoice_email');
+  const vars = { invoice_number: invoiceNumber };
+  const subject = tpl ? renderTemplate(tpl.subject, vars) : `Invoice ${invoiceNumber}`;
+  const html = tpl
+    ? renderTemplate(tpl.body, vars)
+    : `<p>Please find your invoice <strong>${invoiceNumber}</strong> attached.</p><p>Thank you.</p>`;
   await graphSend({
-    to: toEmail,
-    subject: `Invoice ${invoiceNumber}`,
-    html: `<p>Please find your invoice <strong>${invoiceNumber}</strong> attached.</p><p>Thank you.</p>`,
+    to: toEmail, subject, html,
     attachments: [{ filename: `${invoiceNumber}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }],
   });
 }
@@ -121,22 +136,61 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
   }
 
   const location = appt.location_name || appt.location_other || appt.location || '';
+  const apptDate = fmt(appt.start_time);
+
+  const baseVars = {
+    client_name:       appt.client_name,
+    client_first_name: appt.client_first_name,
+    practitioner_name: appt.practitioner_name,
+    appointment_date:  apptDate,
+    appointment_time:  apptDate,
+    location,
+    appointment_notes: appt.notes || '',
+  };
+
+  const pracTable = eventType === 'cancelled'
+    ? apptTable([['Client', appt.client_name], ['Date', apptDate]])
+    : apptTable([['Client', appt.client_name], ['Start', apptDate], ['End', fmt(appt.end_time)], ['Location', location], ['Status', appt.status], ['Notes', appt.notes]]);
+
+  const clientTable = eventType === 'cancelled'
+    ? ''
+    : apptTable([['Date', apptDate], ['End time', fmt(appt.end_time)], ['Practitioner', appt.practitioner_name], ['Location', location], ['Notes', appt.notes]]);
+
+  const buildHtml = (code, fallbackHtml, table) => {
+    const tpl = getTemplate(code);
+    if (!tpl) return fallbackHtml;
+    return renderTemplate(tpl.body, { ...baseVars, appointment_details: table });
+  };
+
+  const buildSubject = (code, fallback) => {
+    const tpl = getTemplate(code);
+    return tpl ? renderTemplate(tpl.subject, baseVars) : fallback;
+  };
+
   const verb = { created: 'New appointment', updated: 'Appointment updated', cancelled: 'Appointment cancelled' }[eventType] || 'Appointment update';
 
-  const practitionerHtml = eventType === 'cancelled'
-    ? `<p>Hi ${appt.practitioner_name},</p><p>The following appointment has been <strong style="color:#dc2626">cancelled</strong>.</p>${apptTable([['Client', appt.client_name], ['Date', fmt(appt.start_time)]])}`
-    : `<p>Hi ${appt.practitioner_name},</p><p>${eventType === 'created' ? 'A new appointment has been scheduled for you.' : 'An appointment has been updated.'}</p>${apptTable([['Client', appt.client_name], ['Start', fmt(appt.start_time)], ['End', fmt(appt.end_time)], ['Location', location], ['Status', appt.status], ['Notes', appt.notes]])}`;
+  // Fallback HTML (matches previous hardcoded behaviour)
+  const fallbackPracHtml = eventType === 'cancelled'
+    ? `<p>Hi ${appt.practitioner_name},</p><p>The following appointment has been <strong style="color:#dc2626">cancelled</strong>.</p>${pracTable}`
+    : `<p>Hi ${appt.practitioner_name},</p><p>${eventType === 'created' ? 'A new appointment has been scheduled for you.' : 'An appointment has been updated.'}</p>${pracTable}`;
 
-  const clientHtml = eventType === 'cancelled'
-    ? `<p>Hi ${appt.client_first_name},</p><p>Your appointment on <strong>${fmt(appt.start_time)}</strong> has been <strong style="color:#dc2626">cancelled</strong>. Please contact us if you have any questions.</p>`
-    : `<p>Hi ${appt.client_first_name},</p><p>${eventType === 'created' ? 'Your appointment has been scheduled.' : 'Your appointment details have been updated.'}</p>${apptTable([['Date', fmt(appt.start_time)], ['End time', fmt(appt.end_time)], ['Practitioner', appt.practitioner_name], ['Location', location], ['Notes', appt.notes]])}`;
+  const fallbackClientHtml = eventType === 'cancelled'
+    ? `<p>Hi ${appt.client_first_name},</p><p>Your appointment on <strong>${apptDate}</strong> has been <strong style="color:#dc2626">cancelled</strong>. Please contact us if you have any questions.</p>`
+    : `<p>Hi ${appt.client_first_name},</p><p>${eventType === 'created' ? 'Your appointment has been scheduled.' : 'Your appointment details have been updated.'}</p>${clientTable}`;
+
+  const pracCode    = `appt_${eventType}_practitioner`;
+  const clientCode  = `appt_${eventType}_client`;
+
+  const practitionerHtml = buildHtml(pracCode,   fallbackPracHtml,   pracTable);
+  const clientHtml       = buildHtml(clientCode,  fallbackClientHtml, clientTable);
+  const pracSubject      = buildSubject(pracCode,   `${verb}: ${apptDate}`);
+  const clientSubject    = buildSubject(clientCode, `${verb}: ${apptDate}`);
 
   const errors = {};
-
   const trySend = async (to, subject, html, key) => {
     if (!to) { errors[key] = 'No email address on file'; return; }
     try {
-      await graphSend({ to, subject: `${verb}: ${fmt(appt.start_time)}`, html });
+      await graphSend({ to, subject, html });
       errors[key] = null;
     } catch (e) {
       errors[key] = e.message;
@@ -145,9 +199,9 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
   };
 
   if (target === 'both' || target === 'practitioner')
-    await trySend(appt.practitioner_email, `${verb}: ${appt.client_name}`, practitionerHtml, 'practitionerError');
+    await trySend(appt.practitioner_email, pracSubject, practitionerHtml, 'practitionerError');
   if (target === 'both' || target === 'client')
-    await trySend(appt.client_email, `${verb}`, clientHtml, 'clientError');
+    await trySend(appt.client_email, clientSubject, clientHtml, 'clientError');
 
   if (throwOnError && (errors.practitionerError || errors.clientError)) {
     const msgs = [errors.practitionerError && `Practitioner: ${errors.practitionerError}`, errors.clientError && `Client: ${errors.clientError}`].filter(Boolean);
@@ -160,17 +214,19 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
 async function sendTestEmail(toEmail) {
   await graphSend({
     to: toEmail,
-    subject: 'Therapy App – SMTP Test',
+    subject: 'Therapy App – Email Test',
     html: '<p>This is a test email confirming your email settings are working correctly.</p>',
   });
 }
 
 async function sendReminderEmail(toEmail, invoiceNumber, total, dueDate) {
-  await graphSend({
-    to: toEmail,
-    subject: `Payment Reminder — Invoice ${invoiceNumber}`,
-    html: `<p>This is a friendly reminder that invoice <strong>${invoiceNumber}</strong> for <strong>$${Number(total).toFixed(2)}</strong> was due on <strong>${dueDate}</strong> and remains unpaid.</p><p>Please arrange payment at your earliest convenience.</p><p>Thank you.</p>`,
-  });
+  const tpl = getTemplate('payment_reminder');
+  const vars = { invoice_number: invoiceNumber, invoice_total: Number(total).toFixed(2), due_date: dueDate };
+  const subject = tpl ? renderTemplate(tpl.subject, vars) : `Payment Reminder — Invoice ${invoiceNumber}`;
+  const html = tpl
+    ? renderTemplate(tpl.body, vars)
+    : `<p>This is a friendly reminder that invoice <strong>${invoiceNumber}</strong> for <strong>$${Number(total).toFixed(2)}</strong> was due on <strong>${dueDate}</strong> and remains unpaid.</p><p>Please arrange payment at your earliest convenience.</p><p>Thank you.</p>`;
+  await graphSend({ to: toEmail, subject, html });
 }
 
 module.exports = { sendInvoiceEmail, sendAppointmentNotification, sendTestEmail, sendReminderEmail, graphSend };

@@ -1,0 +1,238 @@
+import { useState, useEffect, useRef } from 'react';
+import { Plus, Pencil, Trash2, X } from 'lucide-react';
+import api from '../lib/api';
+import Button from '../components/ui/Button';
+import Input from '../components/ui/Input';
+
+// Variables available per template type/code
+const EMAIL_VARS = {
+  appt_created_client:       ['client_first_name', 'client_name', 'practitioner_name', 'appointment_date', 'location', 'appointment_notes', 'appointment_details'],
+  appt_updated_client:       ['client_first_name', 'client_name', 'practitioner_name', 'appointment_date', 'location', 'appointment_notes', 'appointment_details'],
+  appt_cancelled_client:     ['client_first_name', 'client_name', 'appointment_date', 'appointment_notes'],
+  appt_created_practitioner: ['practitioner_name', 'client_name', 'appointment_date', 'location', 'appointment_notes', 'appointment_details'],
+  appt_updated_practitioner: ['practitioner_name', 'client_name', 'appointment_date', 'location', 'appointment_notes', 'appointment_details'],
+  appt_cancelled_practitioner: ['practitioner_name', 'client_name', 'appointment_date'],
+  invoice_email:             ['invoice_number', 'client_name'],
+  payment_reminder:          ['invoice_number', 'invoice_total', 'due_date'],
+};
+
+const NOTE_VARS = ['client_name', 'client_first_name', 'practitioner_name', 'date', 'practice_name'];
+
+function VarChips({ vars, onInsert }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-1">
+      <span className="text-xs text-gray-400 self-center">Insert:</span>
+      {vars.map(v => (
+        <button key={v} type="button" onClick={() => onInsert(`{{${v}}}`)}
+          className="rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-100 font-mono transition-colors">
+          {`{{${v}}}`}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function BodyEditor({ value, onChange, vars, rows = 6 }) {
+  const ref = useRef();
+  const insert = str => {
+    const el = ref.current;
+    if (!el) return;
+    const s = el.selectionStart, e = el.selectionEnd;
+    const next = value.slice(0, s) + str + value.slice(e);
+    onChange(next);
+    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(s + str.length, s + str.length); });
+  };
+  return (
+    <div className="space-y-1">
+      <textarea ref={ref} rows={rows}
+        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-y focus:border-indigo-500 focus:outline-none font-mono"
+        value={value} onChange={e => onChange(e.target.value)} />
+      <VarChips vars={vars} onInsert={insert} />
+    </div>
+  );
+}
+
+// ─── Email Templates tab ──────────────────────────────────────────────────────
+function EmailTemplates() {
+  const [templates, setTemplates] = useState([]);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ name: '', subject: '', body: '' });
+  const [saving, setSaving] = useState(false);
+
+  const load = () => api.get('/templates?type=email').then(r => setTemplates(r.data));
+  useEffect(() => { load(); }, []);
+
+  const startEdit = t => { setEditing(t); setForm({ name: t.name, subject: t.subject || '', body: t.body }); };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put(`/templates/${editing.id}`, form);
+      setEditing(null);
+      load();
+    } finally { setSaving(false); }
+  };
+
+  const vars = editing ? (EMAIL_VARS[editing.code] || []) : [];
+
+  return (
+    <div className="space-y-3">
+      {editing && (
+        <div className="rounded-xl border border-indigo-100 bg-white shadow-sm p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="font-semibold text-gray-900">{editing.name}</p>
+            <button onClick={() => setEditing(null)} className="text-gray-400 hover:text-gray-600"><X className="h-4 w-4" /></button>
+          </div>
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-gray-600">Subject</label>
+            <input
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              value={form.subject}
+              onChange={e => setForm(f => ({ ...f, subject: e.target.value }))}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-gray-600">
+              Body <span className="text-gray-400 font-normal">(HTML supported)</span>
+            </label>
+            <BodyEditor value={form.body} onChange={v => setForm(f => ({ ...f, body: v }))} vars={vars} rows={8} />
+          </div>
+          {editing.code && editing.code.startsWith('appt_') && (
+            <p className="text-xs text-gray-400">
+              <code className="bg-gray-100 px-1 rounded">{'{{appointment_details}}'}</code> inserts a formatted table of appointment details.
+            </p>
+          )}
+          <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+            <Button variant="secondary" size="sm" onClick={() => setEditing(null)}>Cancel</Button>
+            <Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+          </div>
+        </div>
+      )}
+
+      {templates.map(t => (
+        <div key={t.id} className={`rounded-xl border bg-white shadow-sm p-4 flex items-start gap-3 ${editing?.id === t.id ? 'border-indigo-200' : 'border-gray-200'}`}>
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-gray-900 text-sm">{t.name}</p>
+            <p className="text-xs text-gray-400 mt-0.5 truncate">{t.subject}</p>
+          </div>
+          <button onClick={() => editing?.id === t.id ? setEditing(null) : startEdit(t)}
+            className="p-1.5 text-gray-400 hover:text-indigo-600 shrink-0">
+            <Pencil className="h-4 w-4" />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Progress Note Templates tab ──────────────────────────────────────────────
+function NoteTemplates() {
+  const [templates, setTemplates] = useState([]);
+  const [showNew, setShowNew] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ name: '', body: '' });
+  const [saving, setSaving] = useState(false);
+
+  const load = () => api.get('/templates?type=progress_note').then(r => setTemplates(r.data));
+  useEffect(() => { load(); }, []);
+
+  const startEdit = t => { setEditing(t); setShowNew(false); setForm({ name: t.name, body: t.body }); };
+  const startNew  = () => { setShowNew(true); setEditing(null); setForm({ name: '', body: '' }); };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      if (editing) {
+        await api.put(`/templates/${editing.id}`, form);
+      } else {
+        await api.post('/templates', form);
+      }
+      setEditing(null);
+      setShowNew(false);
+      load();
+    } finally { setSaving(false); }
+  };
+
+  const remove = async id => {
+    if (!confirm('Delete this template?')) return;
+    await api.delete(`/templates/${id}`);
+    load();
+  };
+
+  const isEditing = showNew || !!editing;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        {!isEditing && (
+          <Button size="sm" onClick={startNew}><Plus className="h-3.5 w-3.5" /> New template</Button>
+        )}
+      </div>
+
+      {isEditing && (
+        <div className="rounded-xl border border-indigo-100 bg-white shadow-sm p-5 space-y-4">
+          <p className="font-semibold text-gray-900">{editing ? `Edit: ${editing.name}` : 'New template'}</p>
+          <Input label="Template name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. NDIS Progress Note" />
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-gray-600">Body</label>
+            <BodyEditor value={form.body} onChange={v => setForm(f => ({ ...f, body: v }))} vars={NOTE_VARS} rows={8} />
+          </div>
+          <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+            <Button variant="secondary" size="sm" onClick={() => { setEditing(null); setShowNew(false); }}>Cancel</Button>
+            <Button size="sm" onClick={save} disabled={saving || !form.name.trim() || !form.body.trim()}>
+              {saving ? 'Saving…' : 'Save template'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {templates.length === 0 && !isEditing && (
+        <p className="text-sm text-gray-400 py-8 text-center">No progress note templates yet.</p>
+      )}
+
+      {templates.map(t => (
+        <div key={t.id} className="rounded-xl border border-gray-200 bg-white shadow-sm p-4 flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-gray-900 text-sm">{t.name}</p>
+            <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{t.body}</p>
+          </div>
+          <div className="flex gap-1 shrink-0">
+            <button onClick={() => startEdit(t)} className="p-1.5 text-gray-400 hover:text-indigo-600"><Pencil className="h-4 w-4" /></button>
+            <button onClick={() => remove(t.id)} className="p-1.5 text-gray-400 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+export default function Templates() {
+  const [tab, setTab] = useState('email');
+  const TABS = [['email', 'Email Templates'], ['progress_note', 'Progress Note Templates']];
+
+  return (
+    <div className="max-w-3xl mx-auto space-y-6">
+      <div>
+        <h1 className="text-xl font-semibold text-gray-900">Templates</h1>
+        <p className="text-sm text-gray-500 mt-0.5">Edit system email templates and create progress note templates</p>
+      </div>
+
+      <div className="border-b border-gray-200">
+        <div className="flex gap-0">
+          {TABS.map(([id, label]) => (
+            <button key={id} onClick={() => setTab(id)}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                tab === id ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {tab === 'email'         && <EmailTemplates />}
+      {tab === 'progress_note' && <NoteTemplates />}
+    </div>
+  );
+}

@@ -12,7 +12,7 @@ const nav = [
   { to: '/recurring-series', label: 'Recurring', icon: RefreshCw,    perm: 'calendar' },
   { to: '/services',        label: 'Services',   icon: Layers,       perm: 'services' },
   { to: '/invoices',        label: 'Invoices',   icon: FileText,     perm: 'invoices' },
-  { to: '/report-templates', label: 'Templates',  icon: ClipboardList, perm: 'settings' },
+  { to: '/templates',        label: 'Templates',  icon: ClipboardList, perm: 'settings' },
   { to: '/audit-log',       label: 'Audit Log',  icon: ScrollText,   perm: null },
   { to: '/settings',        label: 'Settings',   icon: Settings,     perm: 'settings' },
 ];

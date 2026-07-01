@@ -415,33 +415,92 @@ for (const p of pracsWithoutToken) {
   db.prepare("UPDATE practitioners SET cal_token = ? WHERE id = ?").run(crypto.randomBytes(20).toString('hex'), p.id);
 }
 
-// Report templates and client reports
+// Keep old tables (orphaned, harmless) so existing data isn't lost
 db.exec(`
   CREATE TABLE IF NOT EXISTS report_templates (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    description TEXT,
-    sections TEXT NOT NULL DEFAULT '[]',
-    created_by INTEGER,
-    active INTEGER DEFAULT 1,
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, description TEXT,
+    sections TEXT NOT NULL DEFAULT '[]', created_by INTEGER, active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now'))
   );
-
   CREATE TABLE IF NOT EXISTS client_reports (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    client_id INTEGER NOT NULL,
-    practitioner_id INTEGER NOT NULL,
-    template_id INTEGER,
-    template_name TEXT,
-    title TEXT NOT NULL,
-    sections TEXT NOT NULL DEFAULT '[]',
-    appointment_id INTEGER,
-    created_at TEXT DEFAULT (datetime('now')),
-    updated_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (client_id) REFERENCES clients(id),
-    FOREIGN KEY (practitioner_id) REFERENCES practitioners(id)
+    id INTEGER PRIMARY KEY AUTOINCREMENT, client_id INTEGER NOT NULL,
+    practitioner_id INTEGER NOT NULL, template_id INTEGER, template_name TEXT,
+    title TEXT NOT NULL, sections TEXT NOT NULL DEFAULT '[]', appointment_id INTEGER,
+    created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now'))
   );
 `);
+
+// Communication & progress note templates
+db.exec(`
+  CREATE TABLE IF NOT EXISTS templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL,
+    code TEXT UNIQUE,
+    name TEXT NOT NULL,
+    subject TEXT,
+    body TEXT NOT NULL DEFAULT '',
+    active INTEGER DEFAULT 1,
+    is_system INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+`);
+
+// Seed system email templates (INSERT OR IGNORE so edits are preserved)
+const emailSeeds = [
+  {
+    code: 'appt_created_client',
+    name: 'Appointment Confirmation (Client)',
+    subject: 'Your appointment on {{appointment_date}}',
+    body: '<p>Hi {{client_first_name}},</p><p>Your appointment has been scheduled.</p>{{appointment_details}}',
+  },
+  {
+    code: 'appt_updated_client',
+    name: 'Appointment Updated (Client)',
+    subject: 'Appointment updated — {{appointment_date}}',
+    body: '<p>Hi {{client_first_name}},</p><p>Your appointment details have been updated.</p>{{appointment_details}}',
+  },
+  {
+    code: 'appt_cancelled_client',
+    name: 'Appointment Cancelled (Client)',
+    subject: 'Appointment cancelled — {{appointment_date}}',
+    body: '<p>Hi {{client_first_name}},</p><p>Your appointment on <strong>{{appointment_date}}</strong> has been <strong style="color:#dc2626">cancelled</strong>. Please contact us if you have any questions.</p>',
+  },
+  {
+    code: 'appt_created_practitioner',
+    name: 'Appointment Notification (Practitioner)',
+    subject: 'New appointment: {{appointment_date}}',
+    body: '<p>Hi {{practitioner_name}},</p><p>A new appointment has been scheduled for you.</p>{{appointment_details}}',
+  },
+  {
+    code: 'appt_updated_practitioner',
+    name: 'Appointment Updated (Practitioner)',
+    subject: 'Appointment updated: {{appointment_date}}',
+    body: '<p>Hi {{practitioner_name}},</p><p>An appointment has been updated.</p>{{appointment_details}}',
+  },
+  {
+    code: 'appt_cancelled_practitioner',
+    name: 'Appointment Cancelled (Practitioner)',
+    subject: 'Appointment cancelled: {{appointment_date}}',
+    body: '<p>Hi {{practitioner_name}},</p><p>The following appointment has been <strong style="color:#dc2626">cancelled</strong>.</p>{{appointment_details}}',
+  },
+  {
+    code: 'invoice_email',
+    name: 'Invoice Email',
+    subject: 'Invoice {{invoice_number}}',
+    body: '<p>Please find your invoice <strong>{{invoice_number}}</strong> attached.</p><p>Thank you.</p>',
+  },
+  {
+    code: 'payment_reminder',
+    name: 'Payment Reminder',
+    subject: 'Payment Reminder — Invoice {{invoice_number}}',
+    body: '<p>This is a friendly reminder that invoice <strong>{{invoice_number}}</strong> for <strong>${{invoice_total}}</strong> was due on <strong>{{due_date}}</strong> and remains unpaid.</p><p>Please arrange payment at your earliest convenience.</p><p>Thank you.</p>',
+  },
+];
+const seedStmt = db.prepare(`
+  INSERT OR IGNORE INTO templates (type, code, name, subject, body, is_system)
+  VALUES ('email', ?, ?, ?, ?, 1)
+`);
+for (const s of emailSeeds) seedStmt.run(s.code, s.name, s.subject, s.body);
 
 // Partial unique indexes for duplicate prevention
 try { db.exec(`CREATE UNIQUE INDEX idx_practitioners_email ON practitioners(email) WHERE email IS NOT NULL AND email != ''`); } catch {}

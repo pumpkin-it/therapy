@@ -29,6 +29,11 @@ export const fmtDateOnly = (utcStr, tz = 'Australia/Sydney') => {
 
 export const cn = (...classes) => classes.filter(Boolean).join(' ');
 
+export const substituteVars = (text, vars) => {
+  if (!text) return '';
+  return text.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
+};
+
 export const localToday = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
