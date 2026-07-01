@@ -26,13 +26,13 @@ function ServiceModal({ service, onClose, onSaved }) {
   };
 
   return (
-    <Modal title={service ? 'Edit Service' : 'Add Service'} onClose={onClose}>
-      <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+    <Modal title={service ? 'Edit Service' : 'Add Service'} onClose={onClose} size="xl">
+      <div className="space-y-5">
+        <div className="grid grid-cols-2 gap-4">
           <Input label="Service name" value={form.name} onChange={e => set('name', e.target.value)} />
           <Input label="Code" value={form.code} onChange={e => set('code', e.target.value)} placeholder="e.g. NDIS-001" />
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-4">
           <Input label="Description" value={form.description} onChange={e => set('description', e.target.value)} />
           <div className="space-y-1">
             <label className="block text-sm font-medium text-gray-700">Discipline</label>
@@ -43,7 +43,7 @@ function ServiceModal({ service, onClose, onSaved }) {
             </select>
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-4">
           <Input label="Default rate ($)" type="number" step="0.01" value={form.default_rate}
             onChange={e => set('default_rate', parseFloat(e.target.value))} />
           <div className="space-y-1">
@@ -56,34 +56,42 @@ function ServiceModal({ service, onClose, onSaved }) {
               <option value="item">Per item</option>
             </select>
           </div>
+          <Input label="Default duration (minutes)" type="number" value={form.default_duration}
+            onChange={e => set('default_duration', parseInt(e.target.value))} />
         </div>
-        <Input label="Default duration (minutes)" type="number" value={form.default_duration}
-          onChange={e => set('default_duration', parseInt(e.target.value))} />
-        <div className="grid grid-cols-3 gap-3">
-          <Input label="Travel rate ($/hr)" type="number" step="0.01" value={form.travel_rate_per_hour}
-            onChange={e => set('travel_rate_per_hour', e.target.value)} placeholder="Optional" />
-          <Input label="KM rate ($/km)" type="number" step="0.01" value={form.km_rate}
-            onChange={e => set('km_rate', e.target.value)} placeholder="Optional" />
-          <Input label="Notes rate ($/hr)" type="number" step="0.01" value={form.notes_rate}
-            onChange={e => set('notes_rate', e.target.value)} placeholder="Optional" />
-          <Input label="Travel code" value={form.travel_code}
-            onChange={e => set('travel_code', e.target.value)} placeholder="e.g. 04_799" />
-          <Input label="KM code" value={form.km_code}
-            onChange={e => set('km_code', e.target.value)} placeholder="e.g. 04_799" />
-          <Input label="Notes code" value={form.notes_code}
-            onChange={e => set('notes_code', e.target.value)} placeholder="e.g. 04_799" />
-          <Input label="Cancellation code" value={form.cancel_code}
-            onChange={e => set('cancel_code', e.target.value)} placeholder="e.g. 04_799" />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label className="block text-sm font-medium text-gray-700">GST Type</label>
-            <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              value={form.gst_type || 'GST'} onChange={e => set('gst_type', e.target.value)}>
-              <option value="GST">GST (standard rate)</option>
-              <option value="FRE">GST Free</option>
-              <option value="N-T">N-T (Not Reportable)</option>
-            </select>
+
+        <div className="border-t border-gray-100 pt-4 space-y-3">
+          <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Additional codes &amp; rates</p>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Travel code" value={form.travel_code}
+              onChange={e => set('travel_code', e.target.value)} placeholder="e.g. 04_799" />
+            <Input label="Travel rate ($/hr)" type="number" step="0.01" value={form.travel_rate_per_hour}
+              onChange={e => set('travel_rate_per_hour', e.target.value)} placeholder="Optional" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="KM code" value={form.km_code}
+              onChange={e => set('km_code', e.target.value)} placeholder="e.g. 04_799" />
+            <Input label="KM rate ($/km)" type="number" step="0.01" value={form.km_rate}
+              onChange={e => set('km_rate', e.target.value)} placeholder="Optional" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Notes code" value={form.notes_code}
+              onChange={e => set('notes_code', e.target.value)} placeholder="e.g. 04_799" />
+            <Input label="Notes rate ($/hr)" type="number" step="0.01" value={form.notes_rate}
+              onChange={e => set('notes_rate', e.target.value)} placeholder="Optional" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Cancellation code" value={form.cancel_code}
+              onChange={e => set('cancel_code', e.target.value)} placeholder="e.g. 04_799" />
+            <div className="space-y-1">
+              <label className="block text-sm font-medium text-gray-700">GST Type</label>
+              <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                value={form.gst_type || 'GST'} onChange={e => set('gst_type', e.target.value)}>
+                <option value="GST">GST (standard rate)</option>
+                <option value="FRE">GST Free</option>
+                <option value="N-T">N-T (Not Reportable)</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
