@@ -165,12 +165,10 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
   };
 
   const pracTable = eventType === 'cancelled'
-    ? apptTable([['Client', appt.client_name], ['Date & time', dateTimeLabel]])
+    ? apptTable([['Client', appt.client_name], ['Date & time', dateTimeLabel], ['Location', location], ['Notes', appt.notes]])
     : apptTable([['Client', appt.client_name], ['Date & time', dateTimeLabel], ['Location', location], ['Status', appt.status], ['Notes', appt.notes]]);
 
-  const clientTable = eventType === 'cancelled'
-    ? ''
-    : apptTable([['Date & time', dateTimeLabel], ['Practitioner', appt.practitioner_name], ['Location', location], ['Notes', appt.notes]]);
+  const clientTable = apptTable([['Date & time', dateTimeLabel], ['Practitioner', appt.practitioner_name], ['Location', location], ['Notes', appt.notes]]);
 
   const buildHtml = (code, fallbackHtml, table) => {
     const tpl = getTemplate(code);
