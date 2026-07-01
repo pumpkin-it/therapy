@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Pencil, Trash2, Upload } from 'lucide-react';
+import { Plus, Pencil, Trash2, Upload, Download } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
@@ -8,6 +8,26 @@ import { currency } from '../lib/utils';
 
 const CATEGORIES = ['session', 'travel', 'km', 'notes', 'cancellation', 'report', 'telehealth'];
 const EMPTY = { funding_type_id: '', discipline_id: '', category: 'cancellation', code: '', name: '', unit: 'hour', rate: '' };
+
+const TEMPLATE_HEADERS = ['funding_type_name', 'discipline_name', 'category', 'code', 'name', 'unit', 'rate'];
+const TEMPLATE_EXAMPLE_ROWS = [
+  ['NDIS', 'Occupational Therapy', 'session', '15_617_0128_1_3', 'Occupational Therapy - over 9 years and adult', 'hour', '193.99'],
+  ['NDIS', 'Occupational Therapy', 'cancellation', '15_617_0128_1_9', 'Occupational Therapy Cancellation', 'item', '193.99'],
+  ['NDIS', 'Speech Pathology', 'session', '15_622_0128_1_3', 'Speech Pathology - over 9 years and adult', 'hour', '193.99'],
+  ['NDIS', '', 'travel', '04_799', 'Provider Travel', 'hour', '193.99'],
+];
+
+function downloadCsvTemplate() {
+  const rows = [TEMPLATE_HEADERS, ...TEMPLATE_EXAMPLE_ROWS];
+  const csv = rows.map(r => r.join(',')).join('\r\n') + '\r\n';
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'rate_catalogue_template.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function RateItemModal({ item, fundingTypes, disciplines, onClose, onSaved }) {
   const [form, setForm] = useState(item || EMPTY);
@@ -138,6 +158,9 @@ export default function RateCatalogue() {
         </div>
         <div className="flex gap-2">
           <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={onImportFile} />
+          <Button variant="secondary" onClick={downloadCsvTemplate}>
+            <Download className="h-4 w-4" /> Download template
+          </Button>
           <Button variant="secondary" onClick={() => fileRef.current?.click()} disabled={importing}>
             <Upload className="h-4 w-4" /> {importing ? 'Importing…' : 'Import CSV'}
           </Button>
