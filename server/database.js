@@ -335,6 +335,7 @@ const defaults = {
   practice_phone: '',
   practice_address: '',
   practice_abn: '',
+  timezone: 'Australia/Sydney',
   smtp_host: 'smtp.office365.com',
   smtp_port: '587',
   smtp_secure: '0',

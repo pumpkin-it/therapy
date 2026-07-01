@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Pause, Play, Clock, User, Calendar } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
 import api from '../lib/api';
-import { localToday } from '../lib/utils';
+import { localToday, fmtDateTime, fmtDateFull } from '../lib/utils';
+import { useSettings } from '../context/SettingsContext';
 import Button from '../components/ui/Button';
 
 const FREQ_LABEL = { weekly: 'Weekly', fortnightly: 'Fortnightly', every3weeks: 'Every 3 weeks', monthly: 'Monthly' };
@@ -17,6 +17,7 @@ const STATUS_STYLE = {
 };
 
 export default function RecurringSeriesDetail() {
+  const { timezone } = useSettings();
   const { id } = useParams();
   const navigate = useNavigate();
   const [series, setSeries] = useState(null);
@@ -175,7 +176,7 @@ export default function RecurringSeriesDetail() {
               }`}>{log.action}</span>
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-gray-700">{log.details}</p>
-                <p className="text-xs text-gray-400 mt-0.5">{format(parseISO(log.created_at), 'd MMM yyyy h:mm a')}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{fmtDateTime(log.created_at, timezone)}</p>
               </div>
             </div>
           ))}
@@ -197,7 +198,7 @@ export default function RecurringSeriesDetail() {
                 <span className="font-mono text-xs text-gray-400 w-20 shrink-0">APT-{String(a.id).padStart(5,'0')}</span>
                 <span className="h-2 w-2 rounded-full shrink-0" style={{ background: a.practitioner_color }} />
                 <span className="text-sm text-gray-700 w-36 shrink-0">
-                  {format(parseISO(a.start_time), 'EEE d MMM yyyy')}
+                  {fmtDateFull(a.start_time, timezone)}
                 </span>
                 <span className="text-sm text-gray-500 w-28 shrink-0">
                   {a.start_time.slice(11,16)} – {a.end_time.slice(11,16)}

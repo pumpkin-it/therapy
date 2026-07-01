@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Plus, ChevronRight, Pencil, Trash2, AlertTriangle, Bell } from 'lucide-react';
-import { format, parseISO } from 'date-fns';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import SearchSelect from '../components/ui/SearchSelect';
-import { localToday } from '../lib/utils';
+import { localToday, fmtDate, fmtDateTime } from '../lib/utils';
+import { useSettings } from '../context/SettingsContext';
 
 const FUNDING_COLOR = { NDIS: 'blue', Medicare: 'green', Private: 'purple', 'Aged Care': 'orange', Other: 'gray' };
 
@@ -60,6 +60,7 @@ function AddFundsManagerModal({ initialName, onClose, onSaved }) {
 const EMPTY_PERIOD = { funding_type: '', funds_manager_id: '', client_identifier: '', start_date: '', end_date: '' };
 
 function FundingTab({ clientId }) {
+  const { timezone } = useSettings();
   const [periods, setPeriods] = useState([]);
   const [fundsManagers, setFundsManagers] = useState([]);
   const [editing, setEditing] = useState(null); // null | 'new' | period obj
@@ -133,7 +134,7 @@ function FundingTab({ clientId }) {
               </div>
               {(p.start_date || p.end_date) ? (
                 <p className="text-sm text-gray-700 mt-1">
-                  {p.start_date ? format(parseISO(p.start_date), 'd MMM yyyy') : '—'} – {p.end_date ? format(parseISO(p.end_date), 'd MMM yyyy') : 'ongoing'}
+                  {p.start_date ? fmtDate(p.start_date, timezone) : '—'} – {p.end_date ? fmtDate(p.end_date, timezone) : 'ongoing'}
                 </p>
               ) : (
                 <p className="text-sm text-gray-400 mt-1">No dates set (open-ended)</p>
@@ -250,6 +251,7 @@ function MedicalTab({ form, set }) {
 // ─── Case notes tab ───────────────────────────────────────────────────────────
 
 function CaseNotesTab({ clientId }) {
+  const { timezone } = useSettings();
   const [notes, setNotes] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
@@ -289,8 +291,8 @@ function CaseNotesTab({ clientId }) {
                 <p className="text-sm text-gray-800 whitespace-pre-wrap">{n.note}</p>
                 <p className="text-xs text-gray-400 mt-1.5">
                   {n.practitioner_name && <span className="font-medium">{n.practitioner_name} · </span>}
-                  {n.appointment_time && <span>{format(parseISO(n.appointment_time), 'd MMM yyyy')} · </span>}
-                  {format(parseISO(n.created_at), 'd MMM yyyy h:mm a')}
+                  {n.appointment_time && <span>{fmtDate(n.appointment_time, timezone)} · </span>}
+                  {fmtDateTime(n.created_at, timezone)}
                 </p>
               </div>
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">

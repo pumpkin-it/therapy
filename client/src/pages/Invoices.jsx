@@ -5,11 +5,13 @@ import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import { currency, fmtDate, localToday } from '../lib/utils';
+import { useSettings } from '../context/SettingsContext';
 
 const STATUS_COLOR = { draft:'gray', sent:'blue', paid:'green', void:'gray' };
 
 // ─── To Send tab ─────────────────────────────────────────────────────────────
 function ToSendTab() {
+  const { timezone } = useSettings();
   const [appointments, setAppointments] = useState([]);
   const [clients, setClients] = useState([]);
   const [practitioners, setPractitioners] = useState([]);
@@ -114,7 +116,7 @@ function ToSendTab() {
                         <input type="checkbox" className="accent-indigo-600"
                           checked={selected.includes(a.id)} onChange={() => toggle(a.id)} />
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{fmtDate(a.start_time)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-700">{fmtDate(a.start_time, timezone)}</td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">{a.client_name}</td>
                       <td className="px-4 py-3 text-sm text-gray-600">
                         <div className="flex items-center gap-1.5">
@@ -159,6 +161,7 @@ function ToSendTab() {
 
 // ─── Invoice list tab (sent / paid) ──────────────────────────────────────────
 function InvoiceListTab({ status, emptyMsg }) {
+  const { timezone } = useSettings();
   const [invoices, setInvoices] = useState([]);
   const [sending, setSending] = useState(null);
 
@@ -208,8 +211,8 @@ function InvoiceListTab({ status, emptyMsg }) {
                 <td className="px-4 py-3 text-sm text-gray-700">{inv.client_name}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{inv.practitioner_name || '—'}</td>
                 <td className="px-4 py-3 text-sm text-gray-500">{inv.funds_manager_name || '—'}</td>
-                <td className="px-4 py-3 text-sm text-gray-600">{fmtDate(inv.issue_date)}</td>
-                <td className={`px-4 py-3 text-sm ${overdue ? 'text-red-600 font-medium' : 'text-gray-600'}`}>{fmtDate(inv.due_date)}</td>
+                <td className="px-4 py-3 text-sm text-gray-600">{fmtDate(inv.issue_date, timezone)}</td>
+                <td className={`px-4 py-3 text-sm ${overdue ? 'text-red-600 font-medium' : 'text-gray-600'}`}>{fmtDate(inv.due_date, timezone)}</td>
                 <td className="px-4 py-3 font-medium text-gray-900">{currency(inv.total)}</td>
                 <td className="px-4 py-3">
                   <Badge color={overdue ? 'red' : STATUS_COLOR[inv.status] || 'gray'}>

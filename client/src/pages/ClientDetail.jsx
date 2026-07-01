@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { format, parseISO } from 'date-fns';
 import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, X, UserX, UserCheck } from 'lucide-react';
 import api from '../lib/api';
 import AddressAutocomplete from '../components/AddressAutocomplete';
@@ -9,7 +8,8 @@ import Badge from '../components/ui/Badge';
 import Input from '../components/ui/Input';
 import SearchSelect from '../components/ui/SearchSelect';
 import { EmbeddedCalendar } from '../components/CalendarViews';
-import { localToday } from '../lib/utils';
+import { localToday, fmtDate, fmtDateTime } from '../lib/utils';
+import { useSettings } from '../context/SettingsContext';
 
 const FUNDING_COLOR_FALLBACK = { NDIS: 'blue', Medicare: 'green', Private: 'purple', 'Aged Care': 'orange', Other: 'gray' };
 
@@ -93,6 +93,7 @@ function AddFundsManagerInline({ initialName, onClose, onSaved }) {
 const EMPTY_PERIOD = { funding_type: '', funds_manager_id: '', client_identifier: '', start_date: '', end_date: '', ndis_management: '', self_managed_email: '' };
 
 function FundingTab({ clientId }) {
+  const { timezone } = useSettings();
   const [periods, setPeriods] = useState([]);
   const [fundsManagers, setFundsManagers] = useState([]);
   const [editing, setEditing] = useState(null);
@@ -149,7 +150,7 @@ function FundingTab({ clientId }) {
               </div>
               {(p.start_date || p.end_date) && (
                 <p className="text-sm text-gray-700 mt-1">
-                  {p.start_date ? format(parseISO(p.start_date), 'd MMM yyyy') : '—'} – {p.end_date ? format(parseISO(p.end_date), 'd MMM yyyy') : 'ongoing'}
+                  {p.start_date ? fmtDate(p.start_date, timezone) : '—'} – {p.end_date ? fmtDate(p.end_date, timezone) : 'ongoing'}
                 </p>
               )}
               {p.ndis_management && <p className="text-xs text-gray-500">{p.ndis_management === 'plan' ? 'Plan managed' : p.ndis_management === 'agency' ? 'Agency managed' : 'Self managed'}</p>}
@@ -247,6 +248,7 @@ function FundingTab({ clientId }) {
 
 // ─── Files tab ────────────────────────────────────────────────────────────────
 function FilesTab({ clientId }) {
+  const { timezone } = useSettings();
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef();
@@ -296,7 +298,7 @@ function FilesTab({ clientId }) {
           <File className="h-4 w-4 text-gray-400 shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-800 truncate">{f.original_name}</p>
-            <p className="text-xs text-gray-400">{fmt(f.size)} · {format(parseISO(f.created_at), 'd MMM yyyy')}</p>
+            <p className="text-xs text-gray-400">{fmt(f.size)} · {fmtDate(f.created_at, timezone)}</p>
           </div>
           <button onClick={() => download(f.id)} className="text-indigo-500 hover:text-indigo-700 p-1"><Download className="h-4 w-4" /></button>
           <button onClick={() => remove(f.id)} className="text-red-300 hover:text-red-500 p-1"><Trash2 className="h-4 w-4" /></button>
@@ -308,6 +310,7 @@ function FilesTab({ clientId }) {
 
 // ─── Case Notes tab ───────────────────────────────────────────────────────────
 function CaseNotesTab({ clientId }) {
+  const { timezone } = useSettings();
   const [notes, setNotes] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
@@ -334,7 +337,7 @@ function CaseNotesTab({ clientId }) {
                 <p className="text-sm text-gray-800 whitespace-pre-wrap">{n.note}</p>
                 <p className="text-xs text-gray-400 mt-1.5">
                   {n.practitioner_name && <span className="font-medium">{n.practitioner_name} · </span>}
-                  {format(parseISO(n.created_at), 'd MMM yyyy h:mm a')}
+                  {fmtDateTime(n.created_at, timezone)}
                 </p>
               </div>
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">

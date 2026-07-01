@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { format, parseISO } from 'date-fns';
 import api from '../lib/api';
 import Modal from './ui/Modal';
 import Button from './ui/Button';
 import { Trash2, Plus, FileText, Pencil, RefreshCw, Mail, AlertCircle, CheckCircle, TriangleAlert } from 'lucide-react';
-import { localToday, fmtDate } from '../lib/utils';
+import { localToday, fmtDate, fmtDateTime } from '../lib/utils';
+import { useSettings } from '../context/SettingsContext';
 
 const EMPTY_ITEM = { service_id: '', description: '', quantity: 1, unit_rate: 0, travel_time_to: '', travel_time_from: '', travel_km: '', notes_min: '' };
 
@@ -29,6 +29,7 @@ function addInterval(iso, freq) {
 }
 
 function CaseNotesSection({ appointmentId, clientId }) {
+  const { timezone } = useSettings();
   const [notes, setNotes] = useState([]);
   const [draft, setDraft] = useState('');
   const [editingId, setEditingId] = useState(null);
@@ -70,7 +71,7 @@ function CaseNotesSection({ appointmentId, clientId }) {
             <div className="group flex gap-2">
               <div className="flex-1">
                 <p className="text-sm text-gray-800 whitespace-pre-wrap">{n.note}</p>
-                <p className="text-xs text-gray-400 mt-1">{n.practitioner_name && <span>{n.practitioner_name} · </span>}{format(parseISO(n.created_at), 'd MMM yyyy h:mm a')}</p>
+                <p className="text-xs text-gray-400 mt-1">{n.practitioner_name && <span>{n.practitioner_name} · </span>}{fmtDateTime(n.created_at, timezone)}</p>
               </div>
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                 <button onClick={() => { setEditingId(n.id); setEditText(n.note); }} className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
@@ -139,6 +140,7 @@ function TimePicker({ value, onChange, className }) {
 }
 
 function AppointmentAuditLog({ appointmentId }) {
+  const { timezone } = useSettings();
   const [logs, setLogs] = useState([]);
   const [open, setOpen] = useState(false);
   useEffect(() => {
@@ -162,7 +164,7 @@ function AppointmentAuditLog({ appointmentId }) {
           ) : logs.map(log => (
             <div key={log.id} className="text-xs border-l-2 border-gray-200 pl-2 py-1">
               <span className={`font-medium ${ACTION_COLOR[log.action] || 'text-gray-600'}`}>{log.action}</span>
-              <span className="text-gray-400 ml-1.5">{format(parseISO(log.created_at), 'd MMM yyyy h:mm a')}</span>
+              <span className="text-gray-400 ml-1.5">{fmtDateTime(log.created_at, timezone)}</span>
               <p className="text-gray-600 mt-0.5">{log.details}</p>
             </div>
           ))}

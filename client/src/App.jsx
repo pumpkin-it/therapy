@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { SettingsProvider } from './context/SettingsContext';
 import Sidebar from './components/layout/Sidebar';
 import Login from './pages/Login';
 import ResetPassword from './pages/ResetPassword';
@@ -40,26 +41,28 @@ function AuthenticatedApp() {
   const p = user.permissions || {};
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50">
-      <Sidebar />
-      <main className="flex-1 overflow-y-auto p-6">
-        <Routes>
-          {p.calendar && <Route path="/calendar" element={<Calendar />} />}
-          {p.clients && <Route path="/clients" element={<Clients />} />}
-          {p.clients && <Route path="/clients/:id" element={<ClientDetail />} />}
-          {p.users && <Route path="/practitioners" element={<Practitioners />} />}
-          {p.funds_managers && <Route path="/funds-managers" element={<FundsManagers />} />}
-          {p.locations && <Route path="/locations" element={<Locations />} />}
-          {p.services && <Route path="/services" element={<Services />} />}
-          {p.calendar && <Route path="/recurring-series" element={<RecurringSeries />} />}
-          {p.calendar && <Route path="/recurring-series/:id" element={<RecurringSeriesDetail />} />}
-          {p.invoices && <Route path="/invoices" element={<Invoices />} />}
-          <Route path="/audit-log" element={<AuditLog />} />
-          {p.settings && <Route path="/settings" element={<Settings />} />}
-          <Route path="*" element={<Navigate to={p.calendar ? '/calendar' : p.clients ? '/clients' : p.invoices ? '/invoices' : '/audit-log'} replace />} />
-        </Routes>
-      </main>
-    </div>
+    <SettingsProvider>
+      <div className="flex h-screen overflow-hidden bg-gray-50">
+        <Sidebar />
+        <main className="flex-1 overflow-y-auto p-6">
+          <Routes>
+            {p.calendar && <Route path="/calendar" element={<Calendar />} />}
+            {p.clients && <Route path="/clients" element={<Clients />} />}
+            {p.clients && <Route path="/clients/:id" element={<ClientDetail />} />}
+            {p.users && <Route path="/practitioners" element={<Practitioners />} />}
+            {p.funds_managers && <Route path="/funds-managers" element={<FundsManagers />} />}
+            {p.locations && <Route path="/locations" element={<Locations />} />}
+            {p.services && <Route path="/services" element={<Services />} />}
+            {p.calendar && <Route path="/recurring-series" element={<RecurringSeries />} />}
+            {p.calendar && <Route path="/recurring-series/:id" element={<RecurringSeriesDetail />} />}
+            {p.invoices && <Route path="/invoices" element={<Invoices />} />}
+            <Route path="/audit-log" element={<AuditLog />} />
+            {p.settings && <Route path="/settings" element={<Settings />} />}
+            <Route path="*" element={<Navigate to={p.calendar ? '/calendar' : p.clients ? '/clients' : p.invoices ? '/invoices' : '/audit-log'} replace />} />
+          </Routes>
+        </main>
+      </div>
+    </SettingsProvider>
   );
 }
 

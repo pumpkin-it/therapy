@@ -4,8 +4,11 @@ import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import AddressAutocomplete from '../components/AddressAutocomplete';
+import { DEFAULT_TIMEZONE, TIMEZONES } from '../lib/utils';
+import { useSettings } from '../context/SettingsContext';
 
 export default function Settings() {
+  const { reload: reloadSettings } = useSettings();
   const [form, setForm] = useState({});
   const [saved, setSaved] = useState(false);
   const [logoUrl, setLogoUrl] = useState(null);
@@ -101,6 +104,7 @@ export default function Settings() {
       .filter(t => t.days !== '' && t.percent !== '')
       .sort((a, b) => Number(a.days) - Number(b.days));
     await api.patch('/settings', { ...form, cancellation_policy: JSON.stringify(sorted), role_permissions: JSON.stringify(perms) });
+    reloadSettings();
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -122,6 +126,19 @@ export default function Settings() {
           {field('Phone',          'practice_phone')}
         </div>
         <AddressAutocomplete label="Address" value={form.practice_address || ''} onChange={v => set('practice_address', v)} />
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-gray-700">Time zone</span>
+            <select
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              value={form.timezone || DEFAULT_TIMEZONE}
+              onChange={e => set('timezone', e.target.value)}
+            >
+              {TIMEZONES.map(tz => <option key={tz} value={tz}>{tz.replace(/_/g, ' ')}</option>)}
+            </select>
+          </label>
+        </div>
+        <p className="text-xs text-gray-500">All timestamps throughout the system are displayed in this time zone.</p>
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
