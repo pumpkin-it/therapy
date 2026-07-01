@@ -112,6 +112,15 @@ async function sendInvoiceEmail(toEmail, invoiceNumber, pdfBuffer) {
   });
 }
 
+const FREQ_LABEL = { weekly: 'Weekly', fortnightly: 'Fortnightly', every3weeks: 'Every 3 weeks', monthly: 'Monthly' };
+
+function fmtTimeOnly(iso) {
+  return new Date(iso).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: true });
+}
+function fmtDateOnly(iso) {
+  return new Date(iso).toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 // Returns { practitionerError, clientError } — null = success, string = error msg
 async function sendAppointmentNotification(apptId, eventType, { throwOnError = false, target = 'both' } = {}) {
   const appt = db.prepare(`
@@ -121,11 +130,14 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
       c.first_name AS client_first_name,
       p.first_name || ' ' || p.last_name AS practitioner_name,
       p.email AS practitioner_email,
-      l.name AS location_name
+      l.name AS location_name,
+      rs.freq AS series_freq,
+      rs.start_time AS series_start
     FROM appointments a
     JOIN clients c ON c.id = a.client_id
     JOIN practitioners p ON p.id = a.practitioner_id
     LEFT JOIN locations l ON l.id = a.location_id
+    LEFT JOIN recurring_series rs ON rs.id = a.series_id
     WHERE a.id = ?
   `).get(apptId);
 
@@ -138,6 +150,10 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
   const location = appt.location_name || appt.location_other || appt.location || '';
   const apptDate = fmt(appt.start_time);
 
+  const dateTimeLabel = appt.series_freq
+    ? `${FREQ_LABEL[appt.series_freq] || appt.series_freq} at ${fmtTimeOnly(appt.start_time)} – ${fmtTimeOnly(appt.end_time)} from ${fmtDateOnly(appt.series_start)}`
+    : apptDate;
+
   const baseVars = {
     client_name:       appt.client_name,
     client_first_name: appt.client_first_name,
@@ -149,12 +165,12 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
   };
 
   const pracTable = eventType === 'cancelled'
-    ? apptTable([['Client', appt.client_name], ['Date', apptDate]])
-    : apptTable([['Client', appt.client_name], ['Start', apptDate], ['End', fmt(appt.end_time)], ['Location', location], ['Status', appt.status], ['Notes', appt.notes]]);
+    ? apptTable([['Client', appt.client_name], ['Date & time', dateTimeLabel]])
+    : apptTable([['Client', appt.client_name], ['Date & time', dateTimeLabel], ['Location', location], ['Status', appt.status], ['Notes', appt.notes]]);
 
   const clientTable = eventType === 'cancelled'
     ? ''
-    : apptTable([['Date', apptDate], ['End time', fmt(appt.end_time)], ['Practitioner', appt.practitioner_name], ['Location', location], ['Notes', appt.notes]]);
+    : apptTable([['Date & time', dateTimeLabel], ['Practitioner', appt.practitioner_name], ['Location', location], ['Notes', appt.notes]]);
 
   const buildHtml = (code, fallbackHtml, table) => {
     const tpl = getTemplate(code);
