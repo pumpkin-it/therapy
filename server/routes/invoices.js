@@ -73,7 +73,7 @@ function invoiceWithSettings(inv) {
 // ─── "To Send": completed, uninvoiced appointments ──────────────────────────
 router.get('/to-send', auth, (req, res) => {
   const { client_id, practitioner_id, from, to } = req.query;
-  let where = "a.status != 'cancelled' AND a.is_invoiced = 0";
+  let where = "(a.status != 'cancelled' OR a.late_cancel_billable = 1) AND a.is_invoiced = 0";
   const params = [];
   if (client_id)       { where += ' AND a.client_id = ?';       params.push(client_id); }
   if (practitioner_id) { where += ' AND a.practitioner_id = ?'; params.push(practitioner_id); }
@@ -82,6 +82,7 @@ router.get('/to-send', auth, (req, res) => {
 
   const rows = db.prepare(`
     SELECT a.id, a.start_time, a.end_time, a.client_id, a.practitioner_id, a.location, a.notes, a.series_id, a.funding_period_id,
+      a.status, a.late_cancel_pct, a.late_cancel_billable,
       c.first_name || ' ' || c.last_name AS client_name,
       p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number, p.color AS practitioner_color,
       COALESCE(fp_direct.funds_manager_id, fp_date.funds_manager_id) AS funds_manager_id,
@@ -101,8 +102,10 @@ router.get('/to-send', auth, (req, res) => {
   const items = ids.length
     ? db.prepare(`
         SELECT ai.*, s.name AS service_name, s.code AS service_code,
-          s.travel_rate_per_hour, s.km_rate, s.notes_rate
+          s.travel_rate_per_hour, s.km_rate, s.notes_rate,
+          rc.code AS cancel_code
         FROM appointment_items ai LEFT JOIN services s ON s.id = ai.service_id
+        LEFT JOIN rate_items rc ON rc.id = s.cancel_rate_item_id
         WHERE ai.appointment_id IN (${ids.map(() => '?').join(',')})
       `).all(...ids)
     : [];
@@ -236,8 +239,10 @@ router.get('/export-myob-appointments', auth, (req, res) => {
       SELECT ai.*, s.name AS service_name, s.code AS service_code,
         s.travel_rate_per_hour, s.km_rate, s.notes_rate,
         s.travel_code, s.km_code, s.notes_code,
+        rc.code AS cancel_code,
         COALESCE(s.gst_type, 'GST') AS gst_type
       FROM appointment_items ai LEFT JOIN services s ON s.id = ai.service_id
+      LEFT JOIN rate_items rc ON rc.id = s.cancel_rate_item_id
       WHERE ai.appointment_id = ?
     `).all(apptId);
     if (!items.length) continue;
@@ -269,10 +274,15 @@ router.get('/export-myob-appointments', auth, (req, res) => {
 
     for (const item of items) {
       const gstType = item.gst_type || 'GST';
-      addRow(item.service_code || '', item.service_name || item.description, item.quantity, item.unit_rate, gstType);
-      if (item.travel_time_min) addRow(item.travel_code || '', `Travel time (${item.travel_time_min} min)`, item.travel_time_min / 60, item.travel_rate_per_hour || item.unit_rate, gstType);
-      if (item.travel_km && item.km_rate) addRow(item.km_code || '', `Travel distance (${item.travel_km} km)`, item.travel_km, item.km_rate, gstType);
-      if (item.notes_min) addRow(item.notes_code || '', `Clinical notes (${item.notes_min} min)`, item.notes_min / 60, item.notes_rate || item.unit_rate, gstType);
+      if (appt.status === 'cancelled' && appt.late_cancel_billable && appt.late_cancel_pct) {
+        const cancelRate = item.unit_rate * (appt.late_cancel_pct / 100);
+        addRow(item.cancel_code || '', `Cancellation fee (${appt.late_cancel_pct}% — ${item.service_name || item.description})`, item.quantity, cancelRate, gstType);
+      } else {
+        addRow(item.service_code || '', item.service_name || item.description, item.quantity, item.unit_rate, gstType);
+        if (item.travel_time_min) addRow(item.travel_code || '', `Travel time (${item.travel_time_min} min)`, item.travel_time_min / 60, item.travel_rate_per_hour || item.unit_rate, gstType);
+        if (item.travel_km && item.km_rate) addRow(item.km_code || '', `Travel distance (${item.travel_km} km)`, item.travel_km, item.km_rate, gstType);
+        if (item.notes_min) addRow(item.notes_code || '', `Clinical notes (${item.notes_min} min)`, item.notes_min / 60, item.notes_rate || item.unit_rate, gstType);
+      }
     }
   }
 
@@ -319,8 +329,10 @@ router.post('/generate', auth, (req, res) => {
       SELECT ai.*, s.name AS service_name, s.code AS service_code,
         s.travel_rate_per_hour, s.km_rate, s.notes_rate,
         s.travel_code, s.km_code, s.notes_code,
+        rc.code AS cancel_code,
         COALESCE(s.gst_type, 'GST') AS gst_type
       FROM appointment_items ai LEFT JOIN services s ON s.id = ai.service_id
+      LEFT JOIN rate_items rc ON rc.id = s.cancel_rate_item_id
       WHERE ai.appointment_id = ?
     `).all(apptId);
 
@@ -335,14 +347,20 @@ router.post('/generate', auth, (req, res) => {
       const gstType = item.gst_type || 'GST';
       const gst = gstType === 'GST' ? globalGstRate : 0;
       const serviceDate = appt.start_time ? appt.start_time.slice(0, 10) : null;
-      const addLine = (code, desc, qty, rate) => {
+      const addLine = (code, desc, qty, rate, lineType = 'service') => {
         const lt = qty * rate;
-        lineItems.push({ appointment_item_id: item.id, service_date: serviceDate, code, description: desc, quantity: qty, unit_rate: rate, line_total: lt, gst_rate: gst, gst_amount: lt * gst, gst_type: gstType });
+        lineItems.push({ appointment_item_id: item.id, service_date: serviceDate, code, description: desc, quantity: qty, unit_rate: rate, line_total: lt, gst_rate: gst, gst_amount: lt * gst, gst_type: gstType, line_type: lineType });
       };
-      addLine(item.service_code || '', item.service_name || item.description, item.quantity, item.unit_rate);
-      if (item.travel_time_min) addLine(item.travel_code || '', `Travel time (${item.travel_time_min} min)`, item.travel_time_min / 60, item.travel_rate_per_hour || item.unit_rate);
-      if (item.travel_km && item.km_rate) addLine(item.km_code || '', `Travel distance (${item.travel_km} km)`, item.travel_km, item.km_rate);
-      if (item.notes_min) addLine(item.notes_code || '', `Clinical notes (${item.notes_min} min)`, item.notes_min / 60, item.notes_rate || item.unit_rate);
+      if (appt.status === 'cancelled' && appt.late_cancel_billable && appt.late_cancel_pct) {
+        // Billable cancellation: only the cancellation fee is charged, not the normal session/travel/km/notes lines.
+        const cancelRate = item.unit_rate * (appt.late_cancel_pct / 100);
+        addLine(item.cancel_code || '', `Cancellation fee (${appt.late_cancel_pct}% — ${item.service_name || item.description})`, item.quantity, cancelRate, 'cancellation');
+      } else {
+        addLine(item.service_code || '', item.service_name || item.description, item.quantity, item.unit_rate, 'service');
+        if (item.travel_time_min) addLine(item.travel_code || '', `Travel time (${item.travel_time_min} min)`, item.travel_time_min / 60, item.travel_rate_per_hour || item.unit_rate, 'travel');
+        if (item.travel_km && item.km_rate) addLine(item.km_code || '', `Travel distance (${item.travel_km} km)`, item.travel_km, item.km_rate, 'km');
+        if (item.notes_min) addLine(item.notes_code || '', `Clinical notes (${item.notes_min} min)`, item.notes_min / 60, item.notes_rate || item.unit_rate, 'notes');
+      }
     }
 
     const subtotal = lineItems.reduce((s, i) => s + i.line_total, 0);
@@ -361,11 +379,11 @@ router.post('/generate', auth, (req, res) => {
       appt.funds_manager_id || null, issueDate, dueDate, subtotal, 0, taxAmount, total, appt.fp_self_email || null);
 
     const insertItem = db.prepare(`
-      INSERT INTO invoice_items (invoice_id, appointment_item_id, service_date, code, description, quantity, unit_rate, line_total, gst_rate, gst_amount, gst_type)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO invoice_items (invoice_id, appointment_item_id, service_date, code, description, quantity, unit_rate, line_total, gst_rate, gst_amount, gst_type, line_type)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const li of lineItems) {
-      insertItem.run(r.lastInsertRowid, li.appointment_item_id, li.service_date || null, li.code || null, li.description, li.quantity, li.unit_rate, li.line_total, li.gst_rate || 0, li.gst_amount || 0, li.gst_type || 'GST');
+      insertItem.run(r.lastInsertRowid, li.appointment_item_id, li.service_date || null, li.code || null, li.description, li.quantity, li.unit_rate, li.line_total, li.gst_rate || 0, li.gst_amount || 0, li.gst_type || 'GST', li.line_type || 'service');
     }
 
     db.prepare('UPDATE appointments SET is_invoiced=1 WHERE id=?').run(apptId);

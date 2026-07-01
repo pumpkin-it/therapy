@@ -98,7 +98,9 @@ function ToSendTab() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {appointments.map(a => {
+                  const isBillableCancellation = a.status === 'cancelled' && a.late_cancel_billable && a.late_cancel_pct;
                   const total = (a.items || []).reduce((s, i) => {
+                    if (isBillableCancellation) return s + i.unit_rate * (a.late_cancel_pct / 100);
                     let t = i.quantity * i.unit_rate;
                     if (i.travel_time_min) t += (i.travel_time_min / 60) * (i.travel_rate_per_hour || i.unit_rate);
                     if (i.travel_km && i.km_rate) t += i.travel_km * i.km_rate;
@@ -115,7 +117,14 @@ function ToSendTab() {
                           checked={selected.includes(a.id)} onChange={() => toggle(a.id)} />
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-700">{fmtDate(a.start_time)}</td>
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900">{a.client_name}</td>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                        <div className="flex items-center gap-2">
+                          {a.client_name}
+                          {a.status === 'cancelled' && a.late_cancel_billable ? (
+                            <Badge color="amber">Cancelled — billable {a.late_cancel_pct}%</Badge>
+                          ) : null}
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-sm text-gray-600">
                         <div className="flex items-center gap-1.5">
                           <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: a.practitioner_color }} />

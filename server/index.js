@@ -33,6 +33,7 @@ app.use('/api/settings',        perm('settings'), require('./routes/settings'));
 app.use('/api/practitioners',   perm('users'), require('./routes/practitioners'));
 app.use('/api/clients',         perm('clients'), require('./routes/clients'));
 app.use('/api/services',        perm('services'), require('./routes/services'));
+app.use('/api/rate-items',      perm('services'), require('./routes/rateItems'));
 app.use('/api/appointments',    perm('calendar'), require('./routes/appointments'));
 app.use('/api/invoices',        perm('invoices'), require('./routes/invoices'));
 app.use('/api/funds-managers',  perm('funds_managers'), require('./routes/fundsManagers'));

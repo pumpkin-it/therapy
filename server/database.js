@@ -514,6 +514,23 @@ const seedStmt = db.prepare(`
 `);
 for (const s of emailSeeds) seedStmt.run(s.code, s.name, s.subject, s.body);
 
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS rate_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    funding_type_id INTEGER REFERENCES funding_types(id),
+    discipline_id INTEGER REFERENCES disciplines(id),
+    category TEXT NOT NULL,
+    code TEXT NOT NULL,
+    name TEXT NOT NULL,
+    unit TEXT DEFAULT 'hour',
+    rate REAL,
+    active INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec(`ALTER TABLE services ADD COLUMN cancel_rate_item_id INTEGER REFERENCES rate_items(id)`); } catch {}
+try { db.exec(`ALTER TABLE invoice_items ADD COLUMN line_type TEXT DEFAULT 'service'`); } catch {}
+
 // Partial unique indexes for duplicate prevention
 try { db.exec(`CREATE UNIQUE INDEX idx_practitioners_email ON practitioners(email) WHERE email IS NOT NULL AND email != ''`); } catch {}
 try { db.exec(`CREATE UNIQUE INDEX idx_clients_ndis ON clients(ndis_number) WHERE ndis_number IS NOT NULL AND ndis_number != ''`); } catch {}

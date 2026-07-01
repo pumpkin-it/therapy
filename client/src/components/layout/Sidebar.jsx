@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { CalendarDays, Users, UserCog, Layers, FileText, Settings, Stethoscope, Wallet, MapPin, RefreshCw, ScrollText, LogOut, ClipboardList } from 'lucide-react';
+import { CalendarDays, Users, UserCog, Layers, FileText, Settings, Stethoscope, Wallet, MapPin, RefreshCw, ScrollText, LogOut, ClipboardList, Receipt } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
 
@@ -11,6 +11,7 @@ const nav = [
   { to: '/locations',       label: 'Locations',  icon: MapPin,       perm: 'locations' },
   { to: '/recurring-series', label: 'Recurring', icon: RefreshCw,    perm: 'calendar' },
   { to: '/services',        label: 'Services',   icon: Layers,       perm: 'services' },
+  { to: '/rate-catalogue',  label: 'Rate Catalogue', icon: Receipt,  perm: 'services' },
   { to: '/invoices',        label: 'Invoices',   icon: FileText,     perm: 'invoices' },
   { to: '/templates',        label: 'Templates',  icon: ClipboardList, perm: 'settings' },
   { to: '/audit-log',       label: 'Audit Log',  icon: ScrollText,   perm: null },
