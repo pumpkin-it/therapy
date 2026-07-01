@@ -335,7 +335,7 @@ function CaseNotesTab({ clientId, client }) {
   const load = () => api.get(`/case-notes?client_id=${clientId}`).then(r => setNotes(r.data));
   useEffect(() => {
     load();
-    api.get('/templates?type=progress_note').then(r => setNoteTemplates(r.data)).catch(() => {});
+    api.get('/templates?type=session_note').then(r => setNoteTemplates(r.data)).catch(() => {});
   }, []);
 
   const applyTemplate = t => {
@@ -387,7 +387,7 @@ function CaseNotesTab({ clientId, client }) {
           )}
           <textarea rows={5} autoFocus
             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-y focus:border-indigo-500 focus:outline-none"
-            placeholder="Write your progress note…"
+            placeholder="Write your session note…"
             value={newNote} onChange={e => setNewNote(e.target.value)} />
           <div className="flex gap-2 justify-end">
             <Button variant="secondary" size="sm" onClick={() => { setShowNew(false); setNewNote(''); }}>Cancel</Button>

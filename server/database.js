@@ -430,7 +430,7 @@ db.exec(`
   );
 `);
 
-// Communication & progress note templates
+// Communication & session note templates
 db.exec(`
   CREATE TABLE IF NOT EXISTS templates (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -125,7 +125,7 @@ function EmailTemplates() {
   );
 }
 
-// ─── Progress Note Templates tab ──────────────────────────────────────────────
+// ─── Session Note Templates tab ──────────────────────────────────────────────
 function NoteTemplates() {
   const [templates, setTemplates] = useState([]);
   const [showNew, setShowNew] = useState(false);
@@ -133,7 +133,7 @@ function NoteTemplates() {
   const [form, setForm] = useState({ name: '', body: '' });
   const [saving, setSaving] = useState(false);
 
-  const load = () => api.get('/templates?type=progress_note').then(r => setTemplates(r.data));
+  const load = () => api.get('/templates?type=session_note').then(r => setTemplates(r.data));
   useEffect(() => { load(); }, []);
 
   const startEdit = t => { setEditing(t); setShowNew(false); setForm({ name: t.name, body: t.body }); };
@@ -172,7 +172,7 @@ function NoteTemplates() {
       {isEditing && (
         <div className="rounded-xl border border-indigo-100 bg-white shadow-sm p-5 space-y-4">
           <p className="font-semibold text-gray-900">{editing ? `Edit: ${editing.name}` : 'New template'}</p>
-          <Input label="Template name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. NDIS Progress Note" />
+          <Input label="Template name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. NDIS Session Note" />
           <div className="space-y-1">
             <label className="block text-xs font-medium text-gray-600">Body</label>
             <BodyEditor value={form.body} onChange={v => setForm(f => ({ ...f, body: v }))} vars={NOTE_VARS} rows={8} />
@@ -187,7 +187,7 @@ function NoteTemplates() {
       )}
 
       {templates.length === 0 && !isEditing && (
-        <p className="text-sm text-gray-400 py-8 text-center">No progress note templates yet.</p>
+        <p className="text-sm text-gray-400 py-8 text-center">No session note templates yet.</p>
       )}
 
       {templates.map(t => (
@@ -209,13 +209,13 @@ function NoteTemplates() {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function Templates() {
   const [tab, setTab] = useState('email');
-  const TABS = [['email', 'Email Templates'], ['progress_note', 'Progress Note Templates']];
+  const TABS = [['email', 'Email Templates'], ['session_note', 'Session Note Templates']];
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-gray-900">Templates</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Edit system email templates and create progress note templates</p>
+        <p className="text-sm text-gray-500 mt-0.5">Edit system email templates and create session note templates</p>
       </div>
 
       <div className="border-b border-gray-200">
@@ -232,7 +232,7 @@ export default function Templates() {
       </div>
 
       {tab === 'email'         && <EmailTemplates />}
-      {tab === 'progress_note' && <NoteTemplates />}
+      {tab === 'session_note' && <NoteTemplates />}
     </div>
   );
 }

@@ -21,7 +21,7 @@ router.post('/', auth, requireAdminOrOwner, (req, res) => {
   const { name, body } = req.body;
   if (!name || !body) return res.status(400).json({ error: 'name and body required' });
   const result = db.prepare(
-    `INSERT INTO templates (type, name, body, is_system) VALUES ('progress_note', ?, ?, 0)`
+    `INSERT INTO templates (type, name, body, is_system) VALUES ('session_note', ?, ?, 0)`
   ).run(name, body);
   res.status(201).json(db.prepare('SELECT * FROM templates WHERE id = ?').get(result.lastInsertRowid));
 });
