@@ -530,6 +530,7 @@ try { db.exec(`
 `); } catch {}
 try { db.exec(`ALTER TABLE services ADD COLUMN cancel_rate_item_id INTEGER REFERENCES rate_items(id)`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN line_type TEXT DEFAULT 'service'`); } catch {}
+try { db.exec(`ALTER TABLE services ADD COLUMN cancel_code TEXT`); } catch {}
 
 // Partial unique indexes for duplicate prevention
 try { db.exec(`CREATE UNIQUE INDEX idx_practitioners_email ON practitioners(email) WHERE email IS NOT NULL AND email != ''`); } catch {}

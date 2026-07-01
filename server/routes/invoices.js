@@ -103,9 +103,8 @@ router.get('/to-send', auth, (req, res) => {
     ? db.prepare(`
         SELECT ai.*, s.name AS service_name, s.code AS service_code,
           s.travel_rate_per_hour, s.km_rate, s.notes_rate,
-          rc.code AS cancel_code
+          s.cancel_code
         FROM appointment_items ai LEFT JOIN services s ON s.id = ai.service_id
-        LEFT JOIN rate_items rc ON rc.id = s.cancel_rate_item_id
         WHERE ai.appointment_id IN (${ids.map(() => '?').join(',')})
       `).all(...ids)
     : [];
@@ -238,11 +237,9 @@ router.get('/export-myob-appointments', auth, (req, res) => {
     const items = db.prepare(`
       SELECT ai.*, s.name AS service_name, s.code AS service_code,
         s.travel_rate_per_hour, s.km_rate, s.notes_rate,
-        s.travel_code, s.km_code, s.notes_code,
-        rc.code AS cancel_code,
+        s.travel_code, s.km_code, s.notes_code, s.cancel_code,
         COALESCE(s.gst_type, 'GST') AS gst_type
       FROM appointment_items ai LEFT JOIN services s ON s.id = ai.service_id
-      LEFT JOIN rate_items rc ON rc.id = s.cancel_rate_item_id
       WHERE ai.appointment_id = ?
     `).all(apptId);
     if (!items.length) continue;
@@ -328,11 +325,9 @@ router.post('/generate', auth, (req, res) => {
     const items = db.prepare(`
       SELECT ai.*, s.name AS service_name, s.code AS service_code,
         s.travel_rate_per_hour, s.km_rate, s.notes_rate,
-        s.travel_code, s.km_code, s.notes_code,
-        rc.code AS cancel_code,
+        s.travel_code, s.km_code, s.notes_code, s.cancel_code,
         COALESCE(s.gst_type, 'GST') AS gst_type
       FROM appointment_items ai LEFT JOIN services s ON s.id = ai.service_id
-      LEFT JOIN rate_items rc ON rc.id = s.cancel_rate_item_id
       WHERE ai.appointment_id = ?
     `).all(apptId);
 

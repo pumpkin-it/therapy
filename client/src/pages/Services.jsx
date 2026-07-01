@@ -6,20 +6,15 @@ import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import { currency } from '../lib/utils';
 
-const EMPTY = { name:'', description:'', code:'', default_rate:0, unit:'hour', default_duration:60, travel_rate_per_hour:'', km_rate:'', notes_rate:'', gst_type:'GST', discipline_id:'', travel_code:'', km_code:'', notes_code:'', cancel_rate_item_id:'' };
+const EMPTY = { name:'', description:'', code:'', default_rate:0, unit:'hour', default_duration:60, travel_rate_per_hour:'', km_rate:'', notes_rate:'', gst_type:'GST', discipline_id:'', travel_code:'', km_code:'', notes_code:'', cancel_code:'' };
 
 function ServiceModal({ service, onClose, onSaved }) {
   const [form, setForm] = useState(service || EMPTY);
   const [saving, setSaving] = useState(false);
   const [disciplines, setDisciplines] = useState([]);
-  const [cancelRateItems, setCancelRateItems] = useState([]);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   useEffect(() => { api.get('/disciplines').then(r => setDisciplines(r.data)); }, []);
-  useEffect(() => {
-    const params = form.discipline_id ? `?category=cancellation&discipline_id=${form.discipline_id}` : '?category=cancellation';
-    api.get(`/rate-items${params}`).then(r => setCancelRateItems(r.data));
-  }, [form.discipline_id]);
 
   const save = async () => {
     setSaving(true);
@@ -77,17 +72,8 @@ function ServiceModal({ service, onClose, onSaved }) {
             onChange={e => set('km_code', e.target.value)} placeholder="e.g. 04_799" />
           <Input label="Notes code" value={form.notes_code}
             onChange={e => set('notes_code', e.target.value)} placeholder="e.g. 04_799" />
-        </div>
-        <div className="space-y-1">
-          <label className="block text-sm font-medium text-gray-700">Cancellation code</label>
-          <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            value={form.cancel_rate_item_id || ''} onChange={e => set('cancel_rate_item_id', e.target.value ? Number(e.target.value) : '')}>
-            <option value="">— None —</option>
-            {cancelRateItems.map(ri => (
-              <option key={ri.id} value={ri.id}>{ri.code} — {ri.name}{ri.rate != null ? ` ($${ri.rate})` : ''}</option>
-            ))}
-          </select>
-          <p className="text-xs text-gray-400">Managed in the <a href="/rate-catalogue" className="text-indigo-600 hover:underline">Rate Catalogue</a>.</p>
+          <Input label="Cancellation code" value={form.cancel_code}
+            onChange={e => set('cancel_code', e.target.value)} placeholder="e.g. 04_799" />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
