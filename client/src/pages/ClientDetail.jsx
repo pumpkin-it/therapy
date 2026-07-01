@@ -347,7 +347,8 @@ function SessionNotesTab({ clientId, client }) {
           const day = d.toLocaleDateString('en-AU', { weekday: 'long' });
           const dd = String(d.getDate()).padStart(2, '0');
           const mm = String(d.getMonth() + 1).padStart(2, '0');
-          setNextAppt(`${day} ${dd}/${mm}`);
+          const yyyy = d.getFullYear();
+          setNextAppt(`${day} ${dd}/${mm}/${yyyy}`);
         }
       })
       .catch(() => {});

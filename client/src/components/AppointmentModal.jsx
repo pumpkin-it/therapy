@@ -42,14 +42,15 @@ function htmlToPlain(html) {
     .trim();
 }
 
-// Format a datetime string as "Monday 06/07"
+// Format a datetime string as "Monday 06/07/2026"
 function fmtNextAppt(isoStr) {
   if (!isoStr) return '';
   const d = new Date(isoStr);
   const day = d.toLocaleDateString('en-AU', { weekday: 'long' });
   const dd = String(d.getDate()).padStart(2, '0');
   const mm = String(d.getMonth() + 1).padStart(2, '0');
-  return `${day} ${dd}/${mm}`;
+  const yyyy = d.getFullYear();
+  return `${day} ${dd}/${mm}/${yyyy}`;
 }
 
 function SessionNotesSection({ appointmentId, clientId, appointment }) {
