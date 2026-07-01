@@ -150,18 +150,30 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
   const location = appt.location_name || appt.location_other || appt.location || '';
   const apptDate = fmt(appt.start_time);
 
-  // For series updates scoped to 'this_only', show just the single datetime.
-  // For 'future' updates, show the series pattern with "from" = this appointment (not original series start).
-  // For created/cancelled or no scope, use original series start date.
+  // For series updates/cancellations scoped to 'this_only', show just the single datetime.
+  // "from <date>" is only shown on the initial creation email — for updates the "Changes
+  // starting from" row covers it, and for cancellations it's misleading (the last real
+  // appointment may be well before the original series start).
   let dateTimeLabel;
   if (appt.series_freq && scope !== 'this_only') {
-    const fromDate = scope === 'future' ? appt.start_time : appt.series_start;
-    dateTimeLabel = `${FREQ_LABEL[appt.series_freq] || appt.series_freq} at ${fmtTimeOnly(appt.start_time)} – ${fmtTimeOnly(appt.end_time)} from ${fmtDateOnly(fromDate)}`;
+    const freqText = `${FREQ_LABEL[appt.series_freq] || appt.series_freq} at ${fmtTimeOnly(appt.start_time)} – ${fmtTimeOnly(appt.end_time)}`;
+    dateTimeLabel = eventType === 'created' ? `${freqText} from ${fmtDateOnly(appt.series_start)}` : freqText;
   } else {
     dateTimeLabel = apptDate;
   }
 
-  const changesFrom = scope === 'future' ? fmtDateOnly(appt.start_time) : null;
+  const changesFrom = (eventType === 'updated' && scope === 'future') ? fmtDateOnly(appt.start_time) : null;
+
+  // For a whole-series cancellation, show the last appointment that actually remains
+  // (i.e. wasn't itself cancelled) — this can be in the past relative to when the
+  // cancellation was processed.
+  let lastAppointment = null;
+  if (eventType === 'cancelled' && appt.series_id && scope !== 'this_only') {
+    const last = db.prepare(
+      "SELECT start_time FROM appointments WHERE series_id = ? AND status != 'cancelled' ORDER BY start_time DESC LIMIT 1"
+    ).get(appt.series_id);
+    lastAppointment = last ? fmtDateOnly(last.start_time) : null;
+  }
 
   const baseVars = {
     client_name:       appt.client_name,
@@ -174,10 +186,12 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
   };
 
   const pracTable = eventType === 'cancelled'
-    ? apptTable([['Client', appt.client_name], ['Date & time', dateTimeLabel], ['Location', location], ['Notes', appt.notes]])
+    ? apptTable([['Client', appt.client_name], ['Date & time', dateTimeLabel], ['Last appointment', lastAppointment], ['Location', location], ['Notes', appt.notes]])
     : apptTable([['Client', appt.client_name], ['Date & time', dateTimeLabel], ['Changes starting from', changesFrom], ['Location', location], ['Status', appt.status], ['Notes', appt.notes]]);
 
-  const clientTable = apptTable([['Date & time', dateTimeLabel], ['Changes starting from', changesFrom], ['Practitioner', appt.practitioner_name], ['Location', location], ['Notes', appt.notes]]);
+  const clientTable = eventType === 'cancelled'
+    ? apptTable([['Date & time', dateTimeLabel], ['Last appointment', lastAppointment], ['Practitioner', appt.practitioner_name], ['Location', location], ['Notes', appt.notes]])
+    : apptTable([['Date & time', dateTimeLabel], ['Changes starting from', changesFrom], ['Practitioner', appt.practitioner_name], ['Location', location], ['Notes', appt.notes]]);
 
   const buildHtml = (code, fallbackHtml, table) => {
     const tpl = getTemplate(code);

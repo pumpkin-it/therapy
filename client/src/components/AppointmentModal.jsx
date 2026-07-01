@@ -485,6 +485,8 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     } finally { setSaving(false); }
   };
 
+  const [lastSeriesScope, setLastSeriesScope] = useState(null);
+
   const del = async () => {
     if (appointment.series_id) {
       setSeriesEndPrompt({ step: 'choose', endDate: localToday() });
@@ -496,6 +498,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     } else {
       if (!confirm('Cancel this appointment?')) return;
       await api.patch(`/appointments/${appointment.id}/status`, { status: 'cancelled', late_cancel_pct: null, late_cancel_billable: 0 });
+      setLastSeriesScope('this_only');
       onSaved();
     }
   };
@@ -507,6 +510,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
       setLateCancelConfirm(data);
     } else {
       await api.patch(`/appointments/${appointment.id}/status`, { status: 'cancelled', late_cancel_pct: null, late_cancel_billable: 0 });
+      setLastSeriesScope('this_only');
       onSaved();
     }
   };
@@ -521,6 +525,8 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
       end_type: 'date',
       end_date: endDate,
     });
+
+    setLastSeriesScope('future');
 
     // Check if any cancelled appointments fall within late cancellation policy
     const { data: policyData } = await api.get(`/appointments/${appointment.id}/cancel-policy`);
@@ -543,10 +549,9 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
       late_cancel_billable: applyPolicy ? 1 : 0,
     });
     setLateCancelConfirm(null);
+    setLastSeriesScope('this_only');
     onSaved();
   };
-
-  const [lastSeriesScope, setLastSeriesScope] = useState(null);
 
   const saveSeriesThis = async () => {
     setSaving(true);
@@ -594,7 +599,8 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     if (!apptId) return;
     setNotifyStatus(s => ({ ...s, [target]: 'sending' }));
     try {
-      await api.post(`/appointments/${apptId}/notify`, { eventType: editing ? 'updated' : 'created', target, scope: lastSeriesScope });
+      const eventType = form.status === 'cancelled' ? 'cancelled' : (editing ? 'updated' : 'created');
+      await api.post(`/appointments/${apptId}/notify`, { eventType, target, scope: lastSeriesScope });
       setNotifyStatus(s => ({ ...s, [target]: 'sent' }));
     } catch (e) {
       const msg = e.response?.data?.errors?.[0] || e.response?.data?.error || 'Failed';
