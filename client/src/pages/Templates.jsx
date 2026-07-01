@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Plus, Pencil, Trash2, X } from 'lucide-react';
+import Quill from 'quill';
+import 'quill/dist/quill.snow.css';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
@@ -18,36 +20,71 @@ const EMAIL_VARS = {
 
 const NOTE_VARS = ['client_name', 'client_first_name', 'practitioner_name', 'date', 'practice_name'];
 
-function VarChips({ vars, onInsert }) {
+// ─── Rich text editor (Quill) ─────────────────────────────────────────────────
+function RichEditor({ defaultValue, onChange, insertRef, toolbar = 'email' }) {
+  const containerRef = useRef();
+  const quillRef = useRef();
+
+  useEffect(() => {
+    const toolbarOptions = toolbar === 'email'
+      ? [
+          ['bold', 'italic', 'underline', 'strike'],
+          [{ header: [1, 2, 3, false] }],
+          [{ list: 'ordered' }, { list: 'bullet' }],
+          ['link'],
+          ['clean'],
+        ]
+      : [
+          ['bold', 'italic', 'underline'],
+          [{ list: 'bullet' }],
+          ['clean'],
+        ];
+
+    const quill = new Quill(containerRef.current, {
+      theme: 'snow',
+      modules: { toolbar: toolbarOptions },
+    });
+
+    quill.clipboard.dangerouslyPasteHTML(defaultValue || '');
+
+    quill.on('text-change', () => {
+      // Quill wraps even empty editors with <p><br></p> — treat as empty
+      const html = quill.root.innerHTML;
+      onChange(html === '<p><br></p>' ? '' : html);
+    });
+
+    quillRef.current = quill;
+    return () => { quill.off('text-change'); };
+  }, []); // intentionally empty — Quill owns this DOM node
+
+  // Expose variable insertion to parent via ref
+  if (insertRef) {
+    insertRef.current = text => {
+      const quill = quillRef.current;
+      if (!quill) return;
+      const range = quill.getSelection(true);
+      quill.insertText(range ? range.index : quill.getLength() - 1, text, 'user');
+    };
+  }
+
   return (
-    <div className="flex flex-wrap gap-1.5 mt-1">
-      <span className="text-xs text-gray-400 self-center">Insert:</span>
-      {vars.map(v => (
-        <button key={v} type="button" onClick={() => onInsert(`{{${v}}}`)}
-          className="rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-100 font-mono transition-colors">
-          {`{{${v}}}`}
-        </button>
-      ))}
+    <div className="quill-wrapper rounded-lg overflow-hidden border border-gray-300 focus-within:border-indigo-500 transition-colors">
+      <div ref={containerRef} />
     </div>
   );
 }
 
-function BodyEditor({ value, onChange, vars, rows = 6 }) {
-  const ref = useRef();
-  const insert = str => {
-    const el = ref.current;
-    if (!el) return;
-    const s = el.selectionStart, e = el.selectionEnd;
-    const next = value.slice(0, s) + str + value.slice(e);
-    onChange(next);
-    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(s + str.length, s + str.length); });
-  };
+function VarChips({ vars, insertRef }) {
+  const insert = v => insertRef?.current?.(`{{${v}}}`);
   return (
-    <div className="space-y-1">
-      <textarea ref={ref} rows={rows}
-        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-y focus:border-indigo-500 focus:outline-none font-mono"
-        value={value} onChange={e => onChange(e.target.value)} />
-      <VarChips vars={vars} onInsert={insert} />
+    <div className="flex flex-wrap gap-1.5 mt-1.5">
+      <span className="text-xs text-gray-400 self-center">Insert:</span>
+      {vars.map(v => (
+        <button key={v} type="button" onClick={() => insert(v)}
+          className="rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-100 font-mono transition-colors">
+          {`{{${v}}}`}
+        </button>
+      ))}
     </div>
   );
 }
@@ -58,6 +95,7 @@ function EmailTemplates() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ name: '', subject: '', body: '' });
   const [saving, setSaving] = useState(false);
+  const insertRef = useRef();
 
   const load = () => api.get('/templates?type=email').then(r => setTemplates(r.data));
   useEffect(() => { load(); }, []);
@@ -92,12 +130,18 @@ function EmailTemplates() {
             />
           </div>
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-600">
-              Body <span className="text-gray-400 font-normal">(HTML supported)</span>
-            </label>
-            <BodyEditor value={form.body} onChange={v => setForm(f => ({ ...f, body: v }))} vars={vars} rows={8} />
+            <label className="block text-xs font-medium text-gray-600">Body</label>
+            {/* key remounts Quill whenever a different template is opened */}
+            <RichEditor
+              key={editing.id}
+              defaultValue={form.body}
+              onChange={v => setForm(f => ({ ...f, body: v }))}
+              insertRef={insertRef}
+              toolbar="email"
+            />
+            <VarChips vars={vars} insertRef={insertRef} />
           </div>
-          {editing.code && editing.code.startsWith('appt_') && (
+          {editing.code?.startsWith('appt_') && (
             <p className="text-xs text-gray-400">
               <code className="bg-gray-100 px-1 rounded">{'{{appointment_details}}'}</code> inserts a formatted table of appointment details.
             </p>
@@ -132,6 +176,7 @@ function NoteTemplates() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ name: '', body: '' });
   const [saving, setSaving] = useState(false);
+  const insertRef = useRef();
 
   const load = () => api.get('/templates?type=session_note').then(r => setTemplates(r.data));
   useEffect(() => { load(); }, []);
@@ -160,6 +205,7 @@ function NoteTemplates() {
   };
 
   const isEditing = showNew || !!editing;
+  const editorKey = editing ? `edit-${editing.id}` : 'new';
 
   return (
     <div className="space-y-3">
@@ -175,7 +221,14 @@ function NoteTemplates() {
           <Input label="Template name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. NDIS Session Note" />
           <div className="space-y-1">
             <label className="block text-xs font-medium text-gray-600">Body</label>
-            <BodyEditor value={form.body} onChange={v => setForm(f => ({ ...f, body: v }))} vars={NOTE_VARS} rows={8} />
+            <RichEditor
+              key={editorKey}
+              defaultValue={form.body}
+              onChange={v => setForm(f => ({ ...f, body: v }))}
+              insertRef={insertRef}
+              toolbar="note"
+            />
+            <VarChips vars={NOTE_VARS} insertRef={insertRef} />
           </div>
           <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
             <Button variant="secondary" size="sm" onClick={() => { setEditing(null); setShowNew(false); }}>Cancel</Button>
@@ -194,7 +247,7 @@ function NoteTemplates() {
         <div key={t.id} className="rounded-xl border border-gray-200 bg-white shadow-sm p-4 flex items-start gap-3">
           <div className="flex-1 min-w-0">
             <p className="font-medium text-gray-900 text-sm">{t.name}</p>
-            <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">{t.body}</p>
+            <p className="text-xs text-gray-400 mt-0.5 line-clamp-2" dangerouslySetInnerHTML={{ __html: t.body }} />
           </div>
           <div className="flex gap-1 shrink-0">
             <button onClick={() => startEdit(t)} className="p-1.5 text-gray-400 hover:text-indigo-600"><Pencil className="h-4 w-4" /></button>
@@ -231,7 +284,7 @@ export default function Templates() {
         </div>
       </div>
 
-      {tab === 'email'         && <EmailTemplates />}
+      {tab === 'email'        && <EmailTemplates />}
       {tab === 'session_note' && <NoteTemplates />}
     </div>
   );
