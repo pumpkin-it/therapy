@@ -258,31 +258,31 @@ function MedicalTab({ form, set }) {
   );
 }
 
-// ─── Case notes tab ───────────────────────────────────────────────────────────
+// ─── Session notes tab ────────────────────────────────────────────────────────
 
-function CaseNotesTab({ clientId }) {
+function SessionNotesTab({ clientId }) {
   const { timezone } = useSettings();
   const [notes, setNotes] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
 
-  const load = () => api.get(`/case-notes?client_id=${clientId}`).then(r => setNotes(r.data));
+  const load = () => api.get(`/session-notes?client_id=${clientId}`).then(r => setNotes(r.data));
   useEffect(() => { if (clientId) load(); }, [clientId]);
 
   const saveEdit = async id => {
-    await api.patch(`/case-notes/${id}`, { note: editText });
+    await api.patch(`/session-notes/${id}`, { note: editText });
     setEditingId(null); load();
   };
   const remove = async id => {
     if (!confirm('Delete this note?')) return;
-    await api.delete(`/case-notes/${id}`); load();
+    await api.delete(`/session-notes/${id}`); load();
   };
 
   if (!clientId) return <p className="text-sm text-gray-400 py-4 text-center">Save the client first to view notes.</p>;
   return (
     <div className="space-y-3 py-1">
       {notes.length === 0 && (
-        <p className="text-sm text-gray-400 py-6 text-center">No case notes yet. Add them from the calendar when editing an appointment.</p>
+        <p className="text-sm text-gray-400 py-6 text-center">No session notes yet. Add them from the calendar when editing an appointment.</p>
       )}
       {notes.map(n => (
         <div key={n.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
@@ -370,7 +370,7 @@ function ClientModal({ client, onClose, onSaved }) {
   };
 
   const TABS = client
-    ? [['details', 'Details'], ['funding', 'Funding'], ['medical', 'Medical'], ['notes', 'Case Notes']]
+    ? [['details', 'Details'], ['funding', 'Funding'], ['medical', 'Medical'], ['notes', 'Session Notes']]
     : [['details', 'Details']];
 
   return (
@@ -421,7 +421,7 @@ function ClientModal({ client, onClose, onSaved }) {
 
         {tab === 'funding' && <FundingTab clientId={client?.id} />}
         {tab === 'medical' && <MedicalTab form={form} set={set} />}
-        {tab === 'notes'   && <CaseNotesTab clientId={client?.id} />}
+        {tab === 'notes'   && <SessionNotesTab clientId={client?.id} />}
       </div>
 
       {duplicates.length > 0 && (

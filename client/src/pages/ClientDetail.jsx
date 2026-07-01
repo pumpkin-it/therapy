@@ -320,8 +320,8 @@ function FilesTab({ clientId }) {
   );
 }
 
-// ─── Case Notes tab ───────────────────────────────────────────────────────────
-function CaseNotesTab({ clientId, client }) {
+// ─── Session Notes tab ────────────────────────────────────────────────────────
+function SessionNotesTab({ clientId, client }) {
   const { user } = useAuth();
   const { timezone } = useSettings();
   const [notes, setNotes] = useState([]);
@@ -332,7 +332,7 @@ function CaseNotesTab({ clientId, client }) {
   const [editText, setEditText] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const load = () => api.get(`/case-notes?client_id=${clientId}`).then(r => setNotes(r.data));
+  const load = () => api.get(`/session-notes?client_id=${clientId}`).then(r => setNotes(r.data));
   useEffect(() => {
     load();
     api.get('/templates?type=session_note').then(r => setNoteTemplates(r.data)).catch(() => {});
@@ -354,15 +354,15 @@ function CaseNotesTab({ clientId, client }) {
     if (!newNote.trim()) return;
     setSaving(true);
     try {
-      await api.post('/case-notes', { client_id: clientId, note: newNote });
+      await api.post('/session-notes', { client_id: clientId, note: newNote });
       setNewNote('');
       setShowNew(false);
       load();
     } finally { setSaving(false); }
   };
 
-  const saveEdit = async id => { await api.patch(`/case-notes/${id}`, { note: editText }); setEditingId(null); load(); };
-  const remove   = async id => { if (!confirm('Delete this note?')) return; await api.delete(`/case-notes/${id}`); load(); };
+  const saveEdit = async id => { await api.patch(`/session-notes/${id}`, { note: editText }); setEditingId(null); load(); };
+  const remove   = async id => { if (!confirm('Delete this note?')) return; await api.delete(`/session-notes/${id}`); load(); };
 
   return (
     <div className="space-y-3">
@@ -397,7 +397,7 @@ function CaseNotesTab({ clientId, client }) {
       )}
 
       {notes.length === 0 && !showNew && (
-        <p className="text-sm text-gray-400 py-6 text-center">No case notes yet.</p>
+        <p className="text-sm text-gray-400 py-6 text-center">No session notes yet.</p>
       )}
 
       {notes.map(n => (
@@ -498,7 +498,7 @@ export default function ClientDetail() {
 
   const TABS = [
     ['details', 'Details'], ['funding', 'Funding'], ['medical', 'Medical'],
-    ['notes', 'Case Notes'], ['files', 'Files'], ['calendar', 'Calendar'],
+    ['notes', 'Session Notes'], ['files', 'Files'], ['calendar', 'Calendar'],
   ];
 
   return (
@@ -616,7 +616,7 @@ export default function ClientDetail() {
         )}
 
         {tab === 'funding'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to manage funding.</p> : <FundingTab  clientId={id} />)}
-        {tab === 'notes'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to add notes.</p> : <CaseNotesTab clientId={id} client={client} />)}
+        {tab === 'notes'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to add notes.</p> : <SessionNotesTab clientId={id} client={client} />)}
         {tab === 'files'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to upload files.</p> : <FilesTab     clientId={id} />)}
         {tab === 'calendar'  && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view calendar.</p> : <EmbeddedCalendar clientId={id} />)}
       </div>

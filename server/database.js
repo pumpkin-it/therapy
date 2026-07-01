@@ -318,7 +318,7 @@ try { db.exec(`
 `); } catch {}
 
 try { db.exec(`
-  CREATE TABLE IF NOT EXISTS case_notes (
+  CREATE TABLE IF NOT EXISTS session_notes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     appointment_id INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
     client_id INTEGER NOT NULL REFERENCES clients(id),
@@ -327,6 +327,18 @@ try { db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `); } catch {}
+
+// Migrate case_notes → session_notes if the old table still exists
+try {
+  const hasOld = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='case_notes'").get();
+  if (hasOld) {
+    db.exec(`
+      INSERT OR IGNORE INTO session_notes (id, appointment_id, client_id, practitioner_id, note, created_at)
+      SELECT id, appointment_id, client_id, practitioner_id, note, created_at FROM case_notes;
+      DROP TABLE case_notes;
+    `);
+  }
+} catch {}
 
 // Seed default settings
 const defaults = {

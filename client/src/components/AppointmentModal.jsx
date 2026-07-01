@@ -28,7 +28,7 @@ function addInterval(iso, freq) {
   return d.toISOString().slice(0, 16);
 }
 
-function CaseNotesSection({ appointmentId, clientId }) {
+function SessionNotesSection({ appointmentId, clientId }) {
   const { timezone } = useSettings();
   const [notes, setNotes] = useState([]);
   const [draft, setDraft] = useState('');
@@ -36,25 +36,25 @@ function CaseNotesSection({ appointmentId, clientId }) {
   const [editText, setEditText] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const load = () => { if (appointmentId) api.get(`/case-notes?appointment_id=${appointmentId}`).then(r => setNotes(r.data)); };
+  const load = () => { if (appointmentId) api.get(`/session-notes?appointment_id=${appointmentId}`).then(r => setNotes(r.data)); };
   useEffect(() => { load(); }, [appointmentId]);
 
   const addNote = async () => {
     if (!draft.trim()) return;
     setSaving(true);
     try {
-      await api.post('/case-notes', { appointment_id: appointmentId, client_id: clientId, note: draft.trim() });
+      await api.post('/session-notes', { appointment_id: appointmentId, client_id: clientId, note: draft.trim() });
       setDraft(''); load();
     } finally { setSaving(false); }
   };
 
-  const saveEdit = async id => { await api.patch(`/case-notes/${id}`, { note: editText }); setEditingId(null); load(); };
-  const remove   = async id => { if (!confirm('Delete this note?')) return; await api.delete(`/case-notes/${id}`); load(); };
+  const saveEdit = async id => { await api.patch(`/session-notes/${id}`, { note: editText }); setEditingId(null); load(); };
+  const remove   = async id => { if (!confirm('Delete this note?')) return; await api.delete(`/session-notes/${id}`); load(); };
 
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
-        <FileText className="h-4 w-4 text-indigo-400" /> Case Notes
+        <FileText className="h-4 w-4 text-indigo-400" /> Session Notes
       </div>
       {notes.map(n => (
         <div key={n.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
@@ -83,7 +83,7 @@ function CaseNotesSection({ appointmentId, clientId }) {
       ))}
       <div className="space-y-1.5">
         <textarea rows={3} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          placeholder="Add a case note…" value={draft} onChange={e => setDraft(e.target.value)} />
+          placeholder="Add a session note…" value={draft} onChange={e => setDraft(e.target.value)} />
         <div className="flex justify-end">
           <Button size="sm" onClick={addNote} disabled={saving || !draft.trim()}>{saving ? 'Saving…' : 'Add note'}</Button>
         </div>
@@ -922,7 +922,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
 
         {editing && (
           <div className="border-t border-gray-100 pt-4">
-            <CaseNotesSection appointmentId={appointment.id} clientId={appointment.client_id} />
+            <SessionNotesSection appointmentId={appointment.id} clientId={appointment.client_id} />
           </div>
         )}
 
