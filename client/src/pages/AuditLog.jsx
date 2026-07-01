@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { format, parseISO } from 'date-fns';
 import api from '../lib/api';
+import { fmtDateTime } from '../lib/utils';
+import { useSettings } from '../context/SettingsContext';
 
 const TYPE_STYLE = {
   client:      'bg-blue-50 text-blue-700',
@@ -24,6 +25,7 @@ const ACTION_STYLE = {
 };
 
 export default function AuditLog() {
+  const { timezone } = useSettings();
   const [logs, setLogs] = useState([]);
   const [typeFilter, setTypeFilter] = useState('');
   const [expanded, setExpanded] = useState(null);
@@ -67,7 +69,7 @@ export default function AuditLog() {
                     {log.entity_ref && <span className="text-xs font-mono text-gray-400">{log.entity_ref}</span>}
                   </div>
                   <p className="text-sm text-gray-700 mt-0.5">{log.details}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{format(parseISO(log.created_at), 'd MMM yyyy h:mm a')}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{fmtDateTime(log.created_at, timezone)}</p>
                   {log.snapshot && (
                     <button onClick={() => setExpanded(expanded === log.id ? null : log.id)}
                       className="text-xs text-indigo-500 hover:underline mt-1">

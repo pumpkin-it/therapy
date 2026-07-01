@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { SettingsProvider } from './context/SettingsContext';
 import Sidebar from './components/layout/Sidebar';
 import Login from './pages/Login';
 import ResetPassword from './pages/ResetPassword';
@@ -69,7 +70,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AuthenticatedApp />
+        <SettingsProvider>
+          <AuthenticatedApp />
+        </SettingsProvider>
       </AuthProvider>
     </BrowserRouter>
   );

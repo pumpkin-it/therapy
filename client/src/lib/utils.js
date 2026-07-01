@@ -7,6 +7,26 @@ export const fmtDate = d =>
 export const fmtTime = d =>
   new Date(d).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
 
+// For UTC timestamps from the database (created_at, audit logs) — converts to the practice timezone
+export const fmtDateTime = (utcStr, tz = 'Australia/Sydney') => {
+  if (!utcStr) return '';
+  const d = new Date(utcStr.endsWith('Z') ? utcStr : utcStr + 'Z');
+  return new Intl.DateTimeFormat('en-AU', {
+    timeZone: tz,
+    day: 'numeric', month: 'short', year: 'numeric',
+    hour: 'numeric', minute: '2-digit', hour12: true,
+  }).format(d);
+};
+
+export const fmtDateOnly = (utcStr, tz = 'Australia/Sydney') => {
+  if (!utcStr) return '';
+  const d = new Date(utcStr.endsWith('Z') ? utcStr : utcStr + 'Z');
+  return new Intl.DateTimeFormat('en-AU', {
+    timeZone: tz,
+    day: 'numeric', month: 'short', year: 'numeric',
+  }).format(d);
+};
+
 export const cn = (...classes) => classes.filter(Boolean).join(' ');
 
 export const localToday = () => {

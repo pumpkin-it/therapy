@@ -122,6 +122,49 @@ export default function Settings() {
           {field('Phone',          'practice_phone')}
         </div>
         <AddressAutocomplete label="Address" value={form.practice_address || ''} onChange={v => set('practice_address', v)} />
+        <div className="space-y-1">
+          <label className="block text-sm font-medium text-gray-700">Timezone</label>
+          <select
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+            value={form.timezone || 'Australia/Sydney'}
+            onChange={e => set('timezone', e.target.value)}
+          >
+            <optgroup label="Australia">
+              <option value="Australia/Sydney">Australia/Sydney (AEST/AEDT)</option>
+              <option value="Australia/Melbourne">Australia/Melbourne (AEST/AEDT)</option>
+              <option value="Australia/Brisbane">Australia/Brisbane (AEST)</option>
+              <option value="Australia/Adelaide">Australia/Adelaide (ACST/ACDT)</option>
+              <option value="Australia/Darwin">Australia/Darwin (ACST)</option>
+              <option value="Australia/Perth">Australia/Perth (AWST)</option>
+              <option value="Australia/Hobart">Australia/Hobart (AEST/AEDT)</option>
+            </optgroup>
+            <optgroup label="Pacific">
+              <option value="Pacific/Auckland">Pacific/Auckland (NZST/NZDT)</option>
+              <option value="Pacific/Fiji">Pacific/Fiji</option>
+            </optgroup>
+            <optgroup label="Asia">
+              <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
+              <option value="Asia/Tokyo">Asia/Tokyo (JST)</option>
+              <option value="Asia/Shanghai">Asia/Shanghai (CST)</option>
+              <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+              <option value="Asia/Dubai">Asia/Dubai (GST)</option>
+            </optgroup>
+            <optgroup label="Europe">
+              <option value="Europe/London">Europe/London (GMT/BST)</option>
+              <option value="Europe/Paris">Europe/Paris (CET/CEST)</option>
+            </optgroup>
+            <optgroup label="Americas">
+              <option value="America/New_York">America/New_York (EST/EDT)</option>
+              <option value="America/Chicago">America/Chicago (CST/CDT)</option>
+              <option value="America/Denver">America/Denver (MST/MDT)</option>
+              <option value="America/Los_Angeles">America/Los_Angeles (PST/PDT)</option>
+            </optgroup>
+            <optgroup label="UTC">
+              <option value="UTC">UTC</option>
+            </optgroup>
+          </select>
+          <p className="text-xs text-gray-400">All audit log and activity timestamps will be displayed in this timezone.</p>
+        </div>
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">

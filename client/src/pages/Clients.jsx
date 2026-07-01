@@ -8,7 +8,8 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import SearchSelect from '../components/ui/SearchSelect';
-import { localToday } from '../lib/utils';
+import { localToday, fmtDateTime } from '../lib/utils';
+import { useSettings } from '../context/SettingsContext';
 
 const FUNDING_COLOR = { NDIS: 'blue', Medicare: 'green', Private: 'purple', 'Aged Care': 'orange', Other: 'gray' };
 
@@ -260,6 +261,7 @@ function MedicalTab({ form, set }) {
 // ─── Case notes tab ───────────────────────────────────────────────────────────
 
 function CaseNotesTab({ clientId }) {
+  const { timezone } = useSettings();
   const [notes, setNotes] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
@@ -300,7 +302,7 @@ function CaseNotesTab({ clientId }) {
                 <p className="text-xs text-gray-400 mt-1.5">
                   {n.practitioner_name && <span className="font-medium">{n.practitioner_name} · </span>}
                   {n.appointment_time && <span>{format(parseISO(n.appointment_time), 'd MMM yyyy')} · </span>}
-                  {format(parseISO(n.created_at), 'd MMM yyyy h:mm a')}
+                  {fmtDateTime(n.created_at, timezone)}
                 </p>
               </div>
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">

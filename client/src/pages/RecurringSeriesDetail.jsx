@@ -3,7 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Pause, Play, Clock, User, Calendar } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import api from '../lib/api';
-import { localToday } from '../lib/utils';
+import { localToday, fmtDateTime } from '../lib/utils';
+import { useSettings } from '../context/SettingsContext';
 import Button from '../components/ui/Button';
 
 const FREQ_LABEL = { weekly: 'Weekly', fortnightly: 'Fortnightly', every3weeks: 'Every 3 weeks', monthly: 'Monthly' };
@@ -17,6 +18,7 @@ const STATUS_STYLE = {
 };
 
 export default function RecurringSeriesDetail() {
+  const { timezone } = useSettings();
   const { id } = useParams();
   const navigate = useNavigate();
   const [series, setSeries] = useState(null);
@@ -175,7 +177,7 @@ export default function RecurringSeriesDetail() {
               }`}>{log.action}</span>
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-gray-700">{log.details}</p>
-                <p className="text-xs text-gray-400 mt-0.5">{format(parseISO(log.created_at), 'd MMM yyyy h:mm a')}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{fmtDateTime(log.created_at, timezone)}</p>
               </div>
             </div>
           ))}

@@ -9,8 +9,9 @@ import Badge from '../components/ui/Badge';
 import Input from '../components/ui/Input';
 import SearchSelect from '../components/ui/SearchSelect';
 import { EmbeddedCalendar } from '../components/CalendarViews';
-import { localToday } from '../lib/utils';
+import { localToday, fmtDateTime, fmtDateOnly } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
+import { useSettings } from '../context/SettingsContext';
 
 const FUNDING_COLOR_FALLBACK = { NDIS: 'blue', Medicare: 'green', Private: 'purple', 'Aged Care': 'orange', Other: 'gray' };
 
@@ -259,6 +260,7 @@ function FundingTab({ clientId }) {
 
 // ─── Files tab ────────────────────────────────────────────────────────────────
 function FilesTab({ clientId }) {
+  const { timezone } = useSettings();
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef();
@@ -308,7 +310,7 @@ function FilesTab({ clientId }) {
           <File className="h-4 w-4 text-gray-400 shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-800 truncate">{f.original_name}</p>
-            <p className="text-xs text-gray-400">{fmt(f.size)} · {format(parseISO(f.created_at), 'd MMM yyyy')}</p>
+            <p className="text-xs text-gray-400">{fmt(f.size)} · {fmtDateOnly(f.created_at, timezone)}</p>
           </div>
           <button onClick={() => download(f.id)} className="text-indigo-500 hover:text-indigo-700 p-1"><Download className="h-4 w-4" /></button>
           <button onClick={() => remove(f.id)} className="text-red-300 hover:text-red-500 p-1"><Trash2 className="h-4 w-4" /></button>
@@ -320,6 +322,7 @@ function FilesTab({ clientId }) {
 
 // ─── Case Notes tab ───────────────────────────────────────────────────────────
 function CaseNotesTab({ clientId }) {
+  const { timezone } = useSettings();
   const [notes, setNotes] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
@@ -346,7 +349,7 @@ function CaseNotesTab({ clientId }) {
                 <p className="text-sm text-gray-800 whitespace-pre-wrap">{n.note}</p>
                 <p className="text-xs text-gray-400 mt-1.5">
                   {n.practitioner_name && <span className="font-medium">{n.practitioner_name} · </span>}
-                  {format(parseISO(n.created_at), 'd MMM yyyy h:mm a')}
+                  {fmtDateTime(n.created_at, timezone)}
                 </p>
               </div>
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
@@ -368,6 +371,7 @@ function substituteVars(text, vars) {
 }
 
 function ReportsTab({ clientId, client, practitionerName, practiceName }) {
+  const { timezone } = useSettings();
   const [reports, setReports] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [showNew, setShowNew] = useState(false);
@@ -573,7 +577,7 @@ function ReportsTab({ clientId, client, practitionerName, practiceName }) {
             <p className="text-xs text-gray-400 mt-0.5">
               {r.practitioner_name && <span>{r.practitioner_name} · </span>}
               {r.template_name && <span className="italic">{r.template_name} · </span>}
-              {format(parseISO(r.created_at), 'd MMM yyyy')}
+              {fmtDateOnly(r.created_at, timezone)}
             </p>
           </div>
           <button onClick={() => downloadPdf(r.id)} className="text-indigo-500 hover:text-indigo-700 p-1" title="Download PDF">
