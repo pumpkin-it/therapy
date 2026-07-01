@@ -18,7 +18,7 @@ const EMAIL_VARS = {
   payment_reminder:          ['invoice_number', 'invoice_total', 'due_date'],
 };
 
-const NOTE_VARS = ['client_name', 'client_first_name', 'practitioner_name', 'date', 'practice_name'];
+const NOTE_VARS = ['client_name', 'client_first_name', 'practitioner_name', 'date', 'next_appointment', 'practice_name'];
 
 // ─── Rich text editor (Quill) ─────────────────────────────────────────────────
 function RichEditor({ defaultValue, onChange, insertRef, toolbar = 'email' }) {

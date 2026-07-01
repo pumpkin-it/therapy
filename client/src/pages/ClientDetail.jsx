@@ -332,10 +332,25 @@ function SessionNotesTab({ clientId, client }) {
   const [editText, setEditText] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const [nextAppt, setNextAppt] = useState('');
+
   const load = () => api.get(`/session-notes?client_id=${clientId}`).then(r => setNotes(r.data));
   useEffect(() => {
     load();
     api.get('/templates?type=session_note').then(r => setNoteTemplates(r.data)).catch(() => {});
+    const today = new Date().toISOString().slice(0, 10);
+    api.get(`/appointments?client_id=${clientId}&from=${today}`)
+      .then(r => {
+        const future = (r.data || []).filter(a => a.status !== 'cancelled');
+        if (future.length > 0) {
+          const d = new Date(future[0].start_time);
+          const day = d.toLocaleDateString('en-AU', { weekday: 'long' });
+          const dd = String(d.getDate()).padStart(2, '0');
+          const mm = String(d.getMonth() + 1).padStart(2, '0');
+          setNextAppt(`${day} ${dd}/${mm}`);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const applyTemplate = t => {
@@ -345,8 +360,15 @@ function SessionNotesTab({ clientId, client }) {
       client_first_name: client?.first_name || '',
       practitioner_name: user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() : '',
       date:              today,
+      next_appointment:  nextAppt,
     };
-    const rendered = t.body.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
+    // Strip HTML tags (templates now use rich text) then substitute variables
+    const plain = (t.body || '')
+      .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<\/li>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+      .replace(/\n{3,}/g, '\n\n').trim();
+    const rendered = plain.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
     setNewNote(rendered);
   };
 

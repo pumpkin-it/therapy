@@ -5,6 +5,7 @@ import Button from './ui/Button';
 import { Trash2, Plus, FileText, Pencil, RefreshCw, Mail, AlertCircle, CheckCircle, TriangleAlert } from 'lucide-react';
 import { localToday, fmtDate, fmtDateTime } from '../lib/utils';
 import { useSettings } from '../context/SettingsContext';
+import { useAuth } from '../context/AuthContext';
 
 const EMPTY_ITEM = { service_id: '', description: '', quantity: 1, unit_rate: 0, travel_time_to: '', travel_time_from: '', travel_km: '', notes_min: '' };
 
@@ -28,16 +29,72 @@ function addInterval(iso, freq) {
   return d.toISOString().slice(0, 16);
 }
 
-function SessionNotesSection({ appointmentId, clientId }) {
+// Strip HTML tags to plain text, preserving line breaks from block elements
+function htmlToPlain(html) {
+  if (!html) return '';
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+// Format a datetime string as "Monday 06/07"
+function fmtNextAppt(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  const day = d.toLocaleDateString('en-AU', { weekday: 'long' });
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${day} ${dd}/${mm}`;
+}
+
+function SessionNotesSection({ appointmentId, clientId, appointment }) {
   const { timezone } = useSettings();
+  const { user } = useAuth();
   const [notes, setNotes] = useState([]);
+  const [noteTemplates, setNoteTemplates] = useState([]);
+  const [nextAppt, setNextAppt] = useState('');
   const [draft, setDraft] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
   const [saving, setSaving] = useState(false);
 
   const load = () => { if (appointmentId) api.get(`/session-notes?appointment_id=${appointmentId}`).then(r => setNotes(r.data)); };
-  useEffect(() => { load(); }, [appointmentId]);
+
+  useEffect(() => {
+    load();
+    api.get('/templates?type=session_note').then(r => setNoteTemplates(r.data)).catch(() => {});
+    // Find next appointment for this client after today, excluding current one
+    if (clientId) {
+      const today = new Date().toISOString().slice(0, 10);
+      api.get(`/appointments?client_id=${clientId}&from=${today}`)
+        .then(r => {
+          const future = (r.data || []).filter(a => a.id !== appointmentId && a.status !== 'cancelled');
+          if (future.length > 0) setNextAppt(fmtNextAppt(future[0].start_time));
+        })
+        .catch(() => {});
+    }
+  }, [appointmentId, clientId]);
+
+  const applyTemplate = t => {
+    const today = new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' });
+    const clientName = appointment?.client_name || '';
+    const clientFirstName = clientName.split(' ')[0] || '';
+    const vars = {
+      client_name:        clientName,
+      client_first_name:  clientFirstName,
+      practitioner_name:  appointment?.practitioner_name || (user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() : ''),
+      date:               today,
+      next_appointment:   nextAppt,
+    };
+    const body = htmlToPlain(t.body);
+    const rendered = body.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
+    setDraft(rendered);
+  };
 
   const addNote = async () => {
     if (!draft.trim()) return;
@@ -82,6 +139,17 @@ function SessionNotesSection({ appointmentId, clientId }) {
         </div>
       ))}
       <div className="space-y-1.5">
+        {noteTemplates.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <span className="text-xs text-gray-500">Use template:</span>
+            {noteTemplates.map(t => (
+              <button key={t.id} onClick={() => applyTemplate(t)}
+                className="rounded-full border border-indigo-200 bg-white px-2.5 py-0.5 text-xs text-indigo-700 hover:bg-indigo-50 transition-colors">
+                {t.name}
+              </button>
+            ))}
+          </div>
+        )}
         <textarea rows={3} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           placeholder="Add a session note…" value={draft} onChange={e => setDraft(e.target.value)} />
         <div className="flex justify-end">
@@ -922,7 +990,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
 
         {editing && (
           <div className="border-t border-gray-100 pt-4">
-            <SessionNotesSection appointmentId={appointment.id} clientId={appointment.client_id} />
+            <SessionNotesSection appointmentId={appointment.id} clientId={appointment.client_id} appointment={appointment} />
           </div>
         )}
 
