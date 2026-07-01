@@ -224,8 +224,8 @@ router.get('/:id/cancel-policy', auth, (req, res) => {
 
 router.post('/:id/notify', auth, async (req, res) => {
   try {
-    const { eventType = 'updated', target = 'both' } = req.body;
-    const errors = await sendAppointmentNotification(req.params.id, eventType, { throwOnError: false, target });
+    const { eventType = 'updated', target = 'both', scope } = req.body;
+    const errors = await sendAppointmentNotification(req.params.id, eventType, { throwOnError: false, target, scope });
     const failed = Object.entries(errors).filter(([, v]) => v).map(([k, v]) => `${k === 'practitionerError' ? 'Practitioner' : 'Client'}: ${v}`);
     if (failed.length) return res.status(207).json({ ok: false, errors: failed });
     res.json({ ok: true });

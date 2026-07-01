@@ -546,11 +546,14 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     onSaved();
   };
 
+  const [lastSeriesScope, setLastSeriesScope] = useState(null);
+
   const saveSeriesThis = async () => {
     setSaving(true);
     try {
       await api.patch(`/appointments/${appointment.id}`, seriesEditPrompt);
       setSeriesEditPrompt(null);
+      setLastSeriesScope('this_only');
       onSaved();
     } finally { setSaving(false); }
   };
@@ -564,6 +567,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
         apply_from: seriesEditPrompt.start_time?.slice(0, 10),
       });
       setSeriesEditPrompt(null);
+      setLastSeriesScope('future');
       onSaved();
     } finally { setSaving(false); }
   };
@@ -590,7 +594,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     if (!apptId) return;
     setNotifyStatus(s => ({ ...s, [target]: 'sending' }));
     try {
-      await api.post(`/appointments/${apptId}/notify`, { eventType: editing ? 'updated' : 'created', target });
+      await api.post(`/appointments/${apptId}/notify`, { eventType: editing ? 'updated' : 'created', target, scope: lastSeriesScope });
       setNotifyStatus(s => ({ ...s, [target]: 'sent' }));
     } catch (e) {
       const msg = e.response?.data?.errors?.[0] || e.response?.data?.error || 'Failed';

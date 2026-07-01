@@ -122,7 +122,7 @@ function fmtDateOnly(iso) {
 }
 
 // Returns { practitionerError, clientError } — null = success, string = error msg
-async function sendAppointmentNotification(apptId, eventType, { throwOnError = false, target = 'both' } = {}) {
+async function sendAppointmentNotification(apptId, eventType, { throwOnError = false, target = 'both', scope = null } = {}) {
   const appt = db.prepare(`
     SELECT a.*,
       c.first_name || ' ' || c.last_name AS client_name,
@@ -150,9 +150,18 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
   const location = appt.location_name || appt.location_other || appt.location || '';
   const apptDate = fmt(appt.start_time);
 
-  const dateTimeLabel = appt.series_freq
-    ? `${FREQ_LABEL[appt.series_freq] || appt.series_freq} at ${fmtTimeOnly(appt.start_time)} – ${fmtTimeOnly(appt.end_time)} from ${fmtDateOnly(appt.series_start)}`
-    : apptDate;
+  // For series updates scoped to 'this_only', show just the single datetime.
+  // For 'future' updates, show the series pattern with "from" = this appointment (not original series start).
+  // For created/cancelled or no scope, use original series start date.
+  let dateTimeLabel;
+  if (appt.series_freq && scope !== 'this_only') {
+    const fromDate = scope === 'future' ? appt.start_time : appt.series_start;
+    dateTimeLabel = `${FREQ_LABEL[appt.series_freq] || appt.series_freq} at ${fmtTimeOnly(appt.start_time)} – ${fmtTimeOnly(appt.end_time)} from ${fmtDateOnly(fromDate)}`;
+  } else {
+    dateTimeLabel = apptDate;
+  }
+
+  const changesFrom = scope === 'future' ? fmtDateOnly(appt.start_time) : null;
 
   const baseVars = {
     client_name:       appt.client_name,
@@ -166,9 +175,9 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
 
   const pracTable = eventType === 'cancelled'
     ? apptTable([['Client', appt.client_name], ['Date & time', dateTimeLabel], ['Location', location], ['Notes', appt.notes]])
-    : apptTable([['Client', appt.client_name], ['Date & time', dateTimeLabel], ['Location', location], ['Status', appt.status], ['Notes', appt.notes]]);
+    : apptTable([['Client', appt.client_name], ['Date & time', dateTimeLabel], ['Changes starting from', changesFrom], ['Location', location], ['Status', appt.status], ['Notes', appt.notes]]);
 
-  const clientTable = apptTable([['Date & time', dateTimeLabel], ['Practitioner', appt.practitioner_name], ['Location', location], ['Notes', appt.notes]]);
+  const clientTable = apptTable([['Date & time', dateTimeLabel], ['Changes starting from', changesFrom], ['Practitioner', appt.practitioner_name], ['Location', location], ['Notes', appt.notes]]);
 
   const buildHtml = (code, fallbackHtml, table) => {
     const tpl = getTemplate(code);
