@@ -198,7 +198,7 @@ router.get('/export-myob', auth, (req, res) => {
         csvEscape(inv.client_name),
         item.gst_type || 'GST',
         cardId,
-        csvEscape(inv.client_name),
+        csvEscape(inv.client_identifier || ''),
         csvEscape(`${inv.practitioner_name || ''} - ${inv.provider_number || ''}`)
       ].join(','));
     }
@@ -269,7 +269,7 @@ router.get('/export-myob-appointments', auth, (req, res) => {
         csvEscape(appt.client_name),
         gstType,
         cardId,
-        csvEscape(appt.client_name),
+        csvEscape(appt.client_identifier || ''),
         csvEscape(`${appt.practitioner_name || ''} - ${appt.provider_number || ''}`)
       ].join(','));
     };
