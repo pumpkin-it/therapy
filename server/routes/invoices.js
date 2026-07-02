@@ -281,7 +281,8 @@ router.get('/export-myob-appointments', auth, (req, res) => {
         addRow(item.cancel_code || '', `Cancellation fee (${appt.late_cancel_pct}% — ${item.service_name || item.description})`, item.quantity, cancelRate, gstType);
       } else {
         addRow(item.service_code || '', item.service_name || item.description, item.quantity, item.unit_rate, gstType);
-        if (item.travel_time_min) addRow(item.travel_code || '', `Travel time (${item.travel_time_min} min)`, item.travel_time_min / 60, item.travel_rate_per_hour || item.unit_rate, gstType);
+        const travelMin = (item.travel_time_to || 0) + (item.travel_time_from || 0);
+        if (travelMin) addRow(item.travel_code || '', `Travel time (${travelMin} min)`, travelMin / 60, item.travel_rate_per_hour || item.unit_rate, gstType);
         if (item.travel_km && item.km_rate) addRow(item.km_code || '', `Travel distance (${item.travel_km} km)`, item.travel_km, item.km_rate, gstType);
         if (item.notes_min) addRow(item.notes_code || '', `Clinical notes (${item.notes_min} min)`, item.notes_min / 60, item.notes_rate || item.unit_rate, gstType);
       }
@@ -357,7 +358,8 @@ router.post('/generate', auth, (req, res) => {
         addLine(item.cancel_code || '', `Cancellation fee (${appt.late_cancel_pct}% — ${item.service_name || item.description})`, item.quantity, cancelRate, 'cancellation');
       } else {
         addLine(item.service_code || '', item.service_name || item.description, item.quantity, item.unit_rate, 'service');
-        if (item.travel_time_min) addLine(item.travel_code || '', `Travel time (${item.travel_time_min} min)`, item.travel_time_min / 60, item.travel_rate_per_hour || item.unit_rate, 'travel');
+        const travelMin = (item.travel_time_to || 0) + (item.travel_time_from || 0);
+        if (travelMin) addLine(item.travel_code || '', `Travel time (${travelMin} min)`, travelMin / 60, item.travel_rate_per_hour || item.unit_rate, 'travel');
         if (item.travel_km && item.km_rate) addLine(item.km_code || '', `Travel distance (${item.travel_km} km)`, item.travel_km, item.km_rate, 'km');
         if (item.notes_min) addLine(item.notes_code || '', `Clinical notes (${item.notes_min} min)`, item.notes_min / 60, item.notes_rate || item.unit_rate, 'notes');
       }

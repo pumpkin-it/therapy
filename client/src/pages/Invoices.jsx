@@ -102,7 +102,8 @@ function ToSendTab() {
                   const total = (a.items || []).reduce((s, i) => {
                     if (isBillableCancellation) return s + i.unit_rate * (a.late_cancel_pct / 100);
                     let t = i.quantity * i.unit_rate;
-                    if (i.travel_time_min) t += (i.travel_time_min / 60) * (i.travel_rate_per_hour || i.unit_rate);
+                    const travelMin = (i.travel_time_to || 0) + (i.travel_time_from || 0);
+                    if (travelMin) t += (travelMin / 60) * (i.travel_rate_per_hour || i.unit_rate);
                     if (i.travel_km && i.km_rate) t += i.travel_km * i.km_rate;
                     if (i.notes_min) t += (i.notes_min / 60) * (i.notes_rate || i.unit_rate);
                     return s + t;
