@@ -2,9 +2,11 @@ const router = require('express').Router();
 const db = require('../database');
 const bcrypt = require('bcryptjs');
 const auth = require('../middleware/auth');
+const perm = require('../middleware/requirePermission');
+const { permAny } = perm;
 const audit = require('../services/audit');
 
-router.get('/', auth, (req, res) => {
+router.get('/', auth, permAny('users', 'invoices'), (req, res) => {
   const { active, role } = req.query;
   const activeFilter = active === 'all' ? null : active === '0' ? 0 : 1;
   const conditions = [];
@@ -16,7 +18,7 @@ router.get('/', auth, (req, res) => {
   res.json(rows);
 });
 
-router.get('/check-duplicates', auth, (req, res) => {
+router.get('/check-duplicates', auth, perm('users'), (req, res) => {
   const { first_name, last_name, exclude_id } = req.query;
   if (!first_name && !last_name) return res.json([]);
   const conditions = ['LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?)'];
@@ -26,13 +28,13 @@ router.get('/check-duplicates', auth, (req, res) => {
   res.json(matches);
 });
 
-router.get('/:id', auth, (req, res) => {
+router.get('/:id', auth, perm('users'), (req, res) => {
   const row = db.prepare('SELECT * FROM practitioners WHERE id = ?').get(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   res.json(row);
 });
 
-router.post('/', auth, (req, res) => {
+router.post('/', auth, perm('users'), (req, res) => {
   const { first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password } = req.body;
   if (email) {
     const existing = db.prepare('SELECT id FROM practitioners WHERE LOWER(email) = LOWER(?) LIMIT 1').get(email);
@@ -46,7 +48,7 @@ router.post('/', auth, (req, res) => {
   res.status(201).json(db.prepare('SELECT * FROM practitioners WHERE id = ?').get(result.lastInsertRowid));
 });
 
-router.patch('/:id', auth, (req, res) => {
+router.patch('/:id', auth, perm('users'), (req, res) => {
   const { first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password } = req.body;
   if (email) {
     const existing = db.prepare('SELECT id FROM practitioners WHERE LOWER(email) = LOWER(?) AND id != ? LIMIT 1').get(email, req.params.id);
@@ -64,20 +66,20 @@ router.patch('/:id', auth, (req, res) => {
   res.json(db.prepare('SELECT * FROM practitioners WHERE id = ?').get(req.params.id));
 });
 
-router.patch('/:id/active', auth, (req, res) => {
+router.patch('/:id/active', auth, perm('users'), (req, res) => {
   db.prepare('UPDATE practitioners SET active=? WHERE id=?').run(req.body.active ? 1 : 0, req.params.id);
   audit.log('user', Number(req.params.id), req.body.active ? 'reactivated' : 'deactivated', `User ${req.body.active ? 'reactivated' : 'deactivated'}`);
   res.json({ ok: true });
 });
 
-router.post('/:id/reset-cal-token', auth, (req, res) => {
+router.post('/:id/reset-cal-token', auth, perm('users'), (req, res) => {
   const crypto = require('crypto');
   const token = crypto.randomBytes(20).toString('hex');
   db.prepare('UPDATE practitioners SET cal_token = ? WHERE id = ?').run(token, req.params.id);
   res.json({ cal_token: token });
 });
 
-router.delete('/:id', auth, (req, res) => {
+router.delete('/:id', auth, perm('users'), (req, res) => {
   db.prepare('UPDATE practitioners SET active = 0 WHERE id = ?').run(req.params.id);
   audit.log('user', Number(req.params.id), 'deactivated', 'User deactivated');
   res.status(204).send();

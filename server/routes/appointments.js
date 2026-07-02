@@ -1,6 +1,8 @@
 const router = require('express').Router();
 const db = require('../database');
 const auth = require('../middleware/auth');
+const perm = require('../middleware/requirePermission');
+const { permAny } = perm;
 const { sendAppointmentNotification } = require('../services/mailer');
 const audit = require('../services/audit');
 const { notifyAppointmentChange } = require('../services/push');
@@ -39,7 +41,7 @@ const withItems = appt => {
   return appt;
 };
 
-router.get('/', auth, (req, res) => {
+router.get('/', auth, perm('calendar'), (req, res) => {
   const { date, from, to, client_id, practitioner_id, series_id } = req.query;
 
   let where = '1=1';
@@ -77,7 +79,7 @@ router.get('/', auth, (req, res) => {
 });
 
 // Check for scheduling conflicts
-router.get('/check-conflicts', auth, (req, res) => {
+router.get('/check-conflicts', auth, perm('calendar'), (req, res) => {
   const { practitioner_id, client_id, start_time, end_time, exclude_id } = req.query;
   if (!start_time || !end_time) return res.json({ conflicts: [] });
   const conflicts = [];
@@ -104,7 +106,7 @@ router.get('/check-conflicts', auth, (req, res) => {
   res.json({ conflicts });
 });
 
-router.get('/:id', auth, (req, res) => {
+router.get('/:id', auth, permAny('calendar', 'invoices'), (req, res) => {
   const appt = db.prepare(`${APPT_SELECT} WHERE a.id = ?`).get(req.params.id);
   if (!appt) return res.status(404).json({ error: 'Not found' });
   res.json(withItems(appt));
@@ -125,7 +127,7 @@ function addInterval(date, freq) {
   return d.toISOString().slice(0, 16);
 }
 
-router.post('/', auth, (req, res) => {
+router.post('/', auth, perm('calendar'), (req, res) => {
   const { practitioner_id, client_id, location_type, location_id, location_other, title, start_time, end_time, notes, status, items = [], recurrence, funding_period_id } = req.body;
   const { locationText, resolvedLocationId, locationOther } = resolveLocation(location_type, location_id, location_other);
 
@@ -156,7 +158,7 @@ router.post('/', auth, (req, res) => {
   res.status(201).json(withItems(db.prepare(`${APPT_SELECT} WHERE a.id=?`).get(apptId)));
 });
 
-router.patch('/:id', auth, (req, res) => {
+router.patch('/:id', auth, perm('calendar'), (req, res) => {
   const { practitioner_id, client_id, location_type, location_id, location_other, title, start_time, end_time, notes, status, items, late_cancel_pct, late_cancel_billable, funding_period_id } = req.body;
   const { locationText, resolvedLocationId, locationOther } = resolveLocation(location_type, location_id, location_other);
   const before = db.prepare('SELECT * FROM appointments WHERE id=?').get(req.params.id);
@@ -194,7 +196,7 @@ router.patch('/:id', auth, (req, res) => {
   res.json(updated);
 });
 
-router.patch('/:id/status', auth, (req, res) => {
+router.patch('/:id/status', auth, perm('calendar'), (req, res) => {
   const { status, late_cancel_pct, late_cancel_billable } = req.body;
   const before = db.prepare('SELECT status FROM appointments WHERE id=?').get(req.params.id);
   db.prepare('UPDATE appointments SET status=?, late_cancel_pct=?, late_cancel_billable=? WHERE id=?')
@@ -205,7 +207,7 @@ router.patch('/:id/status', auth, (req, res) => {
 });
 
 // Returns the applicable cancellation policy tier for a given appointment
-router.get('/:id/cancel-policy', auth, (req, res) => {
+router.get('/:id/cancel-policy', auth, perm('calendar'), (req, res) => {
   const appt = db.prepare('SELECT start_time FROM appointments WHERE id=?').get(req.params.id);
   if (!appt) return res.status(404).json({ error: 'Not found' });
 
@@ -225,7 +227,7 @@ router.get('/:id/cancel-policy', auth, (req, res) => {
   res.json({ daysUntil: Math.round(daysUntil * 10) / 10, tier: applicable });
 });
 
-router.post('/:id/notify', auth, async (req, res) => {
+router.post('/:id/notify', auth, perm('calendar'), async (req, res) => {
   try {
     const { eventType = 'updated', target = 'both', scope } = req.body;
     const errors = await sendAppointmentNotification(req.params.id, eventType, { throwOnError: false, target, scope });

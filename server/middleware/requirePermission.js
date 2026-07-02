@@ -10,7 +10,7 @@ function getPermissions() {
   return cachedPermissions;
 }
 
-module.exports = function requirePermission(permission) {
+function requirePermission(permission) {
   return (req, res, next) => {
     const role = req.user?.role;
     if (!role) return res.status(403).json({ error: 'Forbidden' });
@@ -20,4 +20,19 @@ module.exports = function requirePermission(permission) {
     }
     next();
   };
-};
+}
+
+function requireAnyPermission(...permissions) {
+  return (req, res, next) => {
+    const role = req.user?.role;
+    if (!role) return res.status(403).json({ error: 'Forbidden' });
+    const perms = getPermissions()[role];
+    if (!perms || !permissions.some(p => perms[p])) {
+      return res.status(403).json({ error: 'You do not have permission to access this resource' });
+    }
+    next();
+  };
+}
+
+module.exports = requirePermission;
+module.exports.permAny = requireAnyPermission;

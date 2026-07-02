@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Download, Send, CheckCircle, XCircle, FileText, FileSpreadsheet } from 'lucide-react';
+import { Download, Send, CheckCircle, XCircle, FileText, FileSpreadsheet, Calendar as CalendarIcon } from 'lucide-react';
 import { format, startOfWeek, endOfWeek, subWeeks, addWeeks } from 'date-fns';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
+import AppointmentModal from '../components/AppointmentModal';
 import { useSettings } from '../context/SettingsContext';
 import { currency, fmtDate, localToday, downloadFile } from '../lib/utils';
 
@@ -24,6 +25,12 @@ function ToSendTab({ mode }) {
   const [myobDate, setMyobDate] = useState(localToday());
   const [pendingCount, setPendingCount] = useState(0);
   const [viewAll, setViewAll] = useState(false);
+  const [apptModal, setApptModal] = useState(null);
+
+  const openAppt = async id => {
+    const { data } = await api.get(`/appointments/${id}`);
+    setApptModal(data);
+  };
 
   const weekStart = startOfWeek(addWeeks(new Date(), weekOffset), { weekStartsOn: 1 });
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
@@ -153,7 +160,12 @@ function ToSendTab({ mode }) {
                         <input type="checkbox" className="accent-indigo-600"
                           checked={selected.includes(a.id)} onChange={() => toggle(a.id)} />
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-700">{fmtDate(a.start_time)}</td>
+                      <td className="px-4 py-3 text-sm">
+                        <button onClick={() => openAppt(a.id)} title="View appointment"
+                          className="text-gray-700 hover:text-indigo-600 hover:underline">
+                          {fmtDate(a.start_time)}
+                        </button>
+                      </td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">
                         <div className="flex items-center gap-2">
                           {a.client_name}
@@ -212,6 +224,14 @@ function ToSendTab({ mode }) {
           </div>
         </>
       )}
+
+      {apptModal && (
+        <AppointmentModal
+          appointment={apptModal}
+          onClose={() => setApptModal(null)}
+          onSaved={() => { setApptModal(null); load(); }}
+        />
+      )}
     </div>
   );
 }
@@ -224,10 +244,16 @@ function InvoiceListTab({ status, emptyMsg }) {
   const [exportOnly, setExportOnly] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [myobDate, setMyobDate] = useState(localToday());
+  const [apptModal, setApptModal] = useState(null);
   const canExport = status === 'draft,sent';
 
   const load = () => api.get(`/invoices?status=${status}`).then(r => { setInvoices(r.data); setSelected([]); });
   useEffect(() => { load(); }, [status]);
+
+  const openAppt = async id => {
+    const { data } = await api.get(`/appointments/${id}`);
+    setApptModal(data);
+  };
 
   const send = async id => {
     setSending(id);
@@ -328,6 +354,11 @@ function InvoiceListTab({ status, emptyMsg }) {
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1 justify-end">
+                      {inv.appointment_id && (
+                        <Button variant="ghost" size="sm" title="View appointment" onClick={() => openAppt(inv.appointment_id)}>
+                          <CalendarIcon className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                       <Button variant="ghost" size="sm" title="Download PDF"
                         onClick={() => downloadFile(api, `/invoices/${inv.id}/pdf`, `${inv.invoice_number}.pdf`)}>
                         <Download className="h-3.5 w-3.5" />
@@ -367,6 +398,14 @@ function InvoiceListTab({ status, emptyMsg }) {
             <FileSpreadsheet className="h-4 w-4" /> {exporting ? 'Exporting…' : 'Export MYOB CSV'}
           </Button>
         </div>
+      )}
+
+      {apptModal && (
+        <AppointmentModal
+          appointment={apptModal}
+          onClose={() => setApptModal(null)}
+          onSaved={() => { setApptModal(null); load(); }}
+        />
       )}
     </div>
   );

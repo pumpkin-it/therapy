@@ -30,13 +30,13 @@ app.use('/api', (req, res, next) => {
 });
 
 app.use('/api/settings',        perm('settings'), require('./routes/settings'));
-app.use('/api/practitioners',   perm('users'), require('./routes/practitioners'));
+app.use('/api/practitioners',   require('./routes/practitioners')); // perm applied per-route inside
 app.use('/api/clients',         perm('clients'), require('./routes/clients'));
 app.use('/api/services',        perm('services'), require('./routes/services'));
-app.use('/api/appointments',    perm('calendar'), require('./routes/appointments'));
+app.use('/api/appointments',    require('./routes/appointments')); // perm applied per-route inside
 app.use('/api/invoices',        perm('invoices'), require('./routes/invoices'));
 app.use('/api/funds-managers',  perm('funds_managers'), require('./routes/fundsManagers'));
-app.use('/api/locations',       perm('locations'), require('./routes/locations'));
+app.use('/api/locations',       require('./routes/locations')); // perm applied per-route inside
 app.use('/api/session-notes',   perm('clients'), require('./routes/sessionNotes'));
 app.use('/api/funding-periods', perm('clients'), require('./routes/fundingPeriods'));
 app.use('/api/client-files',    perm('clients'), require('./routes/clientFiles'));
