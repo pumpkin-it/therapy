@@ -33,11 +33,14 @@ const insertItems = (apptId, items) => {
 };
 
 const withItems = appt => {
+  const apptDate = appt.start_time ? appt.start_time.slice(0, 10) : new Date().toISOString().slice(0, 10);
   appt.items = db.prepare(`
-    SELECT ai.*, s.name AS service_name, s.code AS service_code
+    SELECT ai.*, s.name AS service_name, srp.code AS service_code
     FROM appointment_items ai
-    LEFT JOIN services s ON s.id = ai.service_id WHERE ai.appointment_id = ?
-  `).all(appt.id);
+    LEFT JOIN services s ON s.id = ai.service_id
+    LEFT JOIN service_rate_periods srp ON srp.service_id = ai.service_id AND ? BETWEEN srp.start_date AND srp.end_date
+    WHERE ai.appointment_id = ?
+  `).all(apptDate, appt.id);
   return appt;
 };
 
@@ -63,9 +66,11 @@ router.get('/', auth, perm('calendar'), (req, res) => {
   const ids = appointments.map(a => a.id);
   const items = ids.length
     ? db.prepare(`
-        SELECT ai.*, s.name AS service_name, s.code AS service_code
+        SELECT ai.*, s.name AS service_name, srp.code AS service_code
         FROM appointment_items ai
         LEFT JOIN services s ON s.id = ai.service_id
+        LEFT JOIN appointments ap ON ap.id = ai.appointment_id
+        LEFT JOIN service_rate_periods srp ON srp.service_id = ai.service_id AND DATE(ap.start_time) BETWEEN srp.start_date AND srp.end_date
         WHERE ai.appointment_id IN (${ids.map(() => '?').join(',')})
       `).all(...ids)
     : [];

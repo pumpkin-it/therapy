@@ -11,6 +11,7 @@ import Practitioners from './pages/Practitioners';
 import FundsManagers from './pages/FundsManagers';
 import Locations from './pages/Locations';
 import Services from './pages/Services';
+import ServiceDetail from './pages/ServiceDetail';
 import Invoices from './pages/Invoices';
 import Settings from './pages/Settings';
 import AuditLog from './pages/AuditLog';
@@ -53,6 +54,7 @@ function AuthenticatedApp() {
           {p.funds_managers && <Route path="/funds-managers" element={<FundsManagers />} />}
           {p.locations && <Route path="/locations" element={<Locations />} />}
           {p.services && <Route path="/services" element={<Services />} />}
+          {p.services && <Route path="/services/:id" element={<ServiceDetail />} />}
           {p.calendar && <Route path="/recurring-series" element={<RecurringSeries />} />}
           {p.calendar && <Route path="/recurring-series/:id" element={<RecurringSeriesDetail />} />}
           {p.invoices && <Route path="/invoices" element={<Invoices />} />}

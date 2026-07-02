@@ -273,6 +273,10 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
   const [conflicts, setConflicts] = useState([]);
   const [fundingPeriods, setFundingPeriods] = useState([]);
   const [fundingPeriodId, setFundingPeriodId] = useState(editing ? (appointment.funding_period_id || '') : '');
+  // Item indices whose unit_rate was auto-filled from a service selection this session —
+  // only these get refreshed when the date changes, so manual rate overrides and rates
+  // already frozen on a loaded (existing) appointment are never silently clobbered.
+  const autoRateIdxRef = useRef(new Set());
 
   const initStartTime = defaultTime || '09:00';
   const initEndTime = (() => {
@@ -405,23 +409,82 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     return () => clearTimeout(t);
   }, [form.practitioner_id, form.client_id, startDate, startTime, endDate, endTime]);
 
-  const setItem = (idx, k, v) => setForm(f => {
-    const items = [...f.items];
-    items[idx] = { ...items[idx], [k]: v };
-    if (k === 'service_id' && v) {
-      const svc = services.find(s => s.id === Number(v));
-      if (svc) {
-        items[idx].description = svc.name;
-        items[idx].unit_rate = svc.default_rate;
-        items[idx].quantity = sessionHours;
+  // Rates are periodized by date on the service, so the correct unit_rate (and
+  // travel/km/notes rates used for the session-total estimate below) must be fetched
+  // for the appointment's own date rather than read off a flat services list value
+  // (see ServiceDetail.jsx rate periods).
+  const [rateCache, setRateCache] = useState({});
+  const pendingRateFetchRef = useRef(new Set());
+
+  const fetchRateForDate = (serviceId, date) => {
+    const key = `${serviceId}|${date}`;
+    if (rateCache[key] || pendingRateFetchRef.current.has(key)) return;
+    pendingRateFetchRef.current.add(key);
+    api.get(`/services/${serviceId}/rate-for-date`, { params: { date } })
+      .then(r => setRateCache(c => ({ ...c, [key]: r.data })))
+      .catch(() => {})
+      .finally(() => pendingRateFetchRef.current.delete(key));
+  };
+
+  const applyRateToItem = async (idx, serviceId, date) => {
+    if (!autoRateIdxRef.current.has(idx)) return;
+    fetchRateForDate(serviceId, date);
+    const key = `${serviceId}|${date}`;
+    const rate = rateCache[key];
+    if (!rate) return; // will re-apply via the rateCache effect below once the fetch resolves
+    setForm(f => {
+      const items = [...f.items];
+      if (!items[idx] || Number(items[idx].service_id) !== Number(serviceId)) return f;
+      items[idx] = { ...items[idx], unit_rate: rate.rate };
+      return { ...f, items };
+    });
+  };
+
+  // Once a pending rate-for-date fetch resolves, backfill unit_rate for any auto-filled item waiting on it
+  useEffect(() => {
+    form.items.forEach((item, idx) => {
+      if (item.service_id && autoRateIdxRef.current.has(idx)) applyRateToItem(idx, item.service_id, startDate || localToday());
+    });
+  }, [rateCache]);
+
+  // Keep the display rate cache warm for every selected item's travel/km/notes rates (used by calcItemTotal)
+  useEffect(() => {
+    const date = startDate || localToday();
+    form.items.forEach(item => { if (item.service_id) fetchRateForDate(item.service_id, date); });
+  }, [form.items.map(i => i.service_id).join(','), startDate]);
+
+  const setItem = (idx, k, v) => {
+    if (k === 'unit_rate') autoRateIdxRef.current.delete(idx);
+    setForm(f => {
+      const items = [...f.items];
+      items[idx] = { ...items[idx], [k]: v };
+      if (k === 'service_id' && v) {
+        const svc = services.find(s => s.id === Number(v));
+        if (svc) {
+          items[idx].description = svc.name;
+          items[idx].quantity = sessionHours;
+        }
       }
+      if (k === 'service_id' && !v) {
+        items[idx].quantity = 1;
+        items[idx].unit_rate = 0;
+        autoRateIdxRef.current.delete(idx);
+      }
+      return { ...f, items };
+    });
+    if (k === 'service_id' && v) {
+      autoRateIdxRef.current.add(idx);
+      applyRateToItem(idx, v, startDate || localToday());
     }
-    if (k === 'service_id' && !v) {
-      items[idx].quantity = 1;
-      items[idx].unit_rate = 0;
-    }
-    return { ...f, items };
-  });
+  };
+
+  // Re-pull rates for services selected this session when the appointment date changes
+  // (auto-filled items only — see autoRateIdxRef)
+  useEffect(() => {
+    form.items.forEach((item, idx) => {
+      if (item.service_id && autoRateIdxRef.current.has(idx)) applyRateToItem(idx, item.service_id, startDate || localToday());
+    });
+  }, [startDate]);
 
   const save = async () => {
     const errors = [];
@@ -611,12 +674,12 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
 
   const calcItemTotal = (item) => {
     const base = Number(item.quantity || 0) * Number(item.unit_rate || 0);
-    const svc = item.service_id ? services.find(s => s.id === Number(item.service_id)) : null;
+    const rate = item.service_id ? rateCache[`${item.service_id}|${startDate || localToday()}`] : null;
     const travelTimeHrs = (Number(item.travel_time_to || 0) + Number(item.travel_time_from || 0)) / 60;
-    const travelTimeCost = travelTimeHrs * Number(svc?.travel_rate_per_hour || item.unit_rate || 0);
-    const kmCost = Number(item.travel_km || 0) * Number(svc?.km_rate || 0);
+    const travelTimeCost = travelTimeHrs * Number(rate?.travel_rate_per_hour || item.unit_rate || 0);
+    const kmCost = Number(item.travel_km || 0) * Number(rate?.km_rate || 0);
     const notesHrs = Number(item.notes_min || 0) / 60;
-    const notesCost = notesHrs * Number(svc?.notes_rate || item.unit_rate || 0);
+    const notesCost = notesHrs * Number(rate?.notes_rate || item.unit_rate || 0);
     return base + travelTimeCost + kmCost + notesCost;
   };
 

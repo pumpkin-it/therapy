@@ -539,4 +539,51 @@ try { db.exec(`ALTER TABLE services ADD COLUMN cancel_code TEXT`); } catch {}
 try { db.exec(`CREATE UNIQUE INDEX idx_practitioners_email ON practitioners(email) WHERE email IS NOT NULL AND email != ''`); } catch {}
 try { db.exec(`CREATE UNIQUE INDEX idx_clients_ndis ON clients(ndis_number) WHERE ndis_number IS NOT NULL AND ndis_number != ''`); } catch {}
 
+// Service rate periods — date-based rate sets per service (rates/codes change over time,
+// appointments pull the rate effective on their own date rather than "today's" flat value)
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS service_rate_periods (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL DEFAULT '9999-09-09',
+    code TEXT,
+    rate REAL NOT NULL DEFAULT 0,
+    travel_code TEXT,
+    travel_rate_per_hour REAL,
+    km_code TEXT,
+    km_rate REAL,
+    notes_code TEXT,
+    notes_rate REAL,
+    cancel_code TEXT,
+    gst_type TEXT DEFAULT 'GST',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec(`CREATE INDEX idx_service_rate_periods_service ON service_rate_periods(service_id)`); } catch {}
+
+// Backfill: one open-ended period per service from the old flat rate/code columns, then drop them.
+// Guarded on service_rate_periods being empty so this only ever runs once (before columns are dropped).
+try {
+  const alreadyBackfilled = db.prepare('SELECT COUNT(*) AS c FROM service_rate_periods').get().c > 0;
+  const hasOldColumns = db.prepare("SELECT COUNT(*) AS c FROM pragma_table_info('services') WHERE name = 'default_rate'").get().c > 0;
+  if (!alreadyBackfilled && hasOldColumns) {
+    const services = db.prepare('SELECT * FROM services').all();
+    const insertPeriod = db.prepare(`
+      INSERT INTO service_rate_periods
+        (service_id, name, start_date, end_date, code, rate, travel_code, travel_rate_per_hour, km_code, km_rate, notes_code, notes_rate, cancel_code, gst_type)
+      VALUES (?, 'Initial Rates', '2000-01-01', '9999-09-09', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const s of services) {
+      insertPeriod.run(s.id, s.code || null, s.default_rate || 0, s.travel_code || null, s.travel_rate_per_hour || null,
+        s.km_code || null, s.km_rate || null, s.notes_code || null, s.notes_rate || null, s.cancel_code || null, s.gst_type || 'GST');
+    }
+  }
+} catch {}
+
+for (const col of ['code', 'default_rate', 'travel_code', 'travel_rate_per_hour', 'km_code', 'km_rate', 'notes_code', 'notes_rate', 'cancel_code', 'gst_type', 'gst_rate', 'cancel_rate_item_id']) {
+  try { db.exec(`ALTER TABLE services DROP COLUMN ${col}`); } catch {}
+}
+
 module.exports = db;

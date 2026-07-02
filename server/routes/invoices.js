@@ -107,10 +107,13 @@ router.get('/to-send', auth, (req, res) => {
   const ids = rows.map(r => r.id);
   const items = ids.length
     ? db.prepare(`
-        SELECT ai.*, s.name AS service_name, s.code AS service_code,
-          s.travel_rate_per_hour, s.km_rate, s.notes_rate,
-          s.cancel_code
-        FROM appointment_items ai LEFT JOIN services s ON s.id = ai.service_id
+        SELECT ai.*, s.name AS service_name, srp.code AS service_code,
+          srp.travel_rate_per_hour, srp.km_rate, srp.notes_rate,
+          srp.cancel_code
+        FROM appointment_items ai
+        LEFT JOIN services s ON s.id = ai.service_id
+        LEFT JOIN appointments ap ON ap.id = ai.appointment_id
+        LEFT JOIN service_rate_periods srp ON srp.service_id = ai.service_id AND DATE(ap.start_time) BETWEEN srp.start_date AND srp.end_date
         WHERE ai.appointment_id IN (${ids.map(() => '?').join(',')})
       `).all(...ids)
     : [];
@@ -266,14 +269,17 @@ router.get('/export-myob-appointments', auth, (req, res) => {
     `).get(apptId);
     if (!appt) continue;
 
+    const apptDate = appt.start_time ? appt.start_time.slice(0, 10) : new Date().toISOString().slice(0, 10);
     const items = db.prepare(`
-      SELECT ai.*, s.name AS service_name, s.code AS service_code,
-        s.travel_rate_per_hour, s.km_rate, s.notes_rate,
-        s.travel_code, s.km_code, s.notes_code, s.cancel_code,
-        COALESCE(s.gst_type, 'GST') AS gst_type
-      FROM appointment_items ai LEFT JOIN services s ON s.id = ai.service_id
+      SELECT ai.*, s.name AS service_name, srp.code AS service_code,
+        srp.travel_rate_per_hour, srp.km_rate, srp.notes_rate,
+        srp.travel_code, srp.km_code, srp.notes_code, srp.cancel_code,
+        COALESCE(srp.gst_type, 'GST') AS gst_type
+      FROM appointment_items ai
+      LEFT JOIN services s ON s.id = ai.service_id
+      LEFT JOIN service_rate_periods srp ON srp.service_id = ai.service_id AND ? BETWEEN srp.start_date AND srp.end_date
       WHERE ai.appointment_id = ?
-    `).all(apptId);
+    `).all(apptDate, apptId);
     if (!items.length) continue;
 
     exportedAppts.push(appt);
@@ -370,18 +376,20 @@ router.post('/generate', auth, (req, res) => {
 
     if (!appt) continue;
 
+    const apptDate = appt.start_time ? appt.start_time.slice(0, 10) : new Date().toISOString().slice(0, 10);
     const items = db.prepare(`
-      SELECT ai.*, s.name AS service_name, s.code AS service_code,
-        s.travel_rate_per_hour, s.km_rate, s.notes_rate,
-        s.travel_code, s.km_code, s.notes_code, s.cancel_code,
-        COALESCE(s.gst_type, 'GST') AS gst_type
-      FROM appointment_items ai LEFT JOIN services s ON s.id = ai.service_id
+      SELECT ai.*, s.name AS service_name, srp.code AS service_code,
+        srp.travel_rate_per_hour, srp.km_rate, srp.notes_rate,
+        srp.travel_code, srp.km_code, srp.notes_code, srp.cancel_code,
+        COALESCE(srp.gst_type, 'GST') AS gst_type
+      FROM appointment_items ai
+      LEFT JOIN services s ON s.id = ai.service_id
+      LEFT JOIN service_rate_periods srp ON srp.service_id = ai.service_id AND ? BETWEEN srp.start_date AND srp.end_date
       WHERE ai.appointment_id = ?
-    `).all(apptId);
+    `).all(apptDate, apptId);
 
     if (!items.length) continue;
 
-    const apptDate = appt.start_time ? appt.start_time.slice(0, 10) : new Date().toISOString().slice(0, 10);
     const gstRateRow = db.prepare('SELECT rate FROM gst_rates WHERE effective_from <= ? ORDER BY effective_from DESC LIMIT 1').get(apptDate);
     const globalGstRate = gstRateRow ? gstRateRow.rate : 0.1;
 
