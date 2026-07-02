@@ -4,7 +4,7 @@ import { format, startOfWeek, endOfWeek, subWeeks, addWeeks } from 'date-fns';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
-import { currency, fmtDate, localToday } from '../lib/utils';
+import { currency, fmtDate, localToday, downloadFile } from '../lib/utils';
 
 const STATUS_COLOR = { draft:'gray', sent:'blue', paid:'green', void:'gray' };
 
@@ -43,7 +43,7 @@ function ToSendTab() {
 
   const exportMyob = () => {
     const ids = selected.join(',');
-    window.open(`/api/invoices/export-myob-appointments?appointment_ids=${ids}&invoice_date=${myobDate}`, '_blank');
+    downloadFile(api, `/invoices/export-myob-appointments?appointment_ids=${ids}&invoice_date=${myobDate}`, `MYOB_Import_${myobDate}.csv`);
   };
 
   const generate = async () => {
@@ -227,9 +227,10 @@ function InvoiceListTab({ status, emptyMsg }) {
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-1 justify-end">
-                    <a href={`/api/invoices/${inv.id}/pdf`} target="_blank" rel="noreferrer">
-                      <Button variant="ghost" size="sm" title="Download PDF"><Download className="h-3.5 w-3.5" /></Button>
-                    </a>
+                    <Button variant="ghost" size="sm" title="Download PDF"
+                      onClick={() => downloadFile(api, `/invoices/${inv.id}/pdf`, `${inv.invoice_number}.pdf`)}>
+                      <Download className="h-3.5 w-3.5" />
+                    </Button>
                     {(inv.status === 'draft' || inv.status === 'sent') && (
                       <Button variant="ghost" size="sm" title={inv.status === 'draft' ? 'Send to funder' : 'Resend'}
                         disabled={sending === inv.id} onClick={() => send(inv.id)}>

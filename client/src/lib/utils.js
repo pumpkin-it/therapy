@@ -38,3 +38,15 @@ export const localToday = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 };
+
+// Downloads an auth-protected file via the authenticated api instance (window.open/<a href>
+// can't send the Authorization header, so those approaches 401 on protected routes).
+export const downloadFile = async (api, url, filename) => {
+  const res = await api.get(url, { responseType: 'blob' });
+  const blobUrl = URL.createObjectURL(res.data);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(blobUrl);
+};
