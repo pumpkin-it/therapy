@@ -155,6 +155,7 @@ router.get('/export-myob', auth, (req, res) => {
 
   const invDate = invoice_date || new Date().toISOString().slice(0, 10);
   const rows = [MYOB_HEADERS.join(',')];
+  const exported = [];
 
   let first = true;
   for (const id of ids) {
@@ -177,6 +178,8 @@ router.get('/export-myob', auth, (req, res) => {
 
     const items = db.prepare('SELECT * FROM invoice_items WHERE invoice_id=?').all(id);
     if (!items.length) continue;
+
+    exported.push(inv);
 
     if (!first) rows.push(',,,,,,,,,,,');
     first = false;
@@ -204,6 +207,17 @@ router.get('/export-myob', auth, (req, res) => {
     }
   }
 
+  const exportedAtDate = new Date();
+  const exportedAt = exportedAtDate.toISOString();
+  const exportedAtLabel = exportedAtDate.toLocaleString('en-AU', {
+    timeZone: 'Australia/Sydney', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+  });
+  const markExported = db.prepare('UPDATE invoices SET myob_exported_at = ? WHERE id = ?');
+  for (const inv of exported) {
+    markExported.run(exportedAt, inv.id);
+    audit.log('invoice', inv.id, 'myob_exported', `${inv.invoice_number} exported to MYOB at ${exportedAtLabel}`, { ref: inv.invoice_number });
+  }
+
   const csv = rows.join('\r\n') + '\r\n';
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', `attachment; filename="MYOB_Import_${invDate}.csv"`);
@@ -220,6 +234,7 @@ router.get('/export-myob-appointments', auth, (req, res) => {
 
   const invDate = invoice_date || new Date().toISOString().slice(0, 10);
   const rows = [MYOB_HEADERS.join(',')];
+  const exportedAppts = [];
 
   let first = true;
   for (const apptId of ids) {
@@ -247,6 +262,8 @@ router.get('/export-myob-appointments', auth, (req, res) => {
       WHERE ai.appointment_id = ?
     `).all(apptId);
     if (!items.length) continue;
+
+    exportedAppts.push(appt);
 
     if (!first) rows.push(',,,,,,,,,,,');
     first = false;
@@ -287,6 +304,15 @@ router.get('/export-myob-appointments', auth, (req, res) => {
         if (item.notes_min) addRow(item.notes_code || '', `Clinical notes (${item.notes_min} min)`, item.notes_min / 60, item.notes_rate || item.unit_rate, gstType);
       }
     }
+  }
+
+  const exportedAtLabel = new Date().toLocaleString('en-AU', {
+    timeZone: 'Australia/Sydney', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+  });
+  for (const appt of exportedAppts) {
+    audit.log('appointment', appt.id, 'myob_exported',
+      `APT-${String(appt.id).padStart(5, '0')} exported to MYOB (pre-generation) at ${exportedAtLabel}`,
+      { ref: `APT-${String(appt.id).padStart(5, '0')}` });
   }
 
   const csv = rows.join('\r\n') + '\r\n';

@@ -14,9 +14,9 @@ const colors = {
   teal:   'bg-teal-100 text-teal-800',
 };
 
-export default function Badge({ children, color = 'gray' }) {
+export default function Badge({ children, color = 'gray', title }) {
   return (
-    <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', colors[color])}>
+    <span title={title} className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', colors[color])}>
       {children}
     </span>
   );

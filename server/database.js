@@ -262,6 +262,7 @@ try { db.exec(`ALTER TABLE invoices ADD COLUMN practitioner_id INTEGER REFERENCE
 try { db.exec(`ALTER TABLE invoices ADD COLUMN last_reminder_at TEXT`); } catch {}
 try { db.exec(`ALTER TABLE invoices ADD COLUMN self_managed_email TEXT`); } catch {}
 try { db.exec(`ALTER TABLE invoices ADD COLUMN reminder_count INTEGER DEFAULT 0`); } catch {}
+try { db.exec(`ALTER TABLE invoices ADD COLUMN myob_exported_at TEXT`); } catch {}
 try { db.exec(`ALTER TABLE appointments ADD COLUMN series_id INTEGER REFERENCES recurring_series(id)`); } catch {}
 
 try { db.exec(`
