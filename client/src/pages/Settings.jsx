@@ -204,7 +204,7 @@ export default function Settings() {
         <div className="space-y-2">
           {fundingTypes.map(ft => (
             <div key={ft.id} className="flex items-center gap-3 text-sm">
-              <span className="font-mono text-xs text-gray-400 w-16">FT-{String(ft.id).padStart(5,'0')}</span>
+              <span className="font-mono text-xs text-gray-400 w-16">F{String(ft.id).padStart(4,'0')}</span>
               <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                 { blue:'bg-blue-100 text-blue-700', green:'bg-green-100 text-green-700', purple:'bg-purple-100 text-purple-700',
                   orange:'bg-orange-100 text-orange-700', red:'bg-red-100 text-red-700', amber:'bg-amber-100 text-amber-700',

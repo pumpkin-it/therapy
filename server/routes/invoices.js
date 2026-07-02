@@ -5,6 +5,9 @@ const { generateInvoicePdf } = require('../services/pdf');
 const { sendInvoiceEmail } = require('../services/mailer');
 const audit = require('../services/audit');
 
+const fmtClientRef = id => `C${String(id).padStart(4, '0')}`;
+const fmtFundingTypeRef = id => `F${String(id).padStart(4, '0')}`;
+
 function nextInvoiceNumber() {
   const counter = parseInt(db.prepare("SELECT value FROM settings WHERE key='invoice_counter'").get()?.value || '1');
   const num = `INV-${String(counter).padStart(5, '0')}`;
@@ -178,8 +181,9 @@ router.get('/export-myob', auth, (req, res) => {
     if (!first) rows.push(',,,,,,,,,,,');
     first = false;
 
-    const ftRef = inv.funding_type_id ? `FT-${String(inv.funding_type_id).padStart(5,'0')}` : '';
-    const clientRef = `CLI-${String(inv.cid).padStart(5,'0')}`;
+    const ftRef = inv.funding_type_id ? fmtFundingTypeRef(inv.funding_type_id) : '';
+    const clientRef = fmtClientRef(inv.cid);
+    const cardId = ftRef ? `${clientRef}-${ftRef}` : clientRef;
 
     for (const item of items) {
       const note = [item.code, item.description].filter(Boolean).join(' - ');
@@ -193,7 +197,7 @@ router.get('/export-myob', auth, (req, res) => {
         item.line_total.toFixed(2),
         csvEscape(inv.client_name),
         item.gst_type || 'GST',
-        clientRef,
+        cardId,
         csvEscape(inv.client_name),
         csvEscape(`${inv.practitioner_name || ''} - ${inv.provider_number || ''}`)
       ].join(','));
@@ -248,8 +252,9 @@ router.get('/export-myob-appointments', auth, (req, res) => {
     first = false;
 
     const serviceDate = appt.start_time ? appt.start_time.slice(0, 10) : '';
-    const ftRef = appt.funding_type_id ? `FT-${String(appt.funding_type_id).padStart(5,'0')}` : '';
-    const clientRef = `CLI-${String(appt.cid).padStart(5,'0')}`;
+    const ftRef = appt.funding_type_id ? fmtFundingTypeRef(appt.funding_type_id) : '';
+    const clientRef = fmtClientRef(appt.cid);
+    const cardId = ftRef ? `${clientRef}-${ftRef}` : clientRef;
 
     const addRow = (code, desc, qty, rate, gstType) => {
       const amount = qty * rate;
@@ -263,7 +268,7 @@ router.get('/export-myob-appointments', auth, (req, res) => {
         amount.toFixed(2),
         csvEscape(appt.client_name),
         gstType,
-        clientRef,
+        cardId,
         csvEscape(appt.client_name),
         csvEscape(`${appt.practitioner_name || ''} - ${appt.provider_number || ''}`)
       ].join(','));
