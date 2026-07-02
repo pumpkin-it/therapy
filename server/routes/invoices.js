@@ -75,17 +75,20 @@ function invoiceWithSettings(inv) {
 
 // ─── "To Send": completed, uninvoiced appointments ──────────────────────────
 router.get('/to-send', auth, (req, res) => {
-  const { client_id, practitioner_id, from, to } = req.query;
+  const { client_id, practitioner_id, from, to, all, pending_export_only } = req.query;
   let where = "(a.status != 'cancelled' OR a.late_cancel_billable = 1) AND a.is_invoiced = 0";
   const params = [];
   if (client_id)       { where += ' AND a.client_id = ?';       params.push(client_id); }
   if (practitioner_id) { where += ' AND a.practitioner_id = ?'; params.push(practitioner_id); }
-  if (from)            { where += ' AND a.start_time >= ?';      params.push(from); }
-  if (to)              { where += ' AND a.start_time <= ?';      params.push(to + 'T23:59'); }
+  if (!all) {
+    if (from) { where += ' AND a.start_time >= ?'; params.push(from); }
+    if (to)   { where += ' AND a.start_time <= ?'; params.push(to + 'T23:59'); }
+  }
+  if (pending_export_only) { where += ' AND a.myob_exported_at IS NULL'; }
 
   const rows = db.prepare(`
     SELECT a.id, a.start_time, a.end_time, a.client_id, a.practitioner_id, a.location, a.notes, a.series_id, a.funding_period_id,
-      a.status, a.late_cancel_pct, a.late_cancel_billable,
+      a.status, a.late_cancel_pct, a.late_cancel_billable, a.myob_exported_at,
       c.first_name || ' ' || c.last_name AS client_name,
       p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number, p.color AS practitioner_color,
       COALESCE(fp_direct.funds_manager_id, fp_date.funds_manager_id) AS funds_manager_id,
@@ -116,6 +119,16 @@ router.get('/to-send', auth, (req, res) => {
   for (const r of rows) r.items = byAppt[r.id] || [];
 
   res.json(rows);
+});
+
+// ─── Count of not-yet-exported appointments, ignoring date range ───────────
+router.get('/pending-export-count', auth, (req, res) => {
+  const count = db.prepare(`
+    SELECT COUNT(*) AS c FROM appointments a
+    WHERE (a.status != 'cancelled' OR a.late_cancel_billable = 1)
+      AND a.is_invoiced = 0 AND a.myob_exported_at IS NULL
+  `).get().c;
+  res.json({ count });
 });
 
 // ─── List invoices (sent / paid / all) ──────────────────────────────────────
@@ -306,10 +319,13 @@ router.get('/export-myob-appointments', auth, (req, res) => {
     }
   }
 
-  const exportedAtLabel = new Date().toLocaleString('en-AU', {
+  const exportedAtIso = new Date().toISOString();
+  const exportedAtLabel = new Date(exportedAtIso).toLocaleString('en-AU', {
     timeZone: 'Australia/Sydney', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
   });
+  const markApptExported = db.prepare('UPDATE appointments SET myob_exported_at = ? WHERE id = ?');
   for (const appt of exportedAppts) {
+    markApptExported.run(exportedAtIso, appt.id);
     audit.log('appointment', appt.id, 'myob_exported',
       `APT-${String(appt.id).padStart(5, '0')} exported to MYOB (pre-generation) at ${exportedAtLabel}`,
       { ref: `APT-${String(appt.id).padStart(5, '0')}` });

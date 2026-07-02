@@ -263,6 +263,7 @@ try { db.exec(`ALTER TABLE invoices ADD COLUMN last_reminder_at TEXT`); } catch 
 try { db.exec(`ALTER TABLE invoices ADD COLUMN self_managed_email TEXT`); } catch {}
 try { db.exec(`ALTER TABLE invoices ADD COLUMN reminder_count INTEGER DEFAULT 0`); } catch {}
 try { db.exec(`ALTER TABLE invoices ADD COLUMN myob_exported_at TEXT`); } catch {}
+try { db.exec(`ALTER TABLE appointments ADD COLUMN myob_exported_at TEXT`); } catch {}
 try { db.exec(`ALTER TABLE appointments ADD COLUMN series_id INTEGER REFERENCES recurring_series(id)`); } catch {}
 
 try { db.exec(`
@@ -368,6 +369,7 @@ const defaults = {
   remittance_email: '',
   invoice_payment_terms_days: '14',
   invoice_reminder_interval_days: '7',
+  invoicing_mode: 'generate',
   role_permissions: JSON.stringify({
     owner:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:true },
     admin:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:false },

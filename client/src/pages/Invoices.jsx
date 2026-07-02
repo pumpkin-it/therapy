@@ -4,12 +4,14 @@ import { format, startOfWeek, endOfWeek, subWeeks, addWeeks } from 'date-fns';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
+import { useSettings } from '../context/SettingsContext';
 import { currency, fmtDate, localToday, downloadFile } from '../lib/utils';
 
 const STATUS_COLOR = { draft:'gray', sent:'blue', paid:'green', void:'gray' };
 
 // ─── To Send tab ─────────────────────────────────────────────────────────────
-function ToSendTab() {
+function ToSendTab({ mode }) {
+  const exportOnlyMode = mode === 'export_only';
   const [appointments, setAppointments] = useState([]);
   const [clients, setClients] = useState([]);
   const [practitioners, setPractitioners] = useState([]);
@@ -18,7 +20,10 @@ function ToSendTab() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [selected, setSelected] = useState([]);
   const [generating, setGenerating] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [myobDate, setMyobDate] = useState(localToday());
+  const [pendingCount, setPendingCount] = useState(0);
+  const [viewAll, setViewAll] = useState(false);
 
   const weekStart = startOfWeek(addWeeks(new Date(), weekOffset), { weekStartsOn: 1 });
   const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
@@ -26,24 +31,41 @@ function ToSendTab() {
   const to = format(weekEnd, 'yyyy-MM-dd');
 
   const load = () => {
-    const params = new URLSearchParams({ from, to });
+    const params = new URLSearchParams();
+    if (viewAll) {
+      params.set('all', '1');
+      params.set('pending_export_only', '1');
+    } else {
+      params.set('from', from);
+      params.set('to', to);
+    }
     if (clientFilter) params.set('client_id', clientFilter);
     if (practFilter) params.set('practitioner_id', practFilter);
     api.get(`/invoices/to-send?${params}`).then(r => setAppointments(r.data));
+  };
+
+  const loadPendingCount = () => {
+    if (!exportOnlyMode) return;
+    api.get('/invoices/pending-export-count').then(r => setPendingCount(r.data.count));
   };
 
   useEffect(() => {
     api.get('/clients?active=all').then(r => setClients(r.data));
     api.get('/practitioners?role=practitioner').then(r => setPractitioners(r.data));
   }, []);
-  useEffect(() => { load(); setSelected([]); }, [weekOffset, clientFilter, practFilter]);
+  useEffect(() => { load(); setSelected([]); }, [weekOffset, clientFilter, practFilter, viewAll]);
+  useEffect(() => { loadPendingCount(); }, [exportOnlyMode]);
 
   const toggle = id => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
   const toggleAll = () => setSelected(s => s.length === appointments.length ? [] : appointments.map(a => a.id));
 
-  const exportMyob = () => {
+  const exportMyob = async () => {
     const ids = selected.join(',');
-    downloadFile(api, `/invoices/export-myob-appointments?appointment_ids=${ids}&invoice_date=${myobDate}`, `MYOB_Import_${myobDate}.csv`);
+    setExporting(true);
+    try {
+      await downloadFile(api, `/invoices/export-myob-appointments?appointment_ids=${ids}&invoice_date=${myobDate}`, `MYOB_Import_${myobDate}.csv`);
+      if (exportOnlyMode) { load(); loadPendingCount(); }
+    } finally { setExporting(false); }
   };
 
   const generate = async () => {
@@ -58,13 +80,27 @@ function ToSendTab() {
 
   return (
     <div className="space-y-4">
+      {exportOnlyMode && pendingCount > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+          <span>{pendingCount} appointment{pendingCount !== 1 ? 's' : ''} not yet exported to MYOB — some may be outside the current week.</span>
+          <button onClick={() => setViewAll(v => !v)} className="font-medium text-amber-900 hover:underline">
+            {viewAll ? 'Back to weekly view' : 'View all outstanding'}
+          </button>
+        </div>
+      )}
+
       <div className="flex items-center gap-3 flex-wrap">
-        <Button variant="secondary" size="sm" onClick={() => setWeekOffset(w => w - 1)}>← Prev week</Button>
-        <span className="text-sm font-medium text-gray-700 w-48 text-center">
-          {format(weekStart, 'd MMM')} – {format(weekEnd, 'd MMM yyyy')}
-        </span>
-        <Button variant="secondary" size="sm" onClick={() => setWeekOffset(w => w + 1)}>Next week →</Button>
-        <Button variant="ghost" size="sm" onClick={() => setWeekOffset(0)}>This week</Button>
+        {!viewAll && (
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setWeekOffset(w => w - 1)}>← Prev week</Button>
+            <span className="text-sm font-medium text-gray-700 w-48 text-center">
+              {format(weekStart, 'd MMM')} – {format(weekEnd, 'd MMM yyyy')}
+            </span>
+            <Button variant="secondary" size="sm" onClick={() => setWeekOffset(w => w + 1)}>Next week →</Button>
+            <Button variant="ghost" size="sm" onClick={() => setWeekOffset(0)}>This week</Button>
+          </>
+        )}
+        {viewAll && <span className="text-sm font-medium text-gray-700">All outstanding, oldest first</span>}
 
         <select className="ml-auto rounded-lg border border-gray-300 px-2 py-1.5 text-sm" value={clientFilter} onChange={e => setClientFilter(e.target.value)}>
           <option value="">All clients</option>
@@ -91,7 +127,7 @@ function ToSendTab() {
                       checked={selected.length === appointments.length && appointments.length > 0}
                       onChange={toggleAll} />
                   </th>
-                  {['Date','Client','Practitioner','Service','Duration','Amount','Funder'].map(h => (
+                  {['Date','Client','Practitioner','Service','Duration','Amount','Funder', ...(exportOnlyMode ? ['MYOB'] : [])].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
                   ))}
                 </tr>
@@ -136,6 +172,17 @@ function ToSendTab() {
                       <td className="px-4 py-3 text-sm text-gray-600">{dur}</td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">{currency(total)}</td>
                       <td className="px-4 py-3 text-sm text-gray-500">{a.funds_manager_name || <span className="text-gray-300">—</span>}</td>
+                      {exportOnlyMode && (
+                        <td className="px-4 py-3">
+                          {a.myob_exported_at ? (
+                            <Badge color="green" title={new Date(a.myob_exported_at).toLocaleString('en-AU', { timeZone: 'Australia/Sydney' })}>
+                              Exported {fmtDate(a.myob_exported_at)}
+                            </Badge>
+                          ) : (
+                            <Badge color="amber">Not exported</Badge>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -151,14 +198,16 @@ function ToSendTab() {
                   <label className="text-sm text-gray-600">Invoice Date:</label>
                   <input type="date" className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm"
                     value={myobDate} onChange={e => setMyobDate(e.target.value)} />
-                  <Button variant="secondary" onClick={exportMyob} disabled={!selected.length}>
-                    <FileSpreadsheet className="h-4 w-4" /> Export MYOB CSV
+                  <Button variant={exportOnlyMode ? 'primary' : 'secondary'} onClick={exportMyob} disabled={!selected.length || exporting}>
+                    <FileSpreadsheet className="h-4 w-4" /> {exporting ? 'Exporting…' : 'Export MYOB CSV'}
                   </Button>
                 </>
               )}
-              <Button onClick={generate} disabled={generating || !selected.length}>
-                <FileText className="h-4 w-4" /> {generating ? 'Generating…' : `Generate ${selected.length} invoice${selected.length !== 1 ? 's' : ''}`}
-              </Button>
+              {!exportOnlyMode && (
+                <Button onClick={generate} disabled={generating || !selected.length}>
+                  <FileText className="h-4 w-4" /> {generating ? 'Generating…' : `Generate ${selected.length} invoice${selected.length !== 1 ? 's' : ''}`}
+                </Button>
+              )}
             </div>
           </div>
         </>
@@ -325,36 +374,42 @@ function InvoiceListTab({ status, emptyMsg }) {
 
 // ─── Main Invoices page ─────────────────────────────────────────────────────
 export default function Invoices() {
+  const { invoicingMode } = useSettings();
+  const exportOnlyMode = invoicingMode === 'export_only';
   const [tab, setTab] = useState('to_send');
 
-  const TABS = [
-    ['to_send',    'To Send'],
-    ['to_receive', 'To Receive'],
-    ['paid',       'Paid'],
-    ['void',       'Void'],
-  ];
+  const TABS = exportOnlyMode
+    ? [['to_send', 'To Export']]
+    : [
+        ['to_send',    'To Send'],
+        ['to_receive', 'To Receive'],
+        ['paid',       'Paid'],
+        ['void',       'Void'],
+      ];
 
   return (
     <div className="space-y-5">
       <h1 className="text-2xl font-semibold">Invoices</h1>
 
-      <div className="border-b border-gray-200">
-        <div className="flex gap-0">
-          {TABS.map(([id, label]) => (
-            <button key={id} onClick={() => setTab(id)}
-              className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                tab === id ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}>
-              {label}
-            </button>
-          ))}
+      {!exportOnlyMode && (
+        <div className="border-b border-gray-200">
+          <div className="flex gap-0">
+            {TABS.map(([id, label]) => (
+              <button key={id} onClick={() => setTab(id)}
+                className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                  tab === id ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}>
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {tab === 'to_send' && <ToSendTab />}
-      {tab === 'to_receive' && <InvoiceListTab status="draft,sent" emptyMsg="No invoices awaiting payment." />}
-      {tab === 'paid' && <InvoiceListTab status="paid" emptyMsg="No paid invoices." />}
-      {tab === 'void' && <InvoiceListTab status="void" emptyMsg="No voided invoices." />}
+      {tab === 'to_send' && <ToSendTab mode={invoicingMode} />}
+      {!exportOnlyMode && tab === 'to_receive' && <InvoiceListTab status="draft,sent" emptyMsg="No invoices awaiting payment." />}
+      {!exportOnlyMode && tab === 'paid' && <InvoiceListTab status="paid" emptyMsg="No paid invoices." />}
+      {!exportOnlyMode && tab === 'void' && <InvoiceListTab status="void" emptyMsg="No voided invoices." />}
     </div>
   );
 }

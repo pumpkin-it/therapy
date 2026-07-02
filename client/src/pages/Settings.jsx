@@ -296,6 +296,27 @@ export default function Settings() {
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
         <h2 className="font-semibold text-gray-900">Invoice Settings</h2>
+
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">How does your practice manage invoices?</label>
+          <div className="grid grid-cols-2 gap-3">
+            <button type="button" onClick={() => set('invoicing_mode', 'generate')}
+              className={`text-left rounded-lg border-2 px-3 py-2.5 transition-colors ${
+                (form.invoicing_mode || 'generate') === 'generate' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300'
+              }`}>
+              <div className="text-sm font-medium text-gray-900">Generate invoices in this system</div>
+              <div className="text-xs text-gray-500 mt-0.5">Full invoice lifecycle: generate, send, track paid/void here.</div>
+            </button>
+            <button type="button" onClick={() => set('invoicing_mode', 'export_only')}
+              className={`text-left rounded-lg border-2 px-3 py-2.5 transition-colors ${
+                form.invoicing_mode === 'export_only' ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200 hover:border-gray-300'
+              }`}>
+              <div className="text-sm font-medium text-gray-900">Export to accounting software only</div>
+              <div className="text-xs text-gray-500 mt-0.5">e.g. MYOB generates the invoice — this system just exports billing data.</div>
+            </button>
+          </div>
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
           {field('Payment terms (days)', 'invoice_payment_terms_days', 'number')}
           {field('Reminder interval (days)', 'invoice_reminder_interval_days', 'number')}
