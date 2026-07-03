@@ -19,6 +19,7 @@ const EMAIL_VARS = {
 };
 
 const NOTE_VARS = ['client_name', 'client_first_name', 'practitioner_name', 'date', 'next_appointment', 'practice_name'];
+const AGREEMENT_VARS = ['client_name', 'client_first_name', 'practitioner_name', 'practice_name', 'date', 'pricing_table'];
 
 // ─── Rich text editor (Quill) ─────────────────────────────────────────────────
 function RichEditor({ defaultValue, onChange, insertRef, toolbar = 'email' }) {
@@ -259,10 +260,110 @@ function NoteTemplates() {
   );
 }
 
+// ─── Agreement Templates tab ─────────────────────────────────────────────────
+function AgreementTemplates() {
+  const [templates, setTemplates] = useState([]);
+  const [showNew, setShowNew] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ name: '', body: '', has_pricing_table: true });
+  const [saving, setSaving] = useState(false);
+  const insertRef = useRef();
+
+  const load = () => api.get('/templates?type=agreement').then(r => setTemplates(r.data));
+  useEffect(() => { load(); }, []);
+
+  const startEdit = t => { setEditing(t); setShowNew(false); setForm({ name: t.name, body: t.body, has_pricing_table: !!t.has_pricing_table }); };
+  const startNew  = () => { setShowNew(true); setEditing(null); setForm({ name: '', body: '', has_pricing_table: true }); };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      if (editing) {
+        await api.put(`/templates/${editing.id}`, form);
+      } else {
+        await api.post('/templates', { ...form, type: 'agreement' });
+      }
+      setEditing(null);
+      setShowNew(false);
+      load();
+    } finally { setSaving(false); }
+  };
+
+  const remove = async id => {
+    if (!confirm('Delete this template?')) return;
+    await api.delete(`/templates/${id}`);
+    load();
+  };
+
+  const isEditing = showNew || !!editing;
+  const editorKey = editing ? `edit-${editing.id}` : 'new';
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        {!isEditing && (
+          <Button size="sm" onClick={startNew}><Plus className="h-3.5 w-3.5" /> New template</Button>
+        )}
+      </div>
+
+      {isEditing && (
+        <div className="rounded-xl border border-indigo-100 bg-white shadow-sm p-5 space-y-4">
+          <p className="font-semibold text-gray-900">{editing ? `Edit: ${editing.name}` : 'New template'}</p>
+          <Input label="Template name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Service Agreement" />
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input type="checkbox" className="accent-indigo-600" checked={form.has_pricing_table}
+              onChange={e => setForm(f => ({ ...f, has_pricing_table: e.target.checked }))} />
+            Include pricing table
+          </label>
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-gray-600">Body</label>
+            <RichEditor
+              key={editorKey}
+              defaultValue={form.body}
+              onChange={v => setForm(f => ({ ...f, body: v }))}
+              insertRef={insertRef}
+              toolbar="note"
+            />
+            <VarChips vars={AGREEMENT_VARS} insertRef={insertRef} />
+            {form.has_pricing_table && (
+              <p className="text-xs text-gray-400">
+                <code className="bg-gray-100 px-1 rounded">{'{{pricing_table}}'}</code> inserts the service pricing table the practitioner builds when drafting the agreement.
+              </p>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+            <Button variant="secondary" size="sm" onClick={() => { setEditing(null); setShowNew(false); }}>Cancel</Button>
+            <Button size="sm" onClick={save} disabled={saving || !form.name.trim() || !form.body.trim()}>
+              {saving ? 'Saving…' : 'Save template'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {templates.length === 0 && !isEditing && (
+        <p className="text-sm text-gray-400 py-8 text-center">No agreement templates yet.</p>
+      )}
+
+      {templates.map(t => (
+        <div key={t.id} className="rounded-xl border border-gray-200 bg-white shadow-sm p-4 flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-gray-900 text-sm">{t.name}{t.has_pricing_table ? <span className="ml-2 text-xs text-indigo-500 font-normal">Pricing table</span> : null}</p>
+            <p className="text-xs text-gray-400 mt-0.5 line-clamp-2" dangerouslySetInnerHTML={{ __html: t.body }} />
+          </div>
+          <div className="flex gap-1 shrink-0">
+            <button onClick={() => startEdit(t)} className="p-1.5 text-gray-400 hover:text-indigo-600"><Pencil className="h-4 w-4" /></button>
+            {!t.is_system && <button onClick={() => remove(t.id)} className="p-1.5 text-gray-400 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function Templates() {
   const [tab, setTab] = useState('email');
-  const TABS = [['email', 'Email Templates'], ['session_note', 'Session Note Templates']];
+  const TABS = [['email', 'Email Templates'], ['session_note', 'Session Note Templates'], ['agreement', 'Agreement Templates']];
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -286,6 +387,7 @@ export default function Templates() {
 
       {tab === 'email'        && <EmailTemplates />}
       {tab === 'session_note' && <NoteTemplates />}
+      {tab === 'agreement'    && <AgreementTemplates />}
     </div>
   );
 }

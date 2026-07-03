@@ -9,9 +9,121 @@ import Badge from '../components/ui/Badge';
 import Input from '../components/ui/Input';
 import SearchSelect from '../components/ui/SearchSelect';
 import { EmbeddedCalendar } from '../components/CalendarViews';
-import { localToday, fmtDateTime, fmtDateOnly } from '../lib/utils';
+import { localToday, fmtDateTime, fmtDateOnly, downloadFile } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
+import AgreementPricingTable from '../components/AgreementPricingTable';
+
+const AGREEMENT_STATUS_COLOR = {
+  draft: 'bg-gray-100 text-gray-600', sent: 'bg-blue-100 text-blue-700', viewed: 'bg-amber-100 text-amber-700',
+  signed: 'bg-green-100 text-green-700', declined: 'bg-red-100 text-red-700', voided: 'bg-gray-100 text-gray-400',
+};
+
+function AgreementsTab({ clientId }) {
+  const { timezone } = useSettings();
+  const [agreements, setAgreements] = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [showNew, setShowNew] = useState(false);
+  const [newTemplateId, setNewTemplateId] = useState('');
+  const [activeId, setActiveId] = useState(null);
+  const [active, setActive] = useState(null);
+  const [sendResult, setSendResult] = useState(null);
+
+  const load = () => api.get(`/agreements?client_id=${clientId}`).then(r => setAgreements(r.data));
+  useEffect(() => { load(); api.get('/templates?type=agreement').then(r => setTemplates(r.data)); }, []);
+
+  useEffect(() => {
+    if (activeId) api.get(`/agreements/${activeId}`).then(r => setActive(r.data));
+    else setActive(null);
+  }, [activeId]);
+
+  const createAgreement = async () => {
+    if (!newTemplateId) return;
+    const res = await api.post('/agreements', { client_id: clientId, template_id: newTemplateId });
+    setShowNew(false); setNewTemplateId('');
+    await load();
+    setActiveId(res.data.id);
+  };
+
+  const finalize = async sendEmail => {
+    const res = await api.post(`/agreements/${activeId}/finalize`, { send_email: sendEmail });
+    setSendResult(sendEmail ? 'Emailed to client.' : res.data.signing_url);
+    setActive(res.data);
+    load();
+  };
+
+  const voidAgreement = async () => {
+    if (!confirm('Void this agreement?')) return;
+    await api.post(`/agreements/${activeId}/void`);
+    const res = await api.get(`/agreements/${activeId}`);
+    setActive(res.data);
+    load();
+  };
+
+  return (
+    <div className="space-y-4">
+      {!active && (
+        <>
+          <div className="flex justify-end">
+            <Button size="sm" onClick={() => setShowNew(s => !s)}><Plus className="h-3.5 w-3.5" /> New agreement</Button>
+          </div>
+          {showNew && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex items-center gap-2">
+              <select className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm"
+                value={newTemplateId} onChange={e => setNewTemplateId(e.target.value)}>
+                <option value="">Select a template…</option>
+                {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+              <Button size="sm" onClick={createAgreement} disabled={!newTemplateId}>Create draft</Button>
+            </div>
+          )}
+          {agreements.length === 0 && <p className="text-sm text-gray-400 py-6 text-center">No agreements yet.</p>}
+          {agreements.map(a => (
+            <div key={a.id} onClick={() => setActiveId(a.id)}
+              className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 cursor-pointer hover:bg-gray-50">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-800">{a.title}</p>
+                <p className="text-xs text-gray-400">Created {fmtDateOnly(a.created_at, timezone)}{a.signed_at ? ` · Signed ${fmtDateOnly(a.signed_at, timezone)}` : ''}</p>
+              </div>
+              <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${AGREEMENT_STATUS_COLOR[a.status] || 'bg-gray-100 text-gray-600'}`}>{a.status}</span>
+            </div>
+          ))}
+        </>
+      )}
+
+      {active && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <button onClick={() => { setActiveId(null); setSendResult(null); }} className="text-sm text-gray-500 hover:text-gray-700">&larr; Back to agreements</button>
+            <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${AGREEMENT_STATUS_COLOR[active.status] || 'bg-gray-100 text-gray-600'}`}>{active.status}</span>
+          </div>
+          <p className="text-lg font-semibold text-gray-900">{active.title}</p>
+
+          <AgreementPricingTable agreement={active} onUpdate={setActive} />
+
+          {sendResult && (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-800 break-all">
+              {sendResult.startsWith('http') ? <>Signing link: <a href={sendResult} target="_blank" rel="noreferrer" className="underline">{sendResult}</a></> : sendResult}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            {active.status === 'draft' && (
+              <>
+                <Button size="sm" onClick={() => finalize(true)}>Send by email</Button>
+                <Button size="sm" variant="secondary" onClick={() => finalize(false)}>Get link (sign in person)</Button>
+                <Button size="sm" variant="ghost" onClick={voidAgreement}>Void</Button>
+              </>
+            )}
+            {active.status !== 'draft' && active.status !== 'voided' && (
+              <Button size="sm" variant="secondary" onClick={() => downloadFile(api, `/agreements/${active.id}/pdf`, `${active.title}.pdf`)}>Download PDF</Button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 const FUNDING_COLOR_FALLBACK = { NDIS: 'blue', Medicare: 'green', Private: 'purple', 'Aged Care': 'orange', Other: 'gray' };
 
@@ -521,7 +633,7 @@ export default function ClientDetail() {
 
   const TABS = [
     ['details', 'Details'], ['funding', 'Funding'], ['medical', 'Medical'],
-    ['notes', 'Session Notes'], ['files', 'Files'], ['calendar', 'Calendar'],
+    ['notes', 'Session Notes'], ['agreements', 'Agreements'], ['files', 'Files'], ['calendar', 'Calendar'],
   ];
 
   return (
@@ -640,6 +752,7 @@ export default function ClientDetail() {
 
         {tab === 'funding'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to manage funding.</p> : <FundingTab  clientId={id} />)}
         {tab === 'notes'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to add notes.</p> : <SessionNotesTab clientId={id} client={client} />)}
+        {tab === 'agreements' && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to create agreements.</p> : <AgreementsTab clientId={id} />)}
         {tab === 'files'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to upload files.</p> : <FilesTab     clientId={id} />)}
         {tab === 'calendar'  && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view calendar.</p> : <EmbeddedCalendar clientId={id} />)}
       </div>

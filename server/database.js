@@ -606,4 +606,68 @@ try {
 
 try { db.exec('DROP TABLE IF EXISTS service_rate_periods'); } catch {}
 
+// Digital service agreements — client_id + template scoped, signed via a public token link.
+// Content is snapshotted to rendered_html once sent, same principle as invoice_items freezing
+// unit_rate: later template/rate edits must never retroactively change something already sent.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS agreements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    template_id INTEGER REFERENCES templates(id),
+    funding_type_id INTEGER REFERENCES funding_types(id),
+    effective_date TEXT NOT NULL,
+    title TEXT NOT NULL,
+    rendered_html TEXT,
+    status TEXT NOT NULL DEFAULT 'draft',
+    signing_token TEXT UNIQUE,
+    sent_at TEXT,
+    viewed_at TEXT,
+    signed_at TEXT,
+    declined_at TEXT,
+    signer_name TEXT,
+    signer_email TEXT,
+    signed_ip TEXT,
+    signed_user_agent TEXT,
+    pdf_path TEXT,
+    created_by INTEGER REFERENCES practitioners(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec(`CREATE INDEX idx_agreements_client ON agreements(client_id)`); } catch {}
+try { db.exec(`CREATE UNIQUE INDEX idx_agreements_token ON agreements(signing_token) WHERE signing_token IS NOT NULL`); } catch {}
+
+// Pricing table rows for an agreement — parallel to invoice_items/appointment_items.
+// description/code/unit_rate/line_total are snapshotted per row; service_id kept for reporting.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS agreement_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    agreement_id INTEGER NOT NULL REFERENCES agreements(id) ON DELETE CASCADE,
+    service_id INTEGER REFERENCES services(id),
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    description TEXT NOT NULL,
+    code TEXT,
+    quantity REAL NOT NULL DEFAULT 1,
+    unit_rate REAL NOT NULL DEFAULT 0,
+    line_total REAL NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec(`CREATE INDEX idx_agreement_items_agreement ON agreement_items(agreement_id)`); } catch {}
+
+// Agreement template type — reuses the existing templates table (type='agreement') plus a flag
+// telling the UI whether to show the pricing-table builder for agreements from this template.
+try { db.exec(`ALTER TABLE templates ADD COLUMN has_pricing_table INTEGER DEFAULT 0`); } catch {}
+
+try {
+  db.prepare(`
+    INSERT OR IGNORE INTO templates (type, code, name, subject, body, is_system, has_pricing_table)
+    VALUES ('agreement', 'service_agreement', 'Service Agreement', NULL, ?, 1, 1)
+  `).run(
+    '<p>This Service Agreement is made between {{practice_name}} and {{client_name}} on {{date}}.</p>' +
+    '<p>{{practice_name}} agrees to provide the services listed below to {{client_name}}, at the rates specified.</p>' +
+    '{{pricing_table}}' +
+    '<p>By signing below, {{client_name}} agrees to the terms of this Service Agreement.</p>'
+  );
+} catch {}
+
 module.exports = db;

@@ -18,20 +18,20 @@ router.get('/', auth, (req, res) => {
 });
 
 router.post('/', auth, requireAdminOrOwner, (req, res) => {
-  const { name, body } = req.body;
+  const { name, body, type, has_pricing_table } = req.body;
   if (!name || !body) return res.status(400).json({ error: 'name and body required' });
   const result = db.prepare(
-    `INSERT INTO templates (type, name, body, is_system) VALUES ('session_note', ?, ?, 0)`
-  ).run(name, body);
+    `INSERT INTO templates (type, name, body, is_system, has_pricing_table) VALUES (?, ?, ?, 0, ?)`
+  ).run(type || 'session_note', name, body, has_pricing_table ? 1 : 0);
   res.status(201).json(db.prepare('SELECT * FROM templates WHERE id = ?').get(result.lastInsertRowid));
 });
 
 router.put('/:id', auth, requireAdminOrOwner, (req, res) => {
   const tpl = db.prepare('SELECT * FROM templates WHERE id = ?').get(req.params.id);
   if (!tpl) return res.status(404).json({ error: 'Not found' });
-  const { name, subject, body } = req.body;
-  db.prepare(`UPDATE templates SET name = ?, subject = ?, body = ? WHERE id = ?`)
-    .run(name ?? tpl.name, subject ?? tpl.subject, body ?? tpl.body, req.params.id);
+  const { name, subject, body, has_pricing_table } = req.body;
+  db.prepare(`UPDATE templates SET name = ?, subject = ?, body = ?, has_pricing_table = ? WHERE id = ?`)
+    .run(name ?? tpl.name, subject ?? tpl.subject, body ?? tpl.body, has_pricing_table !== undefined ? (has_pricing_table ? 1 : 0) : tpl.has_pricing_table, req.params.id);
   res.json(db.prepare('SELECT * FROM templates WHERE id = ?').get(req.params.id));
 });
 

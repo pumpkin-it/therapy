@@ -19,9 +19,20 @@ import AuditLog from './pages/AuditLog';
 import RecurringSeries from './pages/RecurringSeries';
 import RecurringSeriesDetail from './pages/RecurringSeriesDetail';
 import Templates from './pages/Templates';
+import SignAgreement from './pages/SignAgreement';
 
 function AuthenticatedApp() {
   const { user, loading } = useAuth();
+
+  // Public signing page — never wrapped in the app sidebar/nav, regardless of login state,
+  // since it's meant for clients (and works the same if a practitioner opens it too).
+  if (window.location.pathname.startsWith('/sign/')) {
+    return (
+      <Routes>
+        <Route path="/sign/:token" element={<SignAgreement />} />
+      </Routes>
+    );
+  }
 
   if (loading) {
     return (

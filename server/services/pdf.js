@@ -132,4 +132,90 @@ function generateInvoicePdf(data) {
   });
 }
 
-module.exports = { generateInvoicePdf };
+// Strip HTML down to plain paragraphs, preserving line breaks from block elements — same
+// approach as the client-side htmlToPlain helper in AppointmentModal.jsx.
+function htmlToPlain(html) {
+  if (!html) return '';
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+// Renders an agreement's rendered_html (prose + the {{pricing_table}} placeholder already
+// substituted with a real <table>) into a PDF. The embedded table HTML is never parsed back
+// out — the pricing rows are always read fresh from agreement.items and rendered with the
+// same fixed-column row-loop used for invoices, so the PDF numbers can never drift from the
+// structured data even if the HTML table markup ever changes shape.
+function generateAgreementPdf(agreement) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+    const chunks = [];
+    doc.on('data', c => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    const right = 545;
+
+    doc.fontSize(16).font('Helvetica-Bold').text(agreement.title, 50, 50);
+    doc.moveDown(1);
+
+    const [before, after] = htmlToPlain(agreement.rendered_html.replace(/<table[\s\S]*?<\/table>/i, '\n[[PRICING_TABLE]]\n'))
+      .split('[[PRICING_TABLE]]');
+
+    doc.font('Helvetica').fontSize(10).fillColor('#111');
+    if (before?.trim()) doc.text(before.trim(), 50, doc.y, { width: 495 });
+
+    // Pricing table
+    const tableY = doc.y + 15;
+    doc.rect(50, tableY, 495, 18).fill('#f3f4f6');
+    doc.fillColor('#111').font('Helvetica-Bold').fontSize(8);
+    doc.text('Service',  55, tableY + 5, { width: 220 });
+    doc.text('Code',    275, tableY + 5, { width: 90 });
+    doc.text('Qty',     365, tableY + 5, { width: 40, align: 'right' });
+    doc.text('Rate',    405, tableY + 5, { width: 60, align: 'right' });
+    doc.text('Total',   465, tableY + 5, { width: 65, align: 'right' });
+
+    let rowY = tableY + 20;
+    doc.font('Helvetica').fontSize(8);
+    for (const item of (agreement.items || [])) {
+      doc.fillColor('#111').text(item.description, 55, rowY, { width: 220 });
+      doc.text(item.code || '', 275, rowY, { width: 90 });
+      doc.text(Number(item.quantity).toFixed(2), 365, rowY, { width: 40, align: 'right' });
+      doc.text(`$${Number(item.unit_rate).toFixed(2)}`, 405, rowY, { width: 60, align: 'right' });
+      doc.text(`$${Number(item.line_total).toFixed(2)}`, 465, rowY, { width: 65, align: 'right' });
+      rowY = doc.y + 3;
+      doc.moveTo(50, rowY).lineTo(right, rowY).strokeColor('#e5e7eb').stroke();
+      rowY += 4;
+    }
+
+    const grandTotal = (agreement.items || []).reduce((s, i) => s + Number(i.line_total || 0), 0);
+    doc.font('Helvetica-Bold').fontSize(10);
+    doc.text('Grand Total', 365, rowY + 8, { width: 100, align: 'right' });
+    doc.text(`$${grandTotal.toFixed(2)}`, 465, rowY + 8, { width: 65, align: 'right' });
+
+    let footerY = rowY + 35;
+    doc.font('Helvetica').fontSize(10).fillColor('#111');
+    if (after?.trim()) { doc.text(after.trim(), 50, footerY, { width: 495 }); footerY = doc.y + 20; }
+
+    if (agreement.signer_name) {
+      doc.moveTo(50, footerY).lineTo(right, footerY).strokeColor('#e5e7eb').stroke();
+      footerY += 10;
+      doc.font('Helvetica-Bold').fontSize(9).text('SIGNED', 50, footerY);
+      footerY += 14;
+      doc.font('Helvetica').fontSize(8.5).fillColor('#333');
+      doc.text(`Signed by: ${agreement.signer_name}`, 50, footerY); footerY = doc.y + 2;
+      if (agreement.signed_at) { doc.text(`Date: ${new Date(agreement.signed_at).toLocaleString('en-AU')}`, 50, footerY); footerY = doc.y + 2; }
+      if (agreement.signed_ip) { doc.text(`IP address: ${agreement.signed_ip}`, 50, footerY); footerY = doc.y + 2; }
+      doc.text(`Agreement ID: ${agreement.id}`, 50, footerY);
+    }
+
+    doc.end();
+  });
+}
+
+module.exports = { generateInvoicePdf, generateAgreementPdf };

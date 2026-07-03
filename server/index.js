@@ -22,10 +22,11 @@ const perm = require('./middleware/requirePermission');
 
 app.use('/api/cal',             require('./routes/calendarFeed'));
 app.use('/api/auth',            require('./routes/auth'));
+app.use('/api/sign',            require('./routes/signAgreement'));
 
 // All routes below require authentication
 app.use('/api', (req, res, next) => {
-  if (req.path.startsWith('/auth') || req.path.startsWith('/cal') || req.path === '/health') return next();
+  if (req.path.startsWith('/auth') || req.path.startsWith('/cal') || req.path.startsWith('/sign') || req.path === '/health') return next();
   auth(req, res, next);
 });
 
@@ -47,6 +48,7 @@ app.use('/api/audit-logs',      require('./routes/auditLogs'));
 app.use('/api/gst-rates',       perm('settings'), require('./routes/gstRates'));
 app.use('/api/funding-types',   perm('services'), require('./routes/fundingTypes'));
 app.use('/api/templates',        perm('settings'), require('./routes/templates'));
+app.use('/api/agreements',      perm('clients'), require('./routes/agreements'));
 
 // Logo is public; all other uploads require auth
 app.get('/uploads/logo', (req, res) => {
