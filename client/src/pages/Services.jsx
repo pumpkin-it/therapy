@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2 } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
-import { currency } from '../lib/utils';
 
 export default function Services() {
   const [services, setServices] = useState([]);
@@ -33,7 +32,7 @@ export default function Services() {
         <table className="min-w-full divide-y divide-gray-100">
           <thead className="bg-gray-50">
             <tr>
-              {['Service','Discipline','Current rate','Unit','Duration',''].map(h => (
+              {['Service','Discipline','Funding types','Unit','Duration',''].map(h => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
               ))}
             </tr>
@@ -46,7 +45,13 @@ export default function Services() {
                   {s.description && <div className="text-xs text-gray-400">{s.description}</div>}
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-600">{s.discipline_id ? discName(s.discipline_id) : <span className="text-gray-300">All</span>}</td>
-                <td className="px-4 py-3 font-medium text-gray-900">{s.current_rate != null ? currency(s.current_rate) : <span className="text-gray-300">—</span>}</td>
+                <td className="px-4 py-3 text-sm text-gray-600">
+                  {s.funding_type_names
+                    ? s.funding_type_names.split(',').map(name => (
+                        <span key={name} className="inline-block mr-1 mb-1 px-2 py-0.5 rounded-full text-xs bg-indigo-50 text-indigo-700">{name}</span>
+                      ))
+                    : <span className="text-gray-300">Not priced yet</span>}
+                </td>
                 <td className="px-4 py-3 text-sm text-gray-600">{s.unit}</td>
                 <td className="px-4 py-3 text-sm text-gray-600">{s.default_duration} min</td>
                 <td className="px-4 py-3 text-right">

@@ -53,7 +53,6 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     description TEXT,
-    default_rate REAL NOT NULL,
     unit TEXT DEFAULT 'hour',
     default_duration INTEGER DEFAULT 60,
     active INTEGER DEFAULT 1,
@@ -136,10 +135,6 @@ try { db.exec(`ALTER TABLE funds_managers ADD COLUMN phone TEXT`); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN plan_start_date TEXT`); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN plan_end_date TEXT`); } catch {}
 
-try { db.exec(`ALTER TABLE services ADD COLUMN code TEXT`); } catch {}
-try { db.exec(`ALTER TABLE services ADD COLUMN travel_code TEXT`); } catch {}
-try { db.exec(`ALTER TABLE services ADD COLUMN km_code TEXT`); } catch {}
-try { db.exec(`ALTER TABLE services ADD COLUMN notes_code TEXT`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN code TEXT`); } catch {}
 try { db.exec(`ALTER TABLE invoices ADD COLUMN voided_at TEXT`); } catch {}
 
@@ -152,7 +147,6 @@ try { db.exec(`
   )
 `); } catch {}
 
-try { db.exec(`ALTER TABLE services ADD COLUMN gst_type TEXT DEFAULT 'GST'`); } catch {}
 try { db.exec(`ALTER TABLE appointment_items ADD COLUMN travel_time_to INTEGER`); } catch {}
 try { db.exec(`ALTER TABLE appointment_items ADD COLUMN travel_time_from INTEGER`); } catch {}
 
@@ -172,8 +166,6 @@ try { db.exec(`ALTER TABLE invoice_items ADD COLUMN service_date TEXT`); } catch
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN gst_rate REAL DEFAULT 0`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN gst_amount REAL DEFAULT 0`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN gst_type TEXT DEFAULT 'GST'`); } catch {}
-try { db.exec(`ALTER TABLE services ADD COLUMN travel_rate_per_hour REAL`); } catch {}
-try { db.exec(`ALTER TABLE services ADD COLUMN km_rate REAL`); } catch {}
 
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS locations (
@@ -218,7 +210,6 @@ try { db.exec(`
 `); } catch {}
 try { db.exec(`ALTER TABLE funding_periods ADD COLUMN ndis_management TEXT`); } catch {}
 try { db.exec(`ALTER TABLE funding_periods ADD COLUMN self_managed_email TEXT`); } catch {}
-try { db.exec(`ALTER TABLE services ADD COLUMN gst_rate REAL`); } catch {}
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN provider_number TEXT`); } catch {}
 try { db.exec(`ALTER TABLE appointments ADD COLUMN late_cancel_pct REAL`); } catch {}
 try { db.exec(`ALTER TABLE appointments ADD COLUMN late_cancel_billable INTEGER DEFAULT 0`); } catch {}
@@ -305,8 +296,6 @@ try { db.exec(`ALTER TABLE clients ADD COLUMN alert TEXT`); } catch {}
 try { db.exec(`ALTER TABLE appointments ADD COLUMN location_other TEXT`); } catch {}
 try { db.exec(`ALTER TABLE appointments ADD COLUMN funding_period_id INTEGER REFERENCES funding_periods(id)`); } catch {}
 try { db.exec(`ALTER TABLE appointment_items ADD COLUMN item_notes TEXT`); } catch {}
-try { db.exec(`ALTER TABLE services ADD COLUMN notes_rate REAL`); } catch {}
-try { db.exec(`UPDATE services SET gst_type='FRE' WHERE gst_type='GST' OR gst_type IS NULL`); } catch {}
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS client_files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -531,23 +520,32 @@ try { db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `); } catch {}
-try { db.exec(`ALTER TABLE services ADD COLUMN cancel_rate_item_id INTEGER REFERENCES rate_items(id)`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN line_type TEXT DEFAULT 'service'`); } catch {}
-try { db.exec(`ALTER TABLE services ADD COLUMN cancel_code TEXT`); } catch {}
 
 // Partial unique indexes for duplicate prevention
 try { db.exec(`CREATE UNIQUE INDEX idx_practitioners_email ON practitioners(email) WHERE email IS NOT NULL AND email != ''`); } catch {}
 try { db.exec(`CREATE UNIQUE INDEX idx_clients_ndis ON clients(ndis_number) WHERE ndis_number IS NOT NULL AND ndis_number != ''`); } catch {}
 
-// Service rate periods — date-based rate sets per service (rates/codes change over time,
-// appointments pull the rate effective on their own date rather than "today's" flat value)
+// Rate periods — date-based pricing windows scoped to a funding type (NDIS, Aged Care, etc.),
+// since different schemes revise their rates on different schedules. A service can have a rate
+// row under multiple funding types at once (same clinical service, different scheme/rate/code).
 try { db.exec(`
-  CREATE TABLE IF NOT EXISTS service_rate_periods (
+  CREATE TABLE IF NOT EXISTS rate_periods (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+    funding_type_id INTEGER NOT NULL REFERENCES funding_types(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     start_date TEXT NOT NULL,
     end_date TEXT NOT NULL DEFAULT '9999-09-09',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec(`CREATE INDEX idx_rate_periods_funding_type ON rate_periods(funding_type_id)`); } catch {}
+
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS service_rates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_id INTEGER NOT NULL REFERENCES rate_periods(id) ON DELETE CASCADE,
+    service_id INTEGER NOT NULL REFERENCES services(id) ON DELETE CASCADE,
     code TEXT,
     rate REAL NOT NULL DEFAULT 0,
     travel_code TEXT,
@@ -561,29 +559,51 @@ try { db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `); } catch {}
-try { db.exec(`CREATE INDEX idx_service_rate_periods_service ON service_rate_periods(service_id)`); } catch {}
+try { db.exec(`CREATE INDEX idx_service_rates_period ON service_rates(period_id)`); } catch {}
+try { db.exec(`CREATE UNIQUE INDEX idx_service_rates_period_service ON service_rates(period_id, service_id)`); } catch {}
 
-// Backfill: one open-ended period per service from the old flat rate/code columns, then drop them.
-// Guarded on service_rate_periods being empty so this only ever runs once (before columns are dropped).
+// One-time migration from the old service-scoped service_rate_periods table (superseded — rates
+// are now grouped by funding type). Maps existing services to a funding type by name prefix
+// ("NDIS - ..." -> NDIS, "SaH - ..." -> Aged Care); anything else is left unassigned for manual
+// setup via the funding type's rate management page. Guarded so it only ever runs once.
 try {
-  const alreadyBackfilled = db.prepare('SELECT COUNT(*) AS c FROM service_rate_periods').get().c > 0;
-  const hasOldColumns = db.prepare("SELECT COUNT(*) AS c FROM pragma_table_info('services') WHERE name = 'default_rate'").get().c > 0;
-  if (!alreadyBackfilled && hasOldColumns) {
-    const services = db.prepare('SELECT * FROM services').all();
-    const insertPeriod = db.prepare(`
-      INSERT INTO service_rate_periods
-        (service_id, name, start_date, end_date, code, rate, travel_code, travel_rate_per_hour, km_code, km_rate, notes_code, notes_rate, cancel_code, gst_type)
-      VALUES (?, 'Initial Rates', '2000-01-01', '9999-09-09', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  const hasOldTable = db.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type='table' AND name='service_rate_periods'").get().c > 0;
+  const alreadyMigrated = db.prepare('SELECT COUNT(*) AS c FROM rate_periods').get().c > 0 || db.prepare('SELECT COUNT(*) AS c FROM service_rates').get().c > 0;
+  if (hasOldTable && !alreadyMigrated) {
+    const resolveFundingTypeName = name => {
+      if (/^NDIS\b/i.test(name)) return 'NDIS';
+      if (/^SaH\b/i.test(name)) return 'Aged Care';
+      return null;
+    };
+    const oldRows = db.prepare('SELECT srp.*, s.name AS service_name FROM service_rate_periods srp JOIN services s ON s.id = srp.service_id').all();
+    const findFundingType = db.prepare('SELECT id FROM funding_types WHERE name = ?');
+    const findPeriod = db.prepare('SELECT id FROM rate_periods WHERE funding_type_id = ? AND start_date = ? AND end_date = ?');
+    const insertPeriod = db.prepare('INSERT INTO rate_periods (funding_type_id, name, start_date, end_date) VALUES (?, ?, ?, ?)');
+    const insertServiceRate = db.prepare(`
+      INSERT INTO service_rates (period_id, service_id, code, rate, travel_code, travel_rate_per_hour, km_code, km_rate, notes_code, notes_rate, cancel_code, gst_type)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    for (const s of services) {
-      insertPeriod.run(s.id, s.code || null, s.default_rate || 0, s.travel_code || null, s.travel_rate_per_hour || null,
-        s.km_code || null, s.km_rate || null, s.notes_code || null, s.notes_rate || null, s.cancel_code || null, s.gst_type || 'GST');
-    }
+    db.transaction(() => {
+      const periodCache = {};
+      for (const row of oldRows) {
+        const ftName = resolveFundingTypeName(row.service_name);
+        if (!ftName) continue;
+        const ft = findFundingType.get(ftName);
+        if (!ft) continue;
+        const key = `${ft.id}|${row.start_date}|${row.end_date}`;
+        let periodId = periodCache[key];
+        if (!periodId) {
+          const existing = findPeriod.get(ft.id, row.start_date, row.end_date);
+          periodId = existing ? existing.id : insertPeriod.run(ft.id, row.name, row.start_date, row.end_date).lastInsertRowid;
+          periodCache[key] = periodId;
+        }
+        insertServiceRate.run(periodId, row.service_id, row.code, row.rate, row.travel_code, row.travel_rate_per_hour,
+          row.km_code, row.km_rate, row.notes_code, row.notes_rate, row.cancel_code, row.gst_type);
+      }
+    })();
   }
-} catch {}
+} catch (e) { console.error('rate_periods migration failed:', e); }
 
-for (const col of ['code', 'default_rate', 'travel_code', 'travel_rate_per_hour', 'km_code', 'km_rate', 'notes_code', 'notes_rate', 'cancel_code', 'gst_type', 'gst_rate', 'cancel_rate_item_id']) {
-  try { db.exec(`ALTER TABLE services DROP COLUMN ${col}`); } catch {}
-}
+try { db.exec('DROP TABLE IF EXISTS service_rate_periods'); } catch {}
 
 module.exports = db;

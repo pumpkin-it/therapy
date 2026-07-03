@@ -107,13 +107,19 @@ router.get('/to-send', auth, (req, res) => {
   const ids = rows.map(r => r.id);
   const items = ids.length
     ? db.prepare(`
-        SELECT ai.*, s.name AS service_name, srp.code AS service_code,
-          srp.travel_rate_per_hour, srp.km_rate, srp.notes_rate,
-          srp.cancel_code
+        SELECT ai.*, s.name AS service_name, sr.code AS service_code,
+          sr.travel_rate_per_hour, sr.km_rate, sr.notes_rate,
+          sr.cancel_code
         FROM appointment_items ai
         LEFT JOIN services s ON s.id = ai.service_id
         LEFT JOIN appointments ap ON ap.id = ai.appointment_id
-        LEFT JOIN service_rate_periods srp ON srp.service_id = ai.service_id AND DATE(ap.start_time) BETWEEN srp.start_date AND srp.end_date
+        LEFT JOIN funding_periods fp_direct ON fp_direct.id = ap.funding_period_id
+        LEFT JOIN funding_periods fp_date ON ap.funding_period_id IS NULL AND fp_date.client_id = ap.client_id
+          AND (fp_date.start_date IS NULL OR fp_date.start_date = '' OR fp_date.start_date <= DATE(ap.start_time))
+          AND (fp_date.end_date IS NULL OR fp_date.end_date = '' OR fp_date.end_date >= DATE(ap.start_time))
+        LEFT JOIN funding_types ft ON ft.name = COALESCE(fp_direct.funding_type, fp_date.funding_type)
+        LEFT JOIN rate_periods rp ON rp.funding_type_id = ft.id AND DATE(ap.start_time) BETWEEN rp.start_date AND rp.end_date
+        LEFT JOIN service_rates sr ON sr.period_id = rp.id AND sr.service_id = ai.service_id
         WHERE ai.appointment_id IN (${ids.map(() => '?').join(',')})
       `).all(...ids)
     : [];
@@ -271,15 +277,16 @@ router.get('/export-myob-appointments', auth, (req, res) => {
 
     const apptDate = appt.start_time ? appt.start_time.slice(0, 10) : new Date().toISOString().slice(0, 10);
     const items = db.prepare(`
-      SELECT ai.*, s.name AS service_name, srp.code AS service_code,
-        srp.travel_rate_per_hour, srp.km_rate, srp.notes_rate,
-        srp.travel_code, srp.km_code, srp.notes_code, srp.cancel_code,
-        COALESCE(srp.gst_type, 'GST') AS gst_type
+      SELECT ai.*, s.name AS service_name, sr.code AS service_code,
+        sr.travel_rate_per_hour, sr.km_rate, sr.notes_rate,
+        sr.travel_code, sr.km_code, sr.notes_code, sr.cancel_code,
+        COALESCE(sr.gst_type, 'GST') AS gst_type
       FROM appointment_items ai
       LEFT JOIN services s ON s.id = ai.service_id
-      LEFT JOIN service_rate_periods srp ON srp.service_id = ai.service_id AND ? BETWEEN srp.start_date AND srp.end_date
+      LEFT JOIN rate_periods rp ON rp.funding_type_id = ? AND ? BETWEEN rp.start_date AND rp.end_date
+      LEFT JOIN service_rates sr ON sr.period_id = rp.id AND sr.service_id = ai.service_id
       WHERE ai.appointment_id = ?
-    `).all(apptDate, apptId);
+    `).all(appt.funding_type_id, apptDate, apptId);
     if (!items.length) continue;
 
     exportedAppts.push(appt);
@@ -366,11 +373,13 @@ router.post('/generate', auth, (req, res) => {
         c.first_name || ' ' || c.last_name AS client_name, c.address AS client_address, c.email AS client_email,
         p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number, p.title AS practitioner_title,
         COALESCE(fp_direct.funds_manager_id, fp_date.funds_manager_id) AS funds_manager_id,
-        COALESCE(fp_direct.self_managed_email, fp_date.self_managed_email) AS fp_self_email
+        COALESCE(fp_direct.self_managed_email, fp_date.self_managed_email) AS fp_self_email,
+        ft.id AS funding_type_id
       FROM appointments a
       JOIN clients c ON c.id = a.client_id
       JOIN practitioners p ON p.id = a.practitioner_id
       ${FP_JOIN_DIRECT_DATE}
+      LEFT JOIN funding_types ft ON ft.name = COALESCE(fp_direct.funding_type, fp_date.funding_type)
       WHERE a.id = ? AND a.is_invoiced = 0
     `).get(apptId);
 
@@ -378,15 +387,16 @@ router.post('/generate', auth, (req, res) => {
 
     const apptDate = appt.start_time ? appt.start_time.slice(0, 10) : new Date().toISOString().slice(0, 10);
     const items = db.prepare(`
-      SELECT ai.*, s.name AS service_name, srp.code AS service_code,
-        srp.travel_rate_per_hour, srp.km_rate, srp.notes_rate,
-        srp.travel_code, srp.km_code, srp.notes_code, srp.cancel_code,
-        COALESCE(srp.gst_type, 'GST') AS gst_type
+      SELECT ai.*, s.name AS service_name, sr.code AS service_code,
+        sr.travel_rate_per_hour, sr.km_rate, sr.notes_rate,
+        sr.travel_code, sr.km_code, sr.notes_code, sr.cancel_code,
+        COALESCE(sr.gst_type, 'GST') AS gst_type
       FROM appointment_items ai
       LEFT JOIN services s ON s.id = ai.service_id
-      LEFT JOIN service_rate_periods srp ON srp.service_id = ai.service_id AND ? BETWEEN srp.start_date AND srp.end_date
+      LEFT JOIN rate_periods rp ON rp.funding_type_id = ? AND ? BETWEEN rp.start_date AND rp.end_date
+      LEFT JOIN service_rates sr ON sr.period_id = rp.id AND sr.service_id = ai.service_id
       WHERE ai.appointment_id = ?
-    `).all(apptDate, apptId);
+    `).all(appt.funding_type_id, apptDate, apptId);
 
     if (!items.length) continue;
 

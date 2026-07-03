@@ -264,8 +264,12 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
   const editing = !!appointment;
   const [practitioners, setPractitioners] = useState([]);
   const [clients, setClients] = useState([]);
-  const [services, setServices] = useState([]);
   const [locations, setLocations] = useState([]);
+  const [fundingTypes, setFundingTypes] = useState([]);
+  // Services (and their rates) are scoped to the selected funder's funding type + the
+  // appointment's date — a service only shows up here if it's priced under that scheme
+  // for that date (see FundingTypeRates.jsx). Empty until a funder is picked.
+  const [scopedServices, setScopedServices] = useState([]);
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState(editing ? appointment.id : null);
   const [error, setError] = useState('');
@@ -316,9 +320,9 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     Promise.all([
       api.get('/practitioners?role=practitioner').then(r => r.data),
       api.get('/clients').then(r => r.data),
-      api.get('/services').then(r => r.data),
+      api.get('/funding-types').then(r => r.data),
       api.get('/locations').then(r => r.data),
-    ]).then(([p, c, s, l]) => { setPractitioners(p); setClients(c); setServices(s); setLocations(l); });
+    ]).then(([p, c, ft, l]) => { setPractitioners(p); setClients(c); setFundingTypes(ft); setLocations(l); });
 
     if (editing) {
       const s = splitDT(appointment.start_time);
@@ -409,49 +413,19 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     return () => clearTimeout(t);
   }, [form.practitioner_id, form.client_id, startDate, startTime, endDate, endTime]);
 
-  // Rates are periodized by date on the service, so the correct unit_rate (and
-  // travel/km/notes rates used for the session-total estimate below) must be fetched
-  // for the appointment's own date rather than read off a flat services list value
-  // (see ServiceDetail.jsx rate periods).
-  const [rateCache, setRateCache] = useState({});
-  const pendingRateFetchRef = useRef(new Set());
+  // Resolve which funding type is in play from the selected funder, then load only the
+  // services priced under that scheme for the appointment's date — one fetch per
+  // (funding type, date) change, no per-service round trips needed.
+  const selectedFundingPeriod = fundingPeriods.find(fp => fp.id === Number(fundingPeriodId));
+  const fundingTypeId = selectedFundingPeriod
+    ? fundingTypes.find(ft => ft.name === selectedFundingPeriod.funding_type)?.id
+    : null;
 
-  const fetchRateForDate = (serviceId, date) => {
-    const key = `${serviceId}|${date}`;
-    if (rateCache[key] || pendingRateFetchRef.current.has(key)) return;
-    pendingRateFetchRef.current.add(key);
-    api.get(`/services/${serviceId}/rate-for-date`, { params: { date } })
-      .then(r => setRateCache(c => ({ ...c, [key]: r.data })))
-      .catch(() => {})
-      .finally(() => pendingRateFetchRef.current.delete(key));
-  };
-
-  const applyRateToItem = async (idx, serviceId, date) => {
-    if (!autoRateIdxRef.current.has(idx)) return;
-    fetchRateForDate(serviceId, date);
-    const key = `${serviceId}|${date}`;
-    const rate = rateCache[key];
-    if (!rate) return; // will re-apply via the rateCache effect below once the fetch resolves
-    setForm(f => {
-      const items = [...f.items];
-      if (!items[idx] || Number(items[idx].service_id) !== Number(serviceId)) return f;
-      items[idx] = { ...items[idx], unit_rate: rate.rate };
-      return { ...f, items };
-    });
-  };
-
-  // Once a pending rate-for-date fetch resolves, backfill unit_rate for any auto-filled item waiting on it
   useEffect(() => {
-    form.items.forEach((item, idx) => {
-      if (item.service_id && autoRateIdxRef.current.has(idx)) applyRateToItem(idx, item.service_id, startDate || localToday());
-    });
-  }, [rateCache]);
-
-  // Keep the display rate cache warm for every selected item's travel/km/notes rates (used by calcItemTotal)
-  useEffect(() => {
+    if (!fundingTypeId) { setScopedServices([]); return; }
     const date = startDate || localToday();
-    form.items.forEach(item => { if (item.service_id) fetchRateForDate(item.service_id, date); });
-  }, [form.items.map(i => i.service_id).join(','), startDate]);
+    api.get(`/funding-types/${fundingTypeId}/service-rates`, { params: { date } }).then(r => setScopedServices(r.data)).catch(() => setScopedServices([]));
+  }, [fundingTypeId, startDate]);
 
   const setItem = (idx, k, v) => {
     if (k === 'unit_rate') autoRateIdxRef.current.delete(idx);
@@ -459,11 +433,13 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
       const items = [...f.items];
       items[idx] = { ...items[idx], [k]: v };
       if (k === 'service_id' && v) {
-        const svc = services.find(s => s.id === Number(v));
+        const svc = scopedServices.find(s => s.service_id === Number(v));
         if (svc) {
-          items[idx].description = svc.name;
+          items[idx].description = svc.service_name;
+          items[idx].unit_rate = svc.rate;
           items[idx].quantity = sessionHours;
         }
+        autoRateIdxRef.current.add(idx);
       }
       if (k === 'service_id' && !v) {
         items[idx].quantity = 1;
@@ -472,19 +448,24 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
       }
       return { ...f, items };
     });
-    if (k === 'service_id' && v) {
-      autoRateIdxRef.current.add(idx);
-      applyRateToItem(idx, v, startDate || localToday());
-    }
   };
 
-  // Re-pull rates for services selected this session when the appointment date changes
-  // (auto-filled items only — see autoRateIdxRef)
+  // When the scoped services list refreshes (funder or date changed), re-apply the current
+  // rate for any item whose service was auto-selected this session — never touches manual
+  // overrides or rates already frozen on a loaded (existing) appointment.
   useEffect(() => {
-    form.items.forEach((item, idx) => {
-      if (item.service_id && autoRateIdxRef.current.has(idx)) applyRateToItem(idx, item.service_id, startDate || localToday());
+    setForm(f => {
+      let changed = false;
+      const items = f.items.map((item, idx) => {
+        if (!item.service_id || !autoRateIdxRef.current.has(idx)) return item;
+        const svc = scopedServices.find(s => s.service_id === Number(item.service_id));
+        if (!svc || svc.rate === item.unit_rate) return item;
+        changed = true;
+        return { ...item, unit_rate: svc.rate };
+      });
+      return changed ? { ...f, items } : f;
     });
-  }, [startDate]);
+  }, [scopedServices]);
 
   const save = async () => {
     const errors = [];
@@ -674,19 +655,19 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
 
   const calcItemTotal = (item) => {
     const base = Number(item.quantity || 0) * Number(item.unit_rate || 0);
-    const rate = item.service_id ? rateCache[`${item.service_id}|${startDate || localToday()}`] : null;
+    const svc = item.service_id ? scopedServices.find(s => s.service_id === Number(item.service_id)) : null;
     const travelTimeHrs = (Number(item.travel_time_to || 0) + Number(item.travel_time_from || 0)) / 60;
-    const travelTimeCost = travelTimeHrs * Number(rate?.travel_rate_per_hour || item.unit_rate || 0);
-    const kmCost = Number(item.travel_km || 0) * Number(rate?.km_rate || 0);
+    const travelTimeCost = travelTimeHrs * Number(svc?.travel_rate_per_hour || item.unit_rate || 0);
+    const kmCost = Number(item.travel_km || 0) * Number(svc?.km_rate || 0);
     const notesHrs = Number(item.notes_min || 0) / 60;
-    const notesCost = notesHrs * Number(rate?.notes_rate || item.unit_rate || 0);
+    const notesCost = notesHrs * Number(svc?.notes_rate || item.unit_rate || 0);
     return base + travelTimeCost + kmCost + notesCost;
   };
 
   const selectedPractitioner = practitioners.find(p => p.id === Number(form.practitioner_id));
   const filteredServices = selectedPractitioner?.discipline_id
-    ? services.filter(s => !s.discipline_id || s.discipline_id === selectedPractitioner.discipline_id)
-    : services;
+    ? scopedServices.filter(s => !s.discipline_id || s.discipline_id === selectedPractitioner.discipline_id)
+    : scopedServices;
 
   const isHome = form.location_type === 'home' || form.location_type === 'other';
 
@@ -870,10 +851,11 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <label className="text-xs text-gray-500">Service</label>
-                    <select className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                      value={item.service_id} onChange={e => setItem(idx, 'service_id', e.target.value)}>
-                      <option value="">Manual…</option>
-                      {filteredServices.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    <select className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm disabled:bg-gray-50 disabled:text-gray-400"
+                      value={item.service_id} onChange={e => setItem(idx, 'service_id', e.target.value)}
+                      disabled={!fundingTypeId}>
+                      <option value="">{fundingTypeId ? 'Manual…' : 'Select a funder first…'}</option>
+                      {filteredServices.map(s => <option key={s.service_id} value={s.service_id}>{s.service_name}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1">

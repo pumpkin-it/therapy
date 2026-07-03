@@ -14,6 +14,7 @@ import Services from './pages/Services';
 import ServiceDetail from './pages/ServiceDetail';
 import Invoices from './pages/Invoices';
 import Settings from './pages/Settings';
+import FundingTypeRates from './pages/FundingTypeRates';
 import AuditLog from './pages/AuditLog';
 import RecurringSeries from './pages/RecurringSeries';
 import RecurringSeriesDetail from './pages/RecurringSeriesDetail';
@@ -61,6 +62,7 @@ function AuthenticatedApp() {
           {p.settings && <Route path="/templates" element={<Templates />} />}
           <Route path="/audit-log" element={<AuditLog />} />
           {p.settings && <Route path="/settings" element={<Settings />} />}
+          {p.settings && <Route path="/funding-types/:id/rates" element={<FundingTypeRates />} />}
           <Route path="*" element={<Navigate to={p.calendar ? '/calendar' : p.clients ? '/clients' : p.invoices ? '/invoices' : '/audit-log'} replace />} />
         </Routes>
       </main>

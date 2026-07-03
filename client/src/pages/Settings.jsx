@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { Upload, X, Plus, Trash2, Pencil } from 'lucide-react';
+import { Upload, X, Plus, Trash2, Pencil, DollarSign } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 
 export default function Settings() {
+  const navigate = useNavigate();
   const [form, setForm] = useState({});
   const [saved, setSaved] = useState(false);
   const [logoUrl, setLogoUrl] = useState(null);
@@ -213,6 +215,7 @@ export default function Settings() {
               }`}>{ft.name}</span>
               {ft.has_ndis_management ? <span className="text-xs text-indigo-500">NDIS management</span> : null}
               <div className="ml-auto flex gap-1">
+                <button onClick={() => navigate(`/funding-types/${ft.id}/rates`)} className="text-gray-400 hover:text-gray-600" title="Manage rates"><DollarSign className="h-3.5 w-3.5" /></button>
                 <button onClick={() => setFtEdit({ id: ft.id, name: ft.name, color: ft.color, has_ndis_management: ft.has_ndis_management })} className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
                 <button onClick={() => deleteFT(ft.id)} className="text-red-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
               </div>
