@@ -45,7 +45,7 @@ app.use('/api/disciplines',     perm('services'), require('./routes/disciplines'
 app.use('/api/push',            require('./routes/push'));
 app.use('/api/audit-logs',      require('./routes/auditLogs'));
 app.use('/api/gst-rates',       perm('settings'), require('./routes/gstRates'));
-app.use('/api/funding-types',   perm('settings'), require('./routes/fundingTypes'));
+app.use('/api/funding-types',   perm('services'), require('./routes/fundingTypes'));
 app.use('/api/templates',        perm('settings'), require('./routes/templates'));
 
 // Logo is public; all other uploads require auth

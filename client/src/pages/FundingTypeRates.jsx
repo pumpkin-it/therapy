@@ -125,7 +125,7 @@ export default function FundingTypeRates() {
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3">
-        <button onClick={() => navigate('/settings')} className="text-gray-400 hover:text-gray-600">
+        <button onClick={() => navigate('/services', { state: { tab: 'funding-types' } })} className="text-gray-400 hover:text-gray-600">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <h1 className="text-2xl font-semibold flex-1">{fundingType.name} Rates</h1>

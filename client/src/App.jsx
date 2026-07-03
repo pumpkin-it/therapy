@@ -62,7 +62,7 @@ function AuthenticatedApp() {
           {p.settings && <Route path="/templates" element={<Templates />} />}
           <Route path="/audit-log" element={<AuditLog />} />
           {p.settings && <Route path="/settings" element={<Settings />} />}
-          {p.settings && <Route path="/funding-types/:id/rates" element={<FundingTypeRates />} />}
+          {p.services && <Route path="/funding-types/:id/rates" element={<FundingTypeRates />} />}
           <Route path="*" element={<Navigate to={p.calendar ? '/calendar' : p.clients ? '/clients' : p.invoices ? '/invoices' : '/audit-log'} replace />} />
         </Routes>
       </main>
