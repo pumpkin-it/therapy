@@ -28,6 +28,8 @@ function AgreementsTab({ clientId }) {
   const [activeId, setActiveId] = useState(null);
   const [active, setActive] = useState(null);
   const [sendResult, setSendResult] = useState(null);
+  const [agreementError, setAgreementError] = useState('');
+  const pricingTableRef = useRef();
 
   const load = () => api.get(`/agreements?client_id=${clientId}`).then(r => setAgreements(r.data));
   useEffect(() => { load(); api.get('/templates?type=agreement').then(r => setTemplates(r.data)); }, []);
@@ -39,29 +41,53 @@ function AgreementsTab({ clientId }) {
 
   const createAgreement = async () => {
     if (!newTemplateId) return;
-    const res = await api.post('/agreements', { client_id: clientId, template_id: newTemplateId });
-    setShowNew(false); setNewTemplateId('');
-    await load();
-    setActiveId(res.data.id);
+    setAgreementError('');
+    try {
+      const res = await api.post('/agreements', { client_id: clientId, template_id: newTemplateId });
+      setShowNew(false); setNewTemplateId('');
+      await load();
+      setActiveId(res.data.id);
+    } catch (e) {
+      setAgreementError(e.response?.data?.error || 'Failed to create agreement');
+    }
   };
 
   const finalize = async sendEmail => {
-    const res = await api.post(`/agreements/${activeId}/finalize`, { send_email: sendEmail });
-    setSendResult(sendEmail ? 'Emailed to client.' : res.data.signing_url);
-    setActive(res.data);
-    load();
+    setAgreementError('');
+    // Flush any pending pricing table edits first — otherwise a quantity/service change made
+    // just before clicking Send would silently go out with whatever was last explicitly saved.
+    if (pricingTableRef.current) {
+      const savedOk = await pricingTableRef.current.save();
+      if (!savedOk) return;
+    }
+    try {
+      const res = await api.post(`/agreements/${activeId}/finalize`, { send_email: sendEmail });
+      setSendResult(sendEmail ? 'Emailed to client.' : res.data.signing_url);
+      setActive(res.data);
+      load();
+    } catch (e) {
+      setAgreementError(e.response?.data?.error || 'Failed to send agreement');
+    }
   };
 
   const voidAgreement = async () => {
     if (!confirm('Void this agreement?')) return;
-    await api.post(`/agreements/${activeId}/void`);
-    const res = await api.get(`/agreements/${activeId}`);
-    setActive(res.data);
-    load();
+    setAgreementError('');
+    try {
+      await api.post(`/agreements/${activeId}/void`);
+      const res = await api.get(`/agreements/${activeId}`);
+      setActive(res.data);
+      load();
+    } catch (e) {
+      setAgreementError(e.response?.data?.error || 'Failed to void agreement');
+    }
   };
 
   return (
     <div className="space-y-4">
+      {agreementError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{agreementError}</div>
+      )}
       {!active && (
         <>
           <div className="flex justify-end">
@@ -99,7 +125,7 @@ function AgreementsTab({ clientId }) {
           </div>
           <p className="text-lg font-semibold text-gray-900">{active.title}</p>
 
-          <AgreementPricingTable agreement={active} onUpdate={setActive} />
+          <AgreementPricingTable ref={pricingTableRef} agreement={active} onUpdate={setActive} />
 
           {sendResult && (
             <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-800 break-all">

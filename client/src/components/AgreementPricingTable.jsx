@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
@@ -6,12 +6,14 @@ import { localToday } from '../lib/utils';
 
 const EMPTY_ITEM = { service_id: '', description: '', code: '', quantity: 1, unit_rate: 0 };
 
-export default function AgreementPricingTable({ agreement, onUpdate }) {
+const AgreementPricingTable = forwardRef(function AgreementPricingTable({ agreement, onUpdate }, ref) {
   const isDraft = agreement.status === 'draft';
   const [items, setItems] = useState(agreement.items?.length ? agreement.items.map(i => ({ ...i })) : [{ ...EMPTY_ITEM }]);
   const [scopedServices, setScopedServices] = useState([]);
   const [effectiveDate, setEffectiveDate] = useState(agreement.effective_date || localToday());
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
   // Item indices whose unit_rate was auto-filled via the service picker this session — only
   // these re-sync when the effective date changes, mirroring AppointmentModal's autoRateIdxRef.
   const autoRateIdxRef = useRef(new Set());
@@ -34,6 +36,7 @@ export default function AgreementPricingTable({ agreement, onUpdate }) {
 
   const setItem = (idx, k, v) => {
     if (k === 'unit_rate') autoRateIdxRef.current.delete(idx);
+    if (k === 'quantity' && Number.isNaN(v)) v = 0;
     setItems(rows => {
       const next = [...rows];
       next[idx] = { ...next[idx], [k]: v };
@@ -53,32 +56,58 @@ export default function AgreementPricingTable({ agreement, onUpdate }) {
   const addRow = () => setItems(rows => [...rows, { ...EMPTY_ITEM }]);
 
   const removeRow = async idx => {
+    setError('');
     const row = items[idx];
-    if (row.id) await api.delete(`/agreements/${agreement.id}/items/${row.id}`);
-    setItems(rows => rows.filter((_, i) => i !== idx));
-    autoRateIdxRef.current.delete(idx);
+    try {
+      if (row.id) await api.delete(`/agreements/${agreement.id}/items/${row.id}`);
+      setItems(rows => rows.filter((_, i) => i !== idx));
+      autoRateIdxRef.current.delete(idx);
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to remove item');
+    }
   };
 
   const changeEffectiveDate = async date => {
+    setError('');
     setEffectiveDate(date);
-    await api.patch(`/agreements/${agreement.id}`, { effective_date: date });
+    try {
+      await api.patch(`/agreements/${agreement.id}`, { effective_date: date });
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to update effective date');
+    }
   };
 
+  // Returns true/false rather than throwing, so both the button's own click handler and the
+  // parent (which needs to flush pending pricing edits before Send/Get-link) can check success
+  // without an unhandled rejection either way.
   const save = async () => {
     setSaving(true);
+    setError('');
+    setSaved(false);
     try {
       const res = await api.put(`/agreements/${agreement.id}/items`, {
         items: items.map(i => ({ service_id: i.service_id || null, description: i.description, code: i.code, quantity: i.quantity, unit_rate: i.unit_rate })),
       });
       setItems(res.data.items.map(i => ({ ...i })));
       onUpdate?.(res.data);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      return true;
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to save pricing');
+      return false;
     } finally { setSaving(false); }
   };
+
+  useImperativeHandle(ref, () => ({ save }));
 
   const grandTotal = items.reduce((s, i) => s + Number(i.quantity || 0) * Number(i.unit_rate || 0), 0);
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-4 space-y-3">
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
+      )}
       {isDraft && (
         <div className="flex items-center gap-2">
           <label className="text-xs text-gray-500">Effective date</label>
@@ -133,10 +162,13 @@ export default function AgreementPricingTable({ agreement, onUpdate }) {
           <Button variant="secondary" size="sm" onClick={addRow}><Plus className="h-3.5 w-3.5" /> Add service</Button>
         ) : <span />}
         <div className="flex items-center gap-3">
+          {saved && <span className="text-sm text-green-600">Saved</span>}
           <span className="text-sm font-semibold text-gray-900">Grand Total: ${grandTotal.toFixed(2)}</span>
           {isDraft && <Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save Pricing'}</Button>}
         </div>
       </div>
     </div>
   );
-}
+});
+
+export default AgreementPricingTable;
