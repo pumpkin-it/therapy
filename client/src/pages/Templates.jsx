@@ -268,7 +268,7 @@ function NoteTemplates() {
             <p className="text-xs text-gray-400 mt-0.5 line-clamp-2" dangerouslySetInnerHTML={{ __html: t.body }} />
           </div>
           <div className="flex gap-1 shrink-0">
-            <button onClick={() => startEdit(t)} className="p-1.5 text-gray-400 hover:text-indigo-600"><Pencil className="h-4 w-4" /></button>
+            <button onClick={() => editing?.id === t.id ? setEditing(null) : startEdit(t)} className="p-1.5 text-gray-400 hover:text-indigo-600"><Pencil className="h-4 w-4" /></button>
             <button onClick={() => remove(t.id)} className="p-1.5 text-gray-400 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
           </div>
         </div>
@@ -368,7 +368,7 @@ function AgreementTemplates() {
             <p className="text-xs text-gray-400 mt-0.5 line-clamp-2" dangerouslySetInnerHTML={{ __html: t.body }} />
           </div>
           <div className="flex gap-1 shrink-0">
-            <button onClick={() => startEdit(t)} className="p-1.5 text-gray-400 hover:text-indigo-600"><Pencil className="h-4 w-4" /></button>
+            <button onClick={() => editing?.id === t.id ? setEditing(null) : startEdit(t)} className="p-1.5 text-gray-400 hover:text-indigo-600"><Pencil className="h-4 w-4" /></button>
             {!t.is_system && <button onClick={() => remove(t.id)} className="p-1.5 text-gray-400 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>}
           </div>
         </div>
