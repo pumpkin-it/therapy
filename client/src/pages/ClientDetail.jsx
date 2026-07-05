@@ -70,6 +70,21 @@ function AgreementsTab({ clientId }) {
     }
   };
 
+  const downloadPdf = async () => {
+    setAgreementError('');
+    // Draft PDFs are rendered live from current pricing data — flush pending edits first so
+    // the preview always matches what's on screen (same reasoning as before Send/Get-link).
+    if (active.status === 'draft' && pricingTableRef.current) {
+      const savedOk = await pricingTableRef.current.save();
+      if (!savedOk) return;
+    }
+    try {
+      await downloadFile(api, `/agreements/${activeId}/pdf`, `${active.title}.pdf`);
+    } catch (e) {
+      setAgreementError(e.response?.data?.error || 'Failed to download PDF');
+    }
+  };
+
   const voidAgreement = async () => {
     if (!confirm('Void this agreement?')) return;
     setAgreementError('');
@@ -141,8 +156,10 @@ function AgreementsTab({ clientId }) {
                 <Button size="sm" variant="ghost" onClick={voidAgreement}>Void</Button>
               </>
             )}
-            {active.status !== 'draft' && active.status !== 'voided' && (
-              <Button size="sm" variant="secondary" onClick={() => downloadFile(api, `/agreements/${active.id}/pdf`, `${active.title}.pdf`)}>Download PDF</Button>
+            {active.items?.length > 0 && (
+              <Button size="sm" variant="secondary" onClick={downloadPdf}>
+                {active.status === 'draft' ? 'Preview PDF' : 'Download PDF'}
+              </Button>
             )}
           </div>
         </div>

@@ -49,6 +49,37 @@ function assertDraft(agreement, res) {
   return true;
 }
 
+// Builds the rendered HTML for an agreement from its current template + items. Used both to
+// persist the immutable snapshot at finalize time, and to render a live (unsaved) preview for
+// PDF download while still a draft.
+function renderAgreementContent(agreement, practitionerId) {
+  const template = db.prepare('SELECT * FROM templates WHERE id = ?').get(agreement.template_id);
+  const settings = getSettings();
+  const practitioner = db.prepare('SELECT first_name, last_name FROM practitioners WHERE id = ?').get(practitionerId) || {};
+  const fundingContext = getFundingPeriodContext(agreement.client_id, agreement.effective_date);
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+
+  const vars = {
+    client_name: agreement.client_name,
+    client_first_name: agreement.client_name.split(' ')[0] || '',
+    client_address: agreement.client_address || '',
+    client_email: agreement.client_email || '',
+    client_ndis_number: agreement.client_ndis_number || '',
+    practice_name: settings.practice_name || '',
+    practice_phone: settings.practice_phone || '',
+    practice_abn: settings.practice_abn || '',
+    practitioner_name: `${practitioner.first_name || ''} ${practitioner.last_name || ''}`.trim(),
+    date: fmtDate(agreement.effective_date),
+    plan_start_date: fmtDate(fundingContext.plan_start_date),
+    plan_end_date: fmtDate(fundingContext.plan_end_date),
+    funds_manager_name: fundingContext.funds_manager_name || '',
+    funds_manager_email: fundingContext.funds_manager_email || '',
+    funds_manager_phone: fundingContext.funds_manager_phone || '',
+    pricing_table: renderPricingTableHtml(agreement.items),
+  };
+  return renderTemplate(template.body, vars);
+}
+
 router.get('/', auth, (req, res) => {
   const { client_id } = req.query;
   if (!client_id) return res.status(400).json({ error: 'client_id required' });
@@ -158,31 +189,7 @@ router.post('/:id/finalize', auth, async (req, res) => {
   if (!assertDraft(agreement, res)) return;
   if (!agreement.items.length) return res.status(400).json({ error: 'Add at least one pricing item before sending' });
 
-  const template = db.prepare('SELECT * FROM templates WHERE id = ?').get(agreement.template_id);
-  const settings = getSettings();
-  const practitioner = db.prepare('SELECT first_name, last_name FROM practitioners WHERE id = ?').get(req.user.id) || {};
-  const fundingContext = getFundingPeriodContext(agreement.client_id, agreement.effective_date);
-  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
-
-  const vars = {
-    client_name: agreement.client_name,
-    client_first_name: agreement.client_name.split(' ')[0] || '',
-    client_address: agreement.client_address || '',
-    client_email: agreement.client_email || '',
-    client_ndis_number: agreement.client_ndis_number || '',
-    practice_name: settings.practice_name || '',
-    practice_phone: settings.practice_phone || '',
-    practice_abn: settings.practice_abn || '',
-    practitioner_name: `${practitioner.first_name || ''} ${practitioner.last_name || ''}`.trim(),
-    date: fmtDate(agreement.effective_date),
-    plan_start_date: fmtDate(fundingContext.plan_start_date),
-    plan_end_date: fmtDate(fundingContext.plan_end_date),
-    funds_manager_name: fundingContext.funds_manager_name || '',
-    funds_manager_email: fundingContext.funds_manager_email || '',
-    funds_manager_phone: fundingContext.funds_manager_phone || '',
-    pricing_table: renderPricingTableHtml(agreement.items),
-  };
-  const renderedHtml = renderTemplate(template.body, vars);
+  const renderedHtml = renderAgreementContent(agreement, req.user.id);
   const token = crypto.randomBytes(24).toString('hex');
 
   db.prepare(`
@@ -196,7 +203,7 @@ router.post('/:id/finalize', auth, async (req, res) => {
     await graphSend({
       to: agreement.client_email,
       subject: `Please sign: ${agreement.title}`,
-      html: `<p>Hi ${vars.client_first_name},</p><p>Please review and sign your ${agreement.title} using the link below.</p><p><a href="${signingUrl}">${signingUrl}</a></p>`,
+      html: `<p>Hi ${agreement.client_name.split(' ')[0] || ''},</p><p>Please review and sign your ${agreement.title} using the link below.</p><p><a href="${signingUrl}">${signingUrl}</a></p>`,
     });
   }
 
@@ -207,8 +214,13 @@ router.post('/:id/finalize', auth, async (req, res) => {
 router.get('/:id/pdf', auth, async (req, res) => {
   const agreement = getAgreementWithItems(req.params.id);
   if (!agreement) return res.status(404).json({ error: 'Not found' });
+  if (!agreement.items.length) return res.status(400).json({ error: 'Add at least one pricing item to preview the PDF' });
 
-  const pdf = await generateAgreementPdf(agreement);
+  // Once sent, rendered_html is the immutable snapshot of what the client is signing — always
+  // use it as-is. While still a draft there's no snapshot yet, so render a live, unsaved
+  // preview from the current template + items instead (never persisted).
+  const renderedHtml = agreement.rendered_html || renderAgreementContent(agreement, req.user.id);
+  const pdf = await generateAgreementPdf({ ...agreement, rendered_html: renderedHtml });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="${agreement.title.replace(/[^a-z0-9]+/gi, '_')}.pdf"`);
   res.send(pdf);
