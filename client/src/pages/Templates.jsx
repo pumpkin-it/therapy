@@ -60,7 +60,19 @@ function RichEditor({ defaultValue, onChange, insertRef, toolbar = 'email' }) {
     });
 
     quillRef.current = quill;
-    return () => { quill.off('text-change'); };
+    return () => {
+      quill.off('text-change');
+      // Quill's snow theme inserts the toolbar as a sibling before the container and mutates
+      // the container itself (adds .ql-container, child nodes, etc). Without undoing that, a
+      // remount of this effect (e.g. React StrictMode's dev double-invoke) re-runs `new Quill()`
+      // on top of the leftover DOM and produces a duplicate toolbar.
+      const toolbarEl = containerRef.current?.previousElementSibling;
+      if (toolbarEl?.classList.contains('ql-toolbar')) toolbarEl.remove();
+      if (containerRef.current) {
+        containerRef.current.innerHTML = '';
+        containerRef.current.removeAttribute('class');
+      }
+    };
   }, []); // intentionally empty — Quill owns this DOM node
 
   // Expose variable insertion to parent via ref
