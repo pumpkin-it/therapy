@@ -132,16 +132,40 @@ function generateInvoicePdf(data) {
   });
 }
 
+// Named HTML entities used in agreement template content (typographic punctuation, checkboxes,
+// etc.) — the client-side htmlToPlain in AppointmentModal.jsx only needs a handful of these
+// since Quill rarely emits them, but the docx-derived agreement templates use them throughout.
+const NAMED_ENTITIES = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
+  ndash: '–', mdash: '—', rsquo: '’', lsquo: '‘',
+  rdquo: '”', ldquo: '“', hellip: '…', copy: '©', reg: '®', trade: '™',
+};
+
+// pdfkit's default Helvetica font only covers the WinAnsi glyph set — it can render en-dashes
+// and curly quotes fine, but not symbol characters like the ballot-box checkbox (U+2610), which
+// would otherwise render as a missing/blank glyph. Substitute those with a PDF-safe equivalent.
+const PDF_UNSAFE_CHARS = { '☐': '[ ]', '☑': '[x]' };
+
+function decodeHtmlEntities(str) {
+  return str
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
+    .replace(/&(\w+);/g, (m, name) => NAMED_ENTITIES[name] ?? m)
+    .replace(/[☐☑]/g, ch => PDF_UNSAFE_CHARS[ch]);
+}
+
 // Strip HTML down to plain paragraphs, preserving line breaks from block elements — same
-// approach as the client-side htmlToPlain helper in AppointmentModal.jsx.
+// approach as the client-side htmlToPlain helper in AppointmentModal.jsx, plus full entity
+// decoding since PDF output (unlike a browser) never decodes HTML entities on its own.
 function htmlToPlain(html) {
   if (!html) return '';
-  return html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<\/li>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+  return decodeHtmlEntities(
+    html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n\n')
+      .replace(/<\/li>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+  )
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -161,7 +185,14 @@ function generateAgreementPdf(agreement) {
 
     const right = 545;
 
-    doc.fontSize(16).font('Helvetica-Bold').text(agreement.title, 50, 50);
+    // Logo (top left) — same placement/pattern as the invoice PDF
+    const logoPath = path.join(__dirname, '../../uploads/logo');
+    let titleY = 50;
+    if (fs.existsSync(logoPath)) {
+      try { doc.image(logoPath, 50, 40, { height: 50 }); titleY = 110; } catch {}
+    }
+
+    doc.fontSize(16).font('Helvetica-Bold').text(agreement.title, 50, titleY);
     doc.moveDown(1);
 
     const [before, after] = htmlToPlain(agreement.rendered_html.replace(/<table[\s\S]*?<\/table>/i, '\n[[PRICING_TABLE]]\n'))
