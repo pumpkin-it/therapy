@@ -15,6 +15,7 @@ function getSettings() {
 function getAgreementWithItems(id) {
   const agreement = db.prepare(`
     SELECT a.*, c.first_name || ' ' || c.last_name AS client_name, c.email AS client_email,
+      c.address AS client_address, c.ndis_number AS client_ndis_number,
       ft.name AS funding_type_name
     FROM agreements a
     JOIN clients c ON c.id = a.client_id
@@ -23,6 +24,21 @@ function getAgreementWithItems(id) {
   `).get(id);
   if (agreement) agreement.items = db.prepare('SELECT * FROM agreement_items WHERE agreement_id = ? ORDER BY sort_order, id').all(id);
   return agreement;
+}
+
+// The active funding period (with its funds manager, if any) as of the agreement's effective
+// date — same "most recent period covering this date" logic used elsewhere (clients.js, etc.)
+function getFundingPeriodContext(clientId, date) {
+  return db.prepare(`
+    SELECT fp.start_date AS plan_start_date, fp.end_date AS plan_end_date,
+      fm.name AS funds_manager_name, fm.email AS funds_manager_email, fm.phone AS funds_manager_phone
+    FROM funding_periods fp
+    LEFT JOIN funds_managers fm ON fm.id = fp.funds_manager_id
+    WHERE fp.client_id = ?
+      AND (fp.start_date IS NULL OR fp.start_date = '' OR fp.start_date <= ?)
+      AND (fp.end_date IS NULL OR fp.end_date = '' OR fp.end_date >= ?)
+    ORDER BY fp.start_date DESC LIMIT 1
+  `).get(clientId, date, date) || {};
 }
 
 function assertDraft(agreement, res) {
@@ -145,13 +161,25 @@ router.post('/:id/finalize', auth, async (req, res) => {
   const template = db.prepare('SELECT * FROM templates WHERE id = ?').get(agreement.template_id);
   const settings = getSettings();
   const practitioner = db.prepare('SELECT first_name, last_name FROM practitioners WHERE id = ?').get(req.user.id) || {};
+  const fundingContext = getFundingPeriodContext(agreement.client_id, agreement.effective_date);
+  const fmtDate = d => d ? new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
 
   const vars = {
     client_name: agreement.client_name,
     client_first_name: agreement.client_name.split(' ')[0] || '',
+    client_address: agreement.client_address || '',
+    client_email: agreement.client_email || '',
+    client_ndis_number: agreement.client_ndis_number || '',
     practice_name: settings.practice_name || '',
+    practice_phone: settings.practice_phone || '',
+    practice_abn: settings.practice_abn || '',
     practitioner_name: `${practitioner.first_name || ''} ${practitioner.last_name || ''}`.trim(),
-    date: new Date(agreement.effective_date).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }),
+    date: fmtDate(agreement.effective_date),
+    plan_start_date: fmtDate(fundingContext.plan_start_date),
+    plan_end_date: fmtDate(fundingContext.plan_end_date),
+    funds_manager_name: fundingContext.funds_manager_name || '',
+    funds_manager_email: fundingContext.funds_manager_email || '',
+    funds_manager_phone: fundingContext.funds_manager_phone || '',
     pricing_table: renderPricingTableHtml(agreement.items),
   };
   const renderedHtml = renderTemplate(template.body, vars);

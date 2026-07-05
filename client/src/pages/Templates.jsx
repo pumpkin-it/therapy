@@ -19,7 +19,12 @@ const EMAIL_VARS = {
 };
 
 const NOTE_VARS = ['client_name', 'client_first_name', 'practitioner_name', 'date', 'next_appointment', 'practice_name'];
-const AGREEMENT_VARS = ['client_name', 'client_first_name', 'practitioner_name', 'practice_name', 'date', 'pricing_table'];
+const AGREEMENT_VARS = [
+  'client_name', 'client_first_name', 'client_address', 'client_email', 'client_ndis_number',
+  'practitioner_name', 'practice_name', 'practice_phone', 'practice_abn', 'date',
+  'plan_start_date', 'plan_end_date', 'funds_manager_name', 'funds_manager_email', 'funds_manager_phone',
+  'pricing_table',
+];
 
 // ─── Rich text editor (Quill) ─────────────────────────────────────────────────
 function RichEditor({ defaultValue, onChange, insertRef, toolbar = 'email' }) {

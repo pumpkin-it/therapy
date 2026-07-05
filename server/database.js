@@ -658,16 +658,112 @@ try { db.exec(`CREATE INDEX idx_agreement_items_agreement ON agreement_items(agr
 // telling the UI whether to show the pricing-table builder for agreements from this template.
 try { db.exec(`ALTER TABLE templates ADD COLUMN has_pricing_table INTEGER DEFAULT 0`); } catch {}
 
+const SERVICE_AGREEMENT_PLACEHOLDER_BODY =
+  '<p>This Service Agreement is made between {{practice_name}} and {{client_name}} on {{date}}.</p>' +
+  '<p>{{practice_name}} agrees to provide the services listed below to {{client_name}}, at the rates specified.</p>' +
+  '{{pricing_table}}' +
+  '<p>By signing below, {{client_name}} agrees to the terms of this Service Agreement.</p>';
+
+const SERVICE_AGREEMENT_BODY = `
+<p><strong>{{practice_name}} &ndash; ABN {{practice_abn}}</strong></p>
+<p><strong>SERVICE AGREEMENT AND CONSENT</strong></p>
+<p>Welcome to {{practice_name}}, your trusted therapy provider. We&rsquo;re delighted to have you as part of our community. As a participant in the National Disability Insurance Scheme (NDIS), we are here to provide you with Occupational Therapy services.</p>
+<p>This agreement outlines our partnership, ensuring alignment with NDIS guidelines and your personal goals. You have the flexibility to cancel this agreement at any time by calling us at {{practice_phone}}. Our priority is to make your experience with us positive, supportive, and tailored to your needs.</p>
+<p>We look forward to working together and making meaningful progress!</p>
+<p><strong>About You</strong></p>
+<p><strong>Your Name</strong> {{client_name}}</p>
+<p><strong>Address</strong> {{client_address}}</p>
+<p>Email Address {{client_email}} &nbsp; NDIS Number {{client_ndis_number}}</p>
+<p><strong>Your Therapy Supports</strong></p>
+<p>Here&rsquo;s how your funds will be allocated:</p>
+{{pricing_table}}
+<p><strong>Dates of the Plan</strong> {{plan_start_date}} to {{plan_end_date}}</p>
+<p><strong>Dates of this Agreement</strong> {{date}} to _________</p>
+<p><strong>Travel</strong></p>
+<p>Feel free to discuss your therapy session location with your therapist. Travel time will be charged to and from the appointment at the rate specified in the pricing table above. Kilometre charges also apply on top of travel time.</p>
+<p><strong>Non-Face-to-Face Activities</strong></p>
+<p>It&rsquo;s important to note that some activities, like creating resources and necessary report writing, are essential for helping you achieve your goals. We&rsquo;ll discuss these activities with you, seek your approval before proceeding, and keep you informed throughout. Remember, there&rsquo;ll be a charge for the practitioner&rsquo;s time to complete these activities, but it&rsquo;s all part of the personalised support to ensure you reach your milestones smoothly.</p>
+<p><strong>How Therapy Support Payments Work</strong></p>
+<p>Your therapy is planned to assist you in reaching your goals, and we want to ensure a clear and straightforward payment process. We use the current price outlined in this service agreement. If there are any changes to the pricing, we&rsquo;ll make sure to update you accordingly.</p>
+<p>We&rsquo;re here to provide therapy within the agreed budget. It&rsquo;s your responsibility to ensure these funds are available in your NDIS plan and allocated for use with us.</p>
+<p>If anything changes in your NDIS plan or if the therapy funds are used differently, let us know right away. If the funds are no longer available and therapy continues without notice, you&rsquo;d be responsible for covering the cost.</p>
+<p>NDIS payments come in three options, and your plan will specify which one applies to you. Take a moment to indicate the preferred payment option on your plan. We&rsquo;re here to make the payment process as easy as possible as you work towards your goals!</p>
+<p>&#9744; <strong>NDIA-Managed.</strong> The NDIA (National Disability Insurance Agency) will pay your support provider directly for these supports. This means the NDIA will pay {{practice_name}} directly for your therapy.</p>
+<p>Please ensure that you&rsquo;ve added {{practice_name}} as an endorsed provider on the PACE system to enable us to claim payment for services delivered. If you&rsquo;re unsure how to do this, please call {{practice_name}} directly on {{practice_phone}} and we can assist you with this.</p>
+<p>&#9744; <strong>Self-Managed.</strong> The NDIA will pay you directly for these supports. This means {{practice_name}} will send you an invoice which you will pay using the money given to you by the NDIA.</p>
+<p>&#9744; <strong>Plan-Managed.</strong> The NDIA will pay your plan manager for these supports. {{practice_name}} will send invoices to your plan manager and they will then pay {{practice_name}}. The details for my plan manager are:</p>
+<p><strong>Organisation</strong> {{funds_manager_name}}</p>
+<p><strong>Contact Email</strong> {{funds_manager_email}} &nbsp; <strong>Contact Number</strong> {{funds_manager_phone}}</p>
+<p><strong>Your Experience with {{practice_name}}</strong></p>
+<ul>
+<li>We&rsquo;ll only offer services approved by the NDIA.</li>
+<li>You&rsquo;ll be an active decision maker about your services; your preferences matter to us.</li>
+<li>We welcome you to include any others in your session if it&rsquo;s important to you.</li>
+<li>We&rsquo;ll keep you in the loop about any changes, like a switch in therapist.</li>
+<li>Your privacy matters: we seek your consent before sharing any information with a third party.</li>
+<li>Your comfort and preferences matter to us. We strive to accommodate any access or cultural preferences you may have, such as language preferences.</li>
+<li>Expect nothing less than politeness and respect in every interaction.</li>
+<li>Your feedback is crucial; we&rsquo;re here to listen and support, whether positive or a complaint. It guides our continuous improvement to better improve your needs.</li>
+<li>We keep detailed clinical notes about your therapy.</li>
+<li>Travel costs will be calculated and charged according to the details in this agreement, and if there are any changes to pricing, we will always notify you before applying them.</li>
+<li>We&rsquo;re sticklers for rules and laws.</li>
+<li>We will respond to any incidents that have been reported to us within 48 hours.</li>
+</ul>
+<p><strong>Our Commitment to Continuous Support</strong></p>
+<p>Ensuring your journey with us stays smooth is a top priority at {{practice_name}}. We&rsquo;re committed to providing consistent services, as we believe it&rsquo;s the key to reaching your goals. However, we understand that life can bring unexpected changes, such as a therapist&rsquo;s departure, illness, or unforeseen events like government restrictions or natural disasters.</p>
+<p>If we anticipate any potential bumps in the road that might affect your services, our team will get in touch. Together, we can explore a few options based on your therapy plan:</p>
+<ul>
+<li>Shifting your appointment to a time that suits you better.</li>
+<li>Changing the location of your session to slot you in with another fantastic therapist.</li>
+<li>Adapting from a face-to-face session to teletherapy, as long as it&rsquo;s suitable for you and your therapist.</li>
+</ul>
+<p>To make sure everyone&rsquo;s on the same page, our practitioners keep detailed clinical notes that are shared within the team and accessible whenever you need them. We&rsquo;re here for you, come what may!</p>
+<p><strong>Partnering for Better Support</strong></p>
+<p>As a valued member of our community, your active collaboration is key to making everything run smoothly. Here&rsquo;s what we ask of you:</p>
+<ul>
+<li>Keep us in the loop if there are any changes to your NDIS plan or if you decide to step back from using the NDIS.</li>
+<li>Let us know before arranging the same therapy services with another organisation.</li>
+<li>Keep an eye on your NDIS therapy funds, and if there&rsquo;s a change from what we&rsquo;ve agreed here, let us know quickly.</li>
+<li>Let us know if there are no funds available anymore.</li>
+<li>Keep everyone safe! If there&rsquo;s anything that might pose a risk for our therapist during their visit, please let us know.</li>
+<li>If there&rsquo;s an incident that occurs involving one of our services or if there&rsquo;s anything about our service that doesn&rsquo;t sit right with you, please tell us. Your feedback matters!</li>
+<li>Just a gentle reminder to keep things polite and respectful in all our interactions.</li>
+</ul>
+<p>Thanks for your cooperation.</p>
+<p><strong>Appointment Cancellations</strong></p>
+<p>If you need to cancel an appointment, tell us at least two business days ahead (not counting weekends or public holidays), and you won&rsquo;t be charged a cancellation fee.</p>
+<p>Late cancellations will incur a fee of the appointment duration if the therapist has not travelled to the appointment. Late cancellations for the appointment and travel will be charged if the therapist has arrived at the location and the service is cancelled.</p>
+<p>We will notify you if we have charged for cancellation and discuss ways to minimise future cancellations. If you have any questions, contact {{practice_name}} on {{practice_phone}}.</p>
+<p><strong>Making Changes to Your Service Agreement</strong></p>
+<p>Please remember, you have the flexibility to adjust the hours allocated to your services in this agreement.</p>
+<p>If you&rsquo;re thinking of making a change, please discuss with your therapist. They&rsquo;ll help you make the adjustments and record these changes on your file, keeping everything on the same page for you and your team.</p>
+<p>By signing below, we&rsquo;re on the same page and agreeing to what&rsquo;s laid out in this document.</p>
+<p>Please tick if yes:</p>
+<p>&#9744; I&rsquo;ve understood and accepted the terms and conditions in this service agreement.</p>
+<p>&#9744; I&rsquo;ve agreed to the collection, storage and sharing of my personal info.</p>
+<p><strong>Name</strong> {{client_name}}</p>
+<p><strong>Signature</strong> ____________________________________________________________</p>
+<p><strong>Date</strong> {{date}}</p>
+<p><strong>{{practice_name}} Representative</strong></p>
+<p><strong>Name</strong> {{practitioner_name}}</p>
+<p><strong>Signature</strong> ____________________________________________________________</p>
+<p><strong>Date</strong> {{date}}</p>
+<p><strong>Contact Us</strong></p>
+<p>We&rsquo;re here to help. Call us on {{practice_phone}} with any questions about this agreement.</p>
+`.trim();
+
 try {
   db.prepare(`
     INSERT OR IGNORE INTO templates (type, code, name, subject, body, is_system, has_pricing_table)
     VALUES ('agreement', 'service_agreement', 'Service Agreement', NULL, ?, 1, 1)
-  `).run(
-    '<p>This Service Agreement is made between {{practice_name}} and {{client_name}} on {{date}}.</p>' +
-    '<p>{{practice_name}} agrees to provide the services listed below to {{client_name}}, at the rates specified.</p>' +
-    '{{pricing_table}}' +
-    '<p>By signing below, {{client_name}} agrees to the terms of this Service Agreement.</p>'
-  );
+  `).run(SERVICE_AGREEMENT_BODY);
+} catch {}
+
+// One-time content upgrade for installs that already seeded the original placeholder body
+// (guarded on an exact match so a practitioner's own edits are never overwritten).
+try {
+  db.prepare(`UPDATE templates SET body = ? WHERE code = 'service_agreement' AND body = ?`)
+    .run(SERVICE_AGREEMENT_BODY, SERVICE_AGREEMENT_PLACEHOLDER_BODY);
 } catch {}
 
 module.exports = db;
