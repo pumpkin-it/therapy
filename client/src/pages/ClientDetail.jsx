@@ -21,6 +21,8 @@ const AGREEMENT_STATUS_COLOR = {
 };
 
 function AgreementsTab({ clientId }) {
+  const { user } = useAuth();
+  const canManageTemplates = !!user?.permissions?.settings;
   const { timezone } = useSettings();
   const [agreements, setAgreements] = useState([]);
   const [templates, setTemplates] = useState([]);
@@ -150,10 +152,12 @@ function AgreementsTab({ clientId }) {
       )}
       {!active && (
         <>
-          <div className="flex justify-end">
-            <Button size="sm" onClick={() => setShowNew(s => !s)}><Plus className="h-3.5 w-3.5" /> New agreement</Button>
-          </div>
-          {showNew && (
+          {canManageTemplates && (
+            <div className="flex justify-end">
+              <Button size="sm" onClick={() => setShowNew(s => !s)}><Plus className="h-3.5 w-3.5" /> New agreement</Button>
+            </div>
+          )}
+          {showNew && canManageTemplates && (
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex items-center gap-2">
               <select className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm"
                 value={newTemplateId} onChange={e => setNewTemplateId(e.target.value)}>
@@ -343,6 +347,9 @@ function AddFundsManagerInline({ initialName, onClose, onSaved }) {
 const EMPTY_PERIOD = { funding_type: '', funds_manager_id: '', client_identifier: '', start_date: '', end_date: '', ndis_management: '', self_managed_email: '' };
 
 function FundingTab({ clientId }) {
+  const { user } = useAuth();
+  const canEdit = !!user?.permissions?.funding_periods;
+  const canAddFunder = !!user?.permissions?.funds_managers;
   const [periods, setPeriods] = useState([]);
   const [fundsManagers, setFundsManagers] = useState([]);
   const [editing, setEditing] = useState(null);
@@ -418,10 +425,12 @@ function FundingTab({ clientId }) {
               {p.self_managed_email && <p className="text-xs text-gray-500">Invoice email: {p.self_managed_email}</p>}
               {p.client_identifier && <p className="text-xs text-gray-500">Client ID: {p.client_identifier}</p>}
             </div>
-            <div className="flex gap-1 shrink-0">
-              <button onClick={() => openEdit(p)} className="text-gray-400 hover:text-gray-600 p-1"><Pencil className="h-3.5 w-3.5" /></button>
-              <button onClick={() => remove(p.id)} className="text-red-300 hover:text-red-500 p-1"><Trash2 className="h-3.5 w-3.5" /></button>
-            </div>
+            {canEdit && (
+              <div className="flex gap-1 shrink-0">
+                <button onClick={() => openEdit(p)} className="text-gray-400 hover:text-gray-600 p-1"><Pencil className="h-3.5 w-3.5" /></button>
+                <button onClick={() => remove(p.id)} className="text-red-300 hover:text-red-500 p-1"><Trash2 className="h-3.5 w-3.5" /></button>
+              </div>
+            )}
           </div>
         </div>
       ))}
@@ -455,13 +464,13 @@ function FundingTab({ clientId }) {
             ) : (
               <div className="space-y-1">
                 <label className="block text-sm font-medium text-gray-700">Funder <span className="text-gray-400">(optional)</span></label>
-                <SearchSelect options={fmOptions} value={form.funds_manager_id} onChange={v => set('funds_manager_id', v)} placeholder="None" onAddNew={handleAddFM} addNewLabel="Add funder" />
+                <SearchSelect options={fmOptions} value={form.funds_manager_id} onChange={v => set('funds_manager_id', v)} placeholder="None" onAddNew={canAddFunder ? handleAddFM : undefined} addNewLabel="Add funder" />
               </div>
             )}
             {ndisTypes.includes(form.funding_type) && form.ndis_management === 'plan' && (
               <div className="col-span-2 space-y-1">
                 <label className="block text-sm font-medium text-gray-700">Plan manager</label>
-                <SearchSelect options={fmOptions} value={form.funds_manager_id} onChange={v => set('funds_manager_id', v)} placeholder="Select funder…" onAddNew={handleAddFM} addNewLabel="Add funder" />
+                <SearchSelect options={fmOptions} value={form.funds_manager_id} onChange={v => set('funds_manager_id', v)} placeholder="Select funder…" onAddNew={canAddFunder ? handleAddFM : undefined} addNewLabel="Add funder" />
               </div>
             )}
             {ndisTypes.includes(form.funding_type) && form.ndis_management === 'self' && (
@@ -486,7 +495,7 @@ function FundingTab({ clientId }) {
             </Button>
           </div>
         </div>
-      ) : (
+      ) : canEdit && (
         <Button variant="secondary" size="sm" onClick={openAdd}><Plus className="h-3.5 w-3.5" /> Add funding period</Button>
       )}
 
@@ -629,7 +638,9 @@ function SessionNotesTab({ clientId, client }) {
   const load = () => api.get(`/session-notes?client_id=${clientId}`).then(r => setNotes(r.data));
   useEffect(() => {
     load();
-    api.get('/templates?type=session_note').then(r => setNoteTemplates(r.data)).catch(() => {});
+    if (user?.permissions?.settings) {
+      api.get('/templates?type=session_note').then(r => setNoteTemplates(r.data)).catch(() => {});
+    }
     const today = new Date().toISOString().slice(0, 10);
     api.get(`/appointments?client_id=${clientId}&from=${today}`)
       .then(r => {

@@ -6,12 +6,15 @@ import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import AppointmentModal from '../components/AppointmentModal';
 import { useSettings } from '../context/SettingsContext';
+import { useAuth } from '../context/AuthContext';
 import { currency, fmtDate, localToday, downloadFile } from '../lib/utils';
 
 const STATUS_COLOR = { draft:'gray', sent:'blue', paid:'green', void:'gray' };
 
 // ─── To Send tab ─────────────────────────────────────────────────────────────
 function ToSendTab({ mode }) {
+  const { user } = useAuth();
+  const canViewClients = !!user?.permissions?.clients;
   const exportOnlyMode = mode === 'export_only';
   const [appointments, setAppointments] = useState([]);
   const [clients, setClients] = useState([]);
@@ -57,7 +60,7 @@ function ToSendTab({ mode }) {
   };
 
   useEffect(() => {
-    api.get('/clients?active=all').then(r => setClients(r.data));
+    if (canViewClients) api.get('/clients?active=all').then(r => setClients(r.data));
     api.get('/practitioners?role=practitioner').then(r => setPractitioners(r.data));
   }, []);
   useEffect(() => { load(); setSelected([]); }, [weekOffset, clientFilter, practFilter, viewAll]);
@@ -109,11 +112,13 @@ function ToSendTab({ mode }) {
         )}
         {viewAll && <span className="text-sm font-medium text-gray-700">All outstanding, oldest first</span>}
 
-        <select className="ml-auto rounded-lg border border-gray-300 px-2 py-1.5 text-sm" value={clientFilter} onChange={e => setClientFilter(e.target.value)}>
-          <option value="">All clients</option>
-          {clients.map(c => <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>)}
-        </select>
-        <select className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm" value={practFilter} onChange={e => setPractFilter(e.target.value)}>
+        {canViewClients && (
+          <select className="ml-auto rounded-lg border border-gray-300 px-2 py-1.5 text-sm" value={clientFilter} onChange={e => setClientFilter(e.target.value)}>
+            <option value="">All clients</option>
+            {clients.map(c => <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>)}
+          </select>
+        )}
+        <select className={`rounded-lg border border-gray-300 px-2 py-1.5 text-sm ${canViewClients ? '' : 'ml-auto'}`} value={practFilter} onChange={e => setPractFilter(e.target.value)}>
           <option value="">All practitioners</option>
           {practitioners.map(p => <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>)}
         </select>

@@ -360,16 +360,39 @@ const defaults = {
   invoice_reminder_interval_days: '7',
   invoicing_mode: 'generate',
   role_permissions: JSON.stringify({
-    owner:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:true },
-    admin:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:false },
-    practitioner: { calendar:true, clients:true, users:false, funds_managers:false, locations:true, services:true, invoices:false, settings:false },
-    finance:      { calendar:false, clients:true, users:false, funds_managers:true, locations:false, services:true, invoices:true, settings:false },
+    owner:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:true, funding_periods:true },
+    admin:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:false, funding_periods:true },
+    practitioner: { calendar:true, clients:true, users:false, funds_managers:false, locations:true, services:true, invoices:false, settings:false, funding_periods:false },
+    finance:      { calendar:false, clients:true, users:false, funds_managers:true, locations:false, services:true, invoices:true, settings:false, funding_periods:true },
   }),
 };
 
 const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
 for (const [key, value] of Object.entries(defaults)) {
   insertSetting.run(key, value);
+}
+
+// Backfill the funding_periods permission key into an already-existing role_permissions row —
+// INSERT OR IGNORE above only seeds a brand-new settings row, so a deployed instance's existing
+// customized permissions need this key merged in without touching anything else already set.
+{
+  const FUNDING_PERIODS_DEFAULT = { owner: true, admin: true, practitioner: false, finance: true };
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'role_permissions'").get();
+  if (row) {
+    try {
+      const perms = JSON.parse(row.value);
+      let changed = false;
+      for (const role of Object.keys(perms)) {
+        if (perms[role].funding_periods === undefined) {
+          perms[role].funding_periods = FUNDING_PERIODS_DEFAULT[role] ?? false;
+          changed = true;
+        }
+      }
+      if (changed) {
+        db.prepare("UPDATE settings SET value = ? WHERE key = 'role_permissions'").run(JSON.stringify(perms));
+      }
+    } catch {}
+  }
 }
 
 // Seed default funding types

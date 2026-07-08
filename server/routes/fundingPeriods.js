@@ -1,8 +1,9 @@
 const router = require('express').Router();
 const db = require('../database');
 const auth = require('../middleware/auth');
+const perm = require('../middleware/requirePermission');
 
-router.get('/', auth, (req, res) => {
+router.get('/', auth, perm('clients'), (req, res) => {
   const { client_id } = req.query;
   if (!client_id) return res.status(400).json({ error: 'client_id required' });
   const periods = db.prepare(`
@@ -15,7 +16,7 @@ router.get('/', auth, (req, res) => {
   res.json(periods);
 });
 
-router.post('/', auth, (req, res) => {
+router.post('/', auth, perm('funding_periods'), (req, res) => {
   const { client_id, funding_type, funds_manager_id, start_date, end_date, ndis_management, self_managed_email } = req.body;
 
   // Check for overlaps (only when both periods have dates)
@@ -45,7 +46,7 @@ router.post('/', auth, (req, res) => {
   `).get(result.lastInsertRowid));
 });
 
-router.patch('/:id', auth, (req, res) => {
+router.patch('/:id', auth, perm('funding_periods'), (req, res) => {
   const { funding_type, funds_manager_id, client_identifier, start_date, end_date, ndis_management, self_managed_email } = req.body;
   const existing = db.prepare('SELECT client_id FROM funding_periods WHERE id = ?').get(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Not found' });
@@ -75,7 +76,7 @@ router.patch('/:id', auth, (req, res) => {
   `).get(req.params.id));
 });
 
-router.delete('/:id', auth, (req, res) => {
+router.delete('/:id', auth, perm('funding_periods'), (req, res) => {
   db.prepare('DELETE FROM funding_periods WHERE id = ?').run(req.params.id);
   res.status(204).send();
 });
