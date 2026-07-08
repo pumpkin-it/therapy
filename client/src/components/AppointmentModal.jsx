@@ -1098,8 +1098,23 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
           </div>
         )}
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
       </div>
+
+      {/* Error popup — validation failures and save/API errors alike, always front-and-center
+          rather than an easy-to-miss inline message at the bottom of a scrollable form. */}
+      {error && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+            <div className="flex items-start gap-3">
+              <TriangleAlert className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+              <p className="text-sm text-gray-700">{error}</p>
+            </div>
+            <div className="flex justify-end">
+              <Button size="sm" onClick={() => setError('')}>OK</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Series edit prompt — this only or all future */}
       {seriesEditPrompt && (
