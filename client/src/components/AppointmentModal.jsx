@@ -376,9 +376,12 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
       setFundingPeriods(fps);
       if (editing && appointment.funding_period_id) return;
       if (fps.length === 1) { setFundingPeriodId(fps[0].id); return; }
+      // Only auto-select when exactly one period actually covers this appointment's date —
+      // if multiple funding periods are valid for that date, leave it blank so the (now
+      // mandatory) funder field forces an explicit choice rather than silently picking one.
       const apptDate = startDate || localToday();
-      const match = fps.find(fp => (!fp.start_date || fp.start_date <= apptDate) && (!fp.end_date || fp.end_date >= apptDate));
-      setFundingPeriodId(match ? match.id : '');
+      const matches = fps.filter(fp => (!fp.start_date || fp.start_date <= apptDate) && (!fp.end_date || fp.end_date >= apptDate));
+      setFundingPeriodId(matches.length === 1 ? matches[0].id : '');
     }).catch(() => setFundingPeriods([]));
   }, [form.client_id]);
 
@@ -497,6 +500,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     const errors = [];
     if (!form.practitioner_id) errors.push('Practitioner');
     if (!form.client_id) errors.push('Client');
+    if (fundingPeriods.length > 0 && !fundingPeriodId) errors.push('Funder');
     if (!startDate || !startTime) errors.push('Start date/time');
     if (!endDate || !endTime) errors.push('End date/time');
     if (recurrence.enabled && recurrence.endType === 'on' && !recurrence.until) errors.push('Repeat end date');
