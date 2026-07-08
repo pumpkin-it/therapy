@@ -127,7 +127,7 @@ function generateAll() {
 router.get('/', auth, (req, res) => {
   const { active } = req.query;
   const where = active === '0' ? 'WHERE rs.active=0' : active === 'all' ? '' : 'WHERE rs.active=1';
-  const rows = db.prepare(`${SERIES_SELECT} ${where} ORDER BY rs.created_at DESC`).all();
+  const rows = db.prepare(`${SERIES_SELECT} ${where} ORDER BY c.last_name, c.first_name`).all();
   // Attach appointment count and next upcoming
   for (const r of rows) {
     r.appointment_count = db.prepare('SELECT COUNT(*) as cnt FROM appointments WHERE series_id=?').get(r.id).cnt;
