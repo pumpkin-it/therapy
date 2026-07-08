@@ -6,6 +6,7 @@ const audit = require('../services/audit');
 const { renderTemplate, graphSend } = require('../services/mailer');
 const { renderPricingTableHtml } = require('../services/templateVars');
 const { generateAgreementPdf } = require('../services/pdf');
+const { getAgreementSpend } = require('../services/budgets');
 
 function getSettings() {
   const rows = db.prepare('SELECT key, value FROM settings').all();
@@ -117,10 +118,11 @@ router.post('/', auth, (req, res) => {
     : null;
 
   const effectiveDate = new Date().toISOString().slice(0, 10);
+  const { start_date, end_date, budget_amount } = req.body;
   const result = db.prepare(`
-    INSERT INTO agreements (client_id, template_id, funding_type_id, effective_date, title, status, created_by)
-    VALUES (?, ?, ?, ?, ?, 'draft', ?)
-  `).run(client_id, template_id, fundingType?.id || null, effectiveDate, template.name, req.user.id);
+    INSERT INTO agreements (client_id, template_id, funding_type_id, effective_date, start_date, end_date, budget_amount, title, status, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+  `).run(client_id, template_id, fundingType?.id || null, effectiveDate, start_date || effectiveDate, end_date || null, budget_amount || null, template.name, req.user.id);
 
   audit.log('agreement', result.lastInsertRowid, 'created', `Agreement "${template.name}" drafted for ${client.first_name} ${client.last_name}`);
   res.status(201).json(getAgreementWithItems(result.lastInsertRowid));
@@ -131,10 +133,26 @@ router.patch('/:id', auth, (req, res) => {
   if (!agreement) return res.status(404).json({ error: 'Not found' });
   if (!assertDraft(agreement, res)) return;
 
-  const { effective_date, title } = req.body;
-  db.prepare('UPDATE agreements SET effective_date = ?, title = ? WHERE id = ?')
-    .run(effective_date || agreement.effective_date, title || agreement.title, agreement.id);
+  const { effective_date, title, start_date, end_date, budget_amount } = req.body;
+  db.prepare(`
+    UPDATE agreements SET effective_date = ?, title = ?, start_date = ?, end_date = ?, budget_amount = ? WHERE id = ?
+  `).run(
+    effective_date || agreement.effective_date,
+    title || agreement.title,
+    start_date !== undefined ? (start_date || null) : agreement.start_date,
+    end_date !== undefined ? (end_date || null) : agreement.end_date,
+    budget_amount !== undefined ? (budget_amount || null) : agreement.budget_amount,
+    agreement.id
+  );
   res.json(getAgreementWithItems(agreement.id));
+});
+
+// Non-blocking budget/spend summary for this agreement's own [start_date, end_date-or-today]
+// coverage window — invoiced (from invoice_items) + projected (uninvoiced appointment_items).
+router.get('/:id/spend', auth, (req, res) => {
+  const agreement = db.prepare('SELECT * FROM agreements WHERE id = ?').get(req.params.id);
+  if (!agreement) return res.status(404).json({ error: 'Not found' });
+  res.json(getAgreementSpend(agreement.id));
 });
 
 // Bulk replace-in-place for pricing table rows — draft-only, server recomputes line_total

@@ -9,8 +9,10 @@ import { cn } from '../lib/utils';
 import Button from '../components/ui/Button';
 import AppointmentModal from '../components/AppointmentModal';
 import { DayView, WeekView, MonthView } from '../components/CalendarViews';
+import { useAuth } from '../context/AuthContext';
 
 export default function Calendar() {
+  const { user } = useAuth();
   const [date, setDate] = useState(startOfDay(new Date()));
   const [view, setView] = useState('week');
   const [appointments, setAppointments] = useState([]);
@@ -39,6 +41,12 @@ export default function Calendar() {
 
   useEffect(() => { api.get('/practitioners?role=practitioner').then(r => setPractitioners(r.data)); }, []);
   useEffect(() => { load(); }, [dateStr, view]);
+
+  // Practitioners default to seeing only their own appointments — the dropdown still lets
+  // them switch to "All" or another practitioner. Owners/admins default to "All" as before.
+  useEffect(() => {
+    if (user?.role === 'practitioner') setPractitionerFilter(String(user.id));
+  }, [user]);
 
   const nav = delta => {
     if (view === 'day')   setDate(d => addDays(d, delta));

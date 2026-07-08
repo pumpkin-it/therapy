@@ -249,4 +249,39 @@ function generateAgreementPdf(agreement) {
   });
 }
 
-module.exports = { generateInvoicePdf, generateAgreementPdf };
+// Renders one or more session notes (already loaded with practitioner_name/created_at) into a
+// simple PDF for download or emailing to a client/third party. Notes are plain text (not Quill
+// HTML), so no htmlToPlain step is needed.
+function generateSessionNotePdf({ client_name, notes }) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 50, size: 'A4' });
+    const chunks = [];
+    doc.on('data', c => chunks.push(c));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    const right = 545;
+
+    doc.fontSize(16).font('Helvetica-Bold').text('Session Notes', 50, 50);
+    doc.fontSize(10).font('Helvetica').fillColor('#555').text(client_name, 50, doc.y + 4);
+    doc.moveDown(1.5);
+
+    for (const note of notes || []) {
+      const dateLabel = note.created_at ? new Date(note.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+      doc.font('Helvetica-Bold').fontSize(10).fillColor('#111').text(dateLabel, 50, doc.y);
+      if (note.practitioner_name) {
+        doc.font('Helvetica').fontSize(9).fillColor('#666').text(note.practitioner_name, 50, doc.y + 2);
+      }
+      doc.moveDown(0.4);
+      doc.font('Helvetica').fontSize(10).fillColor('#111').text(note.note, 50, doc.y, { width: 495 });
+      doc.moveDown(0.6);
+      const lineY = doc.y;
+      doc.moveTo(50, lineY).lineTo(right, lineY).strokeColor('#e5e7eb').stroke();
+      doc.moveDown(0.8);
+    }
+
+    doc.end();
+  });
+}
+
+module.exports = { generateInvoicePdf, generateAgreementPdf, generateSessionNotePdf };

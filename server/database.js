@@ -499,6 +499,12 @@ const emailSeeds = [
     subject: 'Payment Reminder — Invoice {{invoice_number}}',
     body: '<p>This is a friendly reminder that invoice <strong>{{invoice_number}}</strong> for <strong>${{invoice_total}}</strong> was due on <strong>{{due_date}}</strong> and remains unpaid.</p><p>Please arrange payment at your earliest convenience.</p><p>Thank you.</p>',
   },
+  {
+    code: 'session_note_email',
+    name: 'Session Note Email',
+    subject: 'Session notes for {{client_name}}',
+    body: '<p>Hi {{recipient_name}},</p><p>Please find attached the session notes for {{client_name}} covering {{date_range}}.</p><p>Regards,<br>{{practitioner_name}}</p>',
+  },
 ];
 const seedStmt = db.prepare(`
   INSERT OR IGNORE INTO templates (type, code, name, subject, body, is_system)
@@ -657,6 +663,13 @@ try { db.exec(`CREATE INDEX idx_agreement_items_agreement ON agreement_items(agr
 // Agreement template type — reuses the existing templates table (type='agreement') plus a flag
 // telling the UI whether to show the pricing-table builder for agreements from this template.
 try { db.exec(`ALTER TABLE templates ADD COLUMN has_pricing_table INTEGER DEFAULT 0`); } catch {}
+
+// Agreement coverage window + optional budget cap (nullable — budget tracking is opt-in per
+// agreement). end_date left blank means an open-ended agreement; budget spend is computed
+// against [start_date, end_date-or-today] in server/services/budgets.js.
+try { db.exec(`ALTER TABLE agreements ADD COLUMN start_date TEXT`); } catch {}
+try { db.exec(`ALTER TABLE agreements ADD COLUMN end_date TEXT`); } catch {}
+try { db.exec(`ALTER TABLE agreements ADD COLUMN budget_amount REAL`); } catch {}
 
 const SERVICE_AGREEMENT_PLACEHOLDER_BODY =
   '<p>This Service Agreement is made between {{practice_name}} and {{client_name}} on {{date}}.</p>' +

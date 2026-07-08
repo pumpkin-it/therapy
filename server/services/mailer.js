@@ -34,7 +34,7 @@ async function getGraphToken() {
   return _tokenCache.token;
 }
 
-async function graphSend({ from, to, subject, html, text, attachments }) {
+async function graphSend({ from, to, cc, subject, html, text, attachments }) {
   const rows = db.prepare("SELECT key,value FROM settings WHERE key LIKE 'graph_%'").all();
   const cfg = Object.fromEntries(rows.map(r => [r.key, r.value]));
   const mailbox = cfg.graph_mailbox;
@@ -48,6 +48,9 @@ async function graphSend({ from, to, subject, html, text, attachments }) {
     toRecipients: (Array.isArray(to) ? to : [to]).map(addr => ({ emailAddress: { address: addr } })),
     from: { emailAddress: { address: from || mailbox } },
   };
+  if (cc?.length) {
+    message.ccRecipients = (Array.isArray(cc) ? cc : [cc]).map(addr => ({ emailAddress: { address: addr } }));
+  }
 
   if (attachments?.length) {
     message.attachments = attachments.map(a => ({
@@ -297,4 +300,4 @@ async function sendReminderEmail(toEmail, invoiceNumber, total, dueDate) {
   await graphSend({ to: toEmail, subject, html });
 }
 
-module.exports = { sendInvoiceEmail, sendAppointmentNotification, sendTestEmail, sendReminderEmail, graphSend, renderTemplate };
+module.exports = { sendInvoiceEmail, sendAppointmentNotification, sendTestEmail, sendReminderEmail, graphSend, renderTemplate, getTemplate };

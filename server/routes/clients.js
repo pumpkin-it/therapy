@@ -2,6 +2,7 @@ const router = require('express').Router();
 const db = require('../database');
 const auth = require('../middleware/auth');
 const audit = require('../services/audit');
+const { getClientSpend } = require('../services/budgets');
 
 const CLIENT_SELECT = `
   SELECT c.*,
@@ -72,6 +73,19 @@ router.get('/:id', auth, (req, res) => {
   `).all(req.params.id);
   const invoices = db.prepare('SELECT * FROM invoices WHERE client_id = ? ORDER BY created_at DESC LIMIT 10').all(req.params.id);
   res.json({ ...client, appointments, invoices });
+});
+
+// Billables summary — invoiced + projected spend over an arbitrary date range, independent of
+// any agreement/budget. Defaults to the last 12 months when from/to are omitted.
+router.get('/:id/spend', auth, (req, res) => {
+  let { from, to } = req.query;
+  if (!to) to = new Date().toISOString().slice(0, 10);
+  if (!from) {
+    const d = new Date(to);
+    d.setFullYear(d.getFullYear() - 1);
+    from = d.toISOString().slice(0, 10);
+  }
+  res.json({ from, to, ...getClientSpend(req.params.id, from, to) });
 });
 
 router.post('/', auth, (req, res) => {

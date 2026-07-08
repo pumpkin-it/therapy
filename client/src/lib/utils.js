@@ -41,8 +41,10 @@ export const localToday = () => {
 
 // Downloads an auth-protected file via the authenticated api instance (window.open/<a href>
 // can't send the Authorization header, so those approaches 401 on protected routes).
-export const downloadFile = async (api, url, filename) => {
-  const res = await api.get(url, { responseType: 'blob' });
+// Pass { method: 'post', data } when the request needs a body (e.g. a list of ids too long
+// for a query string) instead of a plain GET.
+export const downloadFile = async (api, url, filename, { method = 'get', data } = {}) => {
+  const res = await api.request({ url, method, data, responseType: 'blob' });
   const blobUrl = URL.createObjectURL(res.data);
   const a = document.createElement('a');
   a.href = blobUrl;

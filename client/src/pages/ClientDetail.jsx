@@ -9,10 +9,11 @@ import Badge from '../components/ui/Badge';
 import Input from '../components/ui/Input';
 import SearchSelect from '../components/ui/SearchSelect';
 import { EmbeddedCalendar } from '../components/CalendarViews';
-import { localToday, fmtDateTime, fmtDateOnly, downloadFile } from '../lib/utils';
+import { localToday, fmtDateTime, fmtDateOnly, downloadFile, currency } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import AgreementPricingTable from '../components/AgreementPricingTable';
+import SessionNoteEmailModal from '../components/SessionNoteEmailModal';
 
 const AGREEMENT_STATUS_COLOR = {
   draft: 'bg-gray-100 text-gray-600', sent: 'bg-blue-100 text-blue-700', viewed: 'bg-amber-100 text-amber-700',
@@ -29,15 +30,59 @@ function AgreementsTab({ clientId }) {
   const [active, setActive] = useState(null);
   const [sendResult, setSendResult] = useState(null);
   const [agreementError, setAgreementError] = useState('');
+  const [meta, setMeta] = useState({ start_date: '', end_date: '', budget_amount: '' });
+  const [savingMeta, setSavingMeta] = useState(false);
+  const [fundingPeriods, setFundingPeriods] = useState([]);
+  const [spend, setSpend] = useState(null);
   const pricingTableRef = useRef();
 
   const load = () => api.get(`/agreements?client_id=${clientId}`).then(r => setAgreements(r.data));
-  useEffect(() => { load(); api.get('/templates?type=agreement').then(r => setTemplates(r.data)); }, []);
+  useEffect(() => {
+    load();
+    api.get('/templates?type=agreement').then(r => setTemplates(r.data));
+    api.get(`/funding-periods?client_id=${clientId}`).then(r => setFundingPeriods(r.data)).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (activeId) api.get(`/agreements/${activeId}`).then(r => setActive(r.data));
     else setActive(null);
   }, [activeId]);
+
+  useEffect(() => {
+    if (!active) { setSpend(null); return; }
+    setMeta({ start_date: active.start_date || '', end_date: active.end_date || '', budget_amount: active.budget_amount ?? '' });
+    api.get(`/agreements/${active.id}/spend`).then(r => setSpend(r.data)).catch(() => setSpend(null));
+  }, [active?.id, active?.start_date, active?.end_date, active?.budget_amount]);
+
+  // Non-blocking warning if the agreement's dates fall outside the client's funding period
+  // for the same funding type — save is never prevented, this is purely informational.
+  const fundingWarning = (() => {
+    if (!active?.funding_type_name || !meta.start_date) return '';
+    const period = fundingPeriods.find(p => p.funding_type === active.funding_type_name);
+    if (!period || !period.start_date || !period.end_date) return '';
+    const s = meta.start_date, e = meta.end_date || meta.start_date;
+    if (s < period.start_date || e > period.end_date) {
+      return `This agreement's dates extend beyond the client's ${active.funding_type_name} funding period (${period.start_date} – ${period.end_date}).`;
+    }
+    return '';
+  })();
+
+  const saveMeta = async () => {
+    setSavingMeta(true);
+    setAgreementError('');
+    try {
+      const res = await api.patch(`/agreements/${active.id}`, {
+        start_date: meta.start_date || null,
+        end_date: meta.end_date || null,
+        budget_amount: meta.budget_amount === '' ? null : Number(meta.budget_amount),
+      });
+      setActive(res.data);
+    } catch (e) {
+      setAgreementError(e.response?.data?.error || 'Failed to save');
+    } finally {
+      setSavingMeta(false);
+    }
+  };
 
   const createAgreement = async () => {
     if (!newTemplateId) return;
@@ -139,6 +184,54 @@ function AgreementsTab({ clientId }) {
             <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${AGREEMENT_STATUS_COLOR[active.status] || 'bg-gray-100 text-gray-600'}`}>{active.status}</span>
           </div>
           <p className="text-lg font-semibold text-gray-900">{active.title}</p>
+
+          {active.status === 'draft' ? (
+            <div className="rounded-lg border border-gray-200 p-3 space-y-3">
+              <div className="grid grid-cols-3 gap-3">
+                <DateInput label="Start date" value={meta.start_date} onChange={v => setMeta(m => ({ ...m, start_date: v }))} />
+                <ClearableDateInput label="End date" value={meta.end_date} onChange={v => setMeta(m => ({ ...m, end_date: v }))} />
+                <div className="space-y-1">
+                  <label className="block text-sm font-medium text-gray-700">Budget <span className="text-gray-400">(optional)</span></label>
+                  <input type="number" step="0.01" placeholder={active.items?.length ? active.items.reduce((s, i) => s + Number(i.line_total || 0), 0).toFixed(2) : '0.00'}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+                    value={meta.budget_amount} onChange={e => setMeta(m => ({ ...m, budget_amount: e.target.value }))} />
+                </div>
+              </div>
+              {fundingWarning && (
+                <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-700">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />{fundingWarning}
+                </div>
+              )}
+              <div className="flex justify-end">
+                <Button size="sm" variant="secondary" onClick={saveMeta} disabled={savingMeta}>{savingMeta ? 'Saving…' : 'Save dates & budget'}</Button>
+              </div>
+            </div>
+          ) : (active.start_date || active.end_date || active.budget_amount) && (
+            <p className="text-sm text-gray-500">
+              {active.start_date || '…'} – {active.end_date || 'ongoing'}
+              {active.budget_amount ? ` · Budget ${currency(active.budget_amount)}` : ''}
+            </p>
+          )}
+
+          {spend?.budget_amount ? (
+            <div className="space-y-1">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">{currency(spend.total)} of {currency(spend.budget_amount)} used ({Math.round(spend.pct_used)}%)</span>
+                <span className="text-xs text-gray-400">{currency(spend.invoiced)} invoiced + {currency(spend.projected)} scheduled</span>
+              </div>
+              <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                <div className={`h-full ${spend.pct_used >= 100 ? 'bg-red-500' : spend.pct_used >= 80 ? 'bg-amber-500' : 'bg-indigo-500'}`}
+                  style={{ width: `${Math.min(spend.pct_used, 100)}%` }} />
+              </div>
+              {spend.pct_used >= 80 && (
+                <p className={`text-xs ${spend.pct_used >= 100 ? 'text-red-600' : 'text-amber-600'}`}>
+                  {spend.pct_used >= 100 ? 'Budget exceeded — appointments can still be added.' : 'Approaching budget limit.'}
+                </p>
+              )}
+            </div>
+          ) : spend && (spend.invoiced > 0 || spend.projected > 0) ? (
+            <p className="text-sm text-gray-500">Spend to date: {currency(spend.total)} ({currency(spend.invoiced)} invoiced + {currency(spend.projected)} scheduled)</p>
+          ) : null}
 
           <AgreementPricingTable ref={pricingTableRef} agreement={active} onUpdate={setActive} />
 
@@ -413,6 +506,47 @@ function FundingTab({ clientId }) {
   );
 }
 
+// ─── Billing summary tab ──────────────────────────────────────────────────────
+function BillingSummaryTab({ clientId }) {
+  const [range, setRange] = useState({ from: '', to: '' });
+  const [spend, setSpend] = useState(null);
+
+  const load = params => api.get(`/clients/${clientId}/spend${params ? `?${params}` : ''}`).then(r => {
+    setSpend(r.data);
+    setRange({ from: r.data.from, to: r.data.to });
+  });
+  useEffect(() => { load(); }, []);
+
+  const applyRange = () => load(`from=${range.from}&to=${range.to}`);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 max-w-sm">
+        <DateInput label="From" value={range.from} onChange={v => setRange(r => ({ ...r, from: v }))} />
+        <DateInput label="To" value={range.to} onChange={v => setRange(r => ({ ...r, to: v }))} />
+      </div>
+      <Button size="sm" variant="secondary" onClick={applyRange}>Update range</Button>
+
+      {spend && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-lg border border-gray-200 p-4">
+            <p className="text-xs text-gray-400">Invoiced</p>
+            <p className="text-xl font-semibold text-gray-900">{currency(spend.invoiced)}</p>
+          </div>
+          <div className="rounded-lg border border-gray-200 p-4">
+            <p className="text-xs text-gray-400">Scheduled (not yet invoiced)</p>
+            <p className="text-xl font-semibold text-gray-900">{currency(spend.projected)}</p>
+          </div>
+          <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-4">
+            <p className="text-xs text-indigo-500">Total</p>
+            <p className="text-xl font-semibold text-indigo-900">{currency(spend.total)}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Files tab ────────────────────────────────────────────────────────────────
 function FilesTab({ clientId }) {
   const { timezone } = useSettings();
@@ -486,6 +620,9 @@ function SessionNotesTab({ clientId, client }) {
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
   const [saving, setSaving] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [actionError, setActionError] = useState('');
 
   const [nextAppt, setNextAppt] = useState('');
 
@@ -542,8 +679,33 @@ function SessionNotesTab({ clientId, client }) {
   const saveEdit = async id => { await api.patch(`/session-notes/${id}`, { note: editText }); setEditingId(null); load(); };
   const remove   = async id => { if (!confirm('Delete this note?')) return; await api.delete(`/session-notes/${id}`); load(); };
 
+  const toggleSelect = id => setSelectedIds(ids => ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]);
+
+  const downloadSelected = async () => {
+    setActionError('');
+    try {
+      const clientName = `${client?.first_name || ''}_${client?.last_name || ''}`.replace(/\s+/g, '');
+      await downloadFile(api, '/session-notes/pdf', `SessionNotes_${clientName}.pdf`, { method: 'post', data: { note_ids: selectedIds } });
+    } catch (e) {
+      setActionError(e.response?.data?.error || 'Failed to download PDF');
+    }
+  };
+
   return (
     <div className="space-y-3">
+      {actionError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>
+      )}
+      {selectedIds.length > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-indigo-100 bg-indigo-50/40 px-3 py-2">
+          <span className="text-sm text-indigo-700">{selectedIds.length} note{selectedIds.length > 1 ? 's' : ''} selected</span>
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" onClick={downloadSelected}>Download PDF</Button>
+            <Button size="sm" onClick={() => setShowEmailModal(true)}>Email</Button>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedIds([])}>Clear</Button>
+          </div>
+        </div>
+      )}
       {!showNew && (
         <div className="flex justify-end">
           <Button size="sm" onClick={() => setShowNew(true)}><Plus className="h-3.5 w-3.5" /> Add note</Button>
@@ -590,6 +752,8 @@ function SessionNotesTab({ clientId, client }) {
             </div>
           ) : (
             <div className="group flex gap-2">
+              <input type="checkbox" className="mt-1 accent-indigo-600 shrink-0"
+                checked={selectedIds.includes(n.id)} onChange={() => toggleSelect(n.id)} />
               <div className="flex-1">
                 <p className="text-sm text-gray-800 whitespace-pre-wrap">{n.note}</p>
                 <p className="text-xs text-gray-400 mt-1.5">
@@ -605,6 +769,17 @@ function SessionNotesTab({ clientId, client }) {
           )}
         </div>
       ))}
+
+      {showEmailModal && (
+        <SessionNoteEmailModal
+          clientId={clientId}
+          client={client}
+          noteIds={selectedIds}
+          notes={notes.filter(n => selectedIds.includes(n.id))}
+          onClose={() => setShowEmailModal(false)}
+          onSent={() => { setShowEmailModal(false); setSelectedIds([]); }}
+        />
+      )}
     </div>
   );
 }
@@ -676,7 +851,7 @@ export default function ClientDetail() {
 
   const TABS = [
     ['details', 'Details'], ['funding', 'Funding'], ['medical', 'Medical'],
-    ['notes', 'Session Notes'], ['agreements', 'Agreements'], ['files', 'Files'], ['calendar', 'Calendar'],
+    ['notes', 'Session Notes'], ['agreements', 'Agreements'], ['billing', 'Billing'], ['files', 'Files'], ['calendar', 'Calendar'],
   ];
 
   return (
@@ -796,6 +971,7 @@ export default function ClientDetail() {
         {tab === 'funding'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to manage funding.</p> : <FundingTab  clientId={id} />)}
         {tab === 'notes'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to add notes.</p> : <SessionNotesTab clientId={id} client={client} />)}
         {tab === 'agreements' && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to create agreements.</p> : <AgreementsTab clientId={id} />)}
+        {tab === 'billing'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view billing.</p> : <BillingSummaryTab clientId={id} />)}
         {tab === 'files'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to upload files.</p> : <FilesTab     clientId={id} />)}
         {tab === 'calendar'  && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view calendar.</p> : <EmbeddedCalendar clientId={id} />)}
       </div>

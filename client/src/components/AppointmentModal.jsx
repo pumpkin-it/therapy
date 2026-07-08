@@ -261,6 +261,7 @@ function NotifyBtn({ label, target, status, onClick }) {
 
 export default function AppointmentModal({ appointment, defaultDate, defaultTime, defaultPractitioner, onClose, onSaved, onRefresh }) {
   const { timezone } = useSettings();
+  const { user } = useAuth();
   const editing = !!appointment;
   const [practitioners, setPractitioners] = useState([]);
   const [clients, setClients] = useState([]);
@@ -275,6 +276,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
   const [error, setError] = useState('');
   const [notifyStatus, setNotifyStatus] = useState({});
   const [conflicts, setConflicts] = useState([]);
+  const [budgetWarnings, setBudgetWarnings] = useState([]);
   const [fundingPeriods, setFundingPeriods] = useState([]);
   const [fundingPeriodId, setFundingPeriodId] = useState(editing ? (appointment.funding_period_id || '') : '');
   // Item indices whose unit_rate was auto-filled from a service selection this session —
@@ -296,7 +298,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
   const [endTime,   setEndTime]   = useState(initEndTime);
 
   const [form, setForm] = useState({
-    practitioner_id: defaultPractitioner || '',
+    practitioner_id: defaultPractitioner || (user?.role === 'practitioner' ? user.id : ''),
     client_id: '',
     location_type: 'home',
     location_id: '',
@@ -412,6 +414,19 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     }, 500);
     return () => clearTimeout(t);
   }, [form.practitioner_id, form.client_id, startDate, startTime, endDate, endTime]);
+
+  // Non-blocking budget warning — any of the client's agreements covering this appointment's
+  // date, with a budget set, that's at/near its limit. Never prevents saving.
+  useEffect(() => {
+    if (!form.client_id || !startDate) { setBudgetWarnings([]); return; }
+    api.get(`/agreements?client_id=${form.client_id}`).then(async r => {
+      const covering = (r.data || []).filter(a =>
+        a.budget_amount && a.start_date && startDate >= a.start_date && (!a.end_date || startDate <= a.end_date)
+      );
+      const spends = await Promise.all(covering.map(a => api.get(`/agreements/${a.id}/spend`).then(sr => ({ title: a.title, ...sr.data })).catch(() => null)));
+      setBudgetWarnings(spends.filter(s => s && s.pct_used >= 80));
+    }).catch(() => setBudgetWarnings([]));
+  }, [form.client_id, startDate]);
 
   // Resolve which funding type is in play from the selected funder, then load only the
   // services priced under that scheme for the appointment's date — one fetch per
@@ -737,6 +752,18 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
             {conflicts.map((c, i) => (
               <p key={i} className="text-sm text-amber-800 flex items-start gap-2">
                 <span className="text-amber-500 mt-0.5 shrink-0">⚠</span> {c.message}
+              </p>
+            ))}
+          </div>
+        )}
+
+        {/* Budget warnings — informational only, never blocks saving */}
+        {budgetWarnings.length > 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 space-y-1">
+            {budgetWarnings.map((b, i) => (
+              <p key={i} className="text-sm text-amber-800 flex items-start gap-2">
+                <span className="text-amber-500 mt-0.5 shrink-0">⚠</span>
+                "{b.title}" budget is at {Math.round(b.pct_used)}% (${b.total.toFixed(2)} of ${b.budget_amount.toFixed(2)}).
               </p>
             ))}
           </div>

@@ -16,6 +16,7 @@ const EMAIL_VARS = {
   appt_cancelled_practitioner: ['practitioner_name', 'client_name', 'appointment_date'],
   invoice_email:             ['invoice_number', 'client_name'],
   payment_reminder:          ['invoice_number', 'invoice_total', 'due_date'],
+  session_note_email:        ['client_name', 'client_first_name', 'practitioner_name', 'practice_name', 'date_range', 'note_count', 'recipient_name'],
 };
 
 const NOTE_VARS = ['client_name', 'client_first_name', 'practitioner_name', 'date', 'next_appointment', 'practice_name'];
