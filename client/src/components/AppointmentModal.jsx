@@ -318,6 +318,17 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
   const [seriesEndPrompt, setSeriesEndPrompt] = useState(null);
   const [seriesEditPrompt, setSeriesEditPrompt] = useState(null); // null | payload // null | { daysUntil, tier }
 
+  // The initial `useState` above only runs once at mount, so if this modal is opened on the
+  // main Calendar page — the default landing route right after login — before the async
+  // GET /auth/me call resolves, `user` is still null at that instant and the practitioner
+  // default never gets baked in. Re-apply it once `user` actually loads (a no-op if it was
+  // already set correctly, e.g. when opened from a client page after the app has settled).
+  useEffect(() => {
+    if (!editing && !defaultPractitioner && user?.role === 'practitioner') {
+      setForm(f => f.practitioner_id ? f : { ...f, practitioner_id: user.id });
+    }
+  }, [user, editing, defaultPractitioner]);
+
   useEffect(() => {
     Promise.all([
       api.get('/practitioners?role=practitioner').then(r => r.data),
