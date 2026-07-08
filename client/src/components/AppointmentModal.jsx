@@ -503,6 +503,9 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     if (fundingPeriods.length > 0 && !fundingPeriodId) errors.push('Funder');
     if (!startDate || !startTime) errors.push('Start date/time');
     if (!endDate || !endTime) errors.push('End date/time');
+    if (form.location_type === 'clinic' && !form.location_id) errors.push('Clinic location');
+    if (form.location_type === 'other' && !form.location_other.trim()) errors.push('Location address');
+    if (form.items.some(i => !i.service_id)) errors.push('Service (for every line item)');
     if (recurrence.enabled && recurrence.endType === 'on' && !recurrence.until) errors.push('Repeat end date');
     if (recurrence.enabled && recurrence.endType === 'after' && !recurrence.occurrences) errors.push('Number of occurrences');
     if (errors.length) {
