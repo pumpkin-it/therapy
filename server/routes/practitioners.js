@@ -23,7 +23,7 @@ router.get('/', auth, permAny('users', 'invoices', 'calendar'), (req, res) => {
   const columns = req.user.role === 'practitioner'
     ? 'id, first_name, last_name, title, email, phone, color, role, active, provider_number, created_at'
     : '*';
-  const rows = db.prepare(`SELECT ${columns} FROM practitioners ${where} ORDER BY last_name, first_name`).all(...params);
+  const rows = db.prepare(`SELECT ${columns} FROM practitioners ${where} ORDER BY first_name, last_name`).all(...params);
   res.json(rows);
 });
 

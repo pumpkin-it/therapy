@@ -35,7 +35,7 @@ router.get('/', auth, (req, res) => {
     params.push(q, q, q, q);
   }
   const where = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
-  const rows = db.prepare(`${CLIENT_SELECT} ${where} ORDER BY c.last_name, c.first_name`).all(...params);
+  const rows = db.prepare(`${CLIENT_SELECT} ${where} ORDER BY c.first_name, c.last_name`).all(...params);
   res.json(rows);
 });
 
