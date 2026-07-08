@@ -6,7 +6,11 @@ const perm = require('../middleware/requirePermission');
 const { permAny } = perm;
 const audit = require('../services/audit');
 
-router.get('/', auth, permAny('users', 'invoices'), (req, res) => {
+// 'calendar' is included so any practitioner (who always has calendar:true) can populate the
+// practitioner dropdown on Calendar/AppointmentModal — but unlike the 'users'/'invoices' callers
+// (Users admin page, Invoices screen), a practitioner has no business seeing every colleague's
+// password_hash, so this now selects only the columns those UIs actually render instead of `*`.
+router.get('/', auth, permAny('users', 'invoices', 'calendar'), (req, res) => {
   const { active, role } = req.query;
   const activeFilter = active === 'all' ? null : active === '0' ? 0 : 1;
   const conditions = [];
@@ -14,7 +18,12 @@ router.get('/', auth, permAny('users', 'invoices'), (req, res) => {
   if (activeFilter !== null) { conditions.push('active = ?'); params.push(activeFilter); }
   if (role) { conditions.push('role = ?'); params.push(role); }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  const rows = db.prepare(`SELECT * FROM practitioners ${where} ORDER BY last_name, first_name`).all(...params);
+  // Only the newly-added 'calendar' carve-out (i.e. plain practitioners) gets the restricted
+  // column list — owner/admin/finance callers keep the existing `SELECT *` behavior unchanged.
+  const columns = req.user.role === 'practitioner'
+    ? 'id, first_name, last_name, title, email, phone, color, role, active, provider_number, created_at'
+    : '*';
+  const rows = db.prepare(`SELECT ${columns} FROM practitioners ${where} ORDER BY last_name, first_name`).all(...params);
   res.json(rows);
 });
 
