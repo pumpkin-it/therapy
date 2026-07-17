@@ -503,7 +503,7 @@ export default function Clients() {
                 <tr key={c.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/clients/${c.id}`)}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-900"><span className="font-mono text-xs text-indigo-400 mr-1.5">C{String(c.id).padStart(4,'0')}</span>{c.first_name} {c.last_name}</span>
+                      <span className={`font-medium ${c.active ? 'text-gray-900' : 'text-gray-400'}`}><span className="font-mono text-xs text-indigo-400 mr-1.5">C{String(c.id).padStart(4,'0')}</span>{c.first_name} {c.last_name}</span>
                       {!c.active && <span className="text-xs text-gray-400 font-medium">(inactive)</span>}
                       {c.alert && <Bell className="h-3.5 w-3.5 text-amber-500 shrink-0" title={c.alert} />}
                     </div>
