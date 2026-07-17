@@ -586,10 +586,8 @@ function FilesTab({ clientId }) {
   };
 
   const download = id => {
-    const token = localStorage.getItem('token');
-    const a = document.createElement('a');
-    a.href = `/api/client-files/${id}/download`;
-    a.click();
+    const file = files.find(f => f.id === id);
+    downloadFile(api, `/client-files/${id}/download`, file?.original_name || 'download');
   };
 
   const fmt = bytes => bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
