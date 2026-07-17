@@ -244,7 +244,7 @@ function AppointmentAuditLog({ appointmentId }) {
   );
 }
 
-function NotifyBtn({ label, target, status, onClick }) {
+export function NotifyBtn({ label, target, status, onClick }) {
   const sending = status === 'sending';
   const sent    = status === 'sent';
   const err     = status?.error;
@@ -564,6 +564,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
   };
 
   const [lastSeriesScope, setLastSeriesScope] = useState(null);
+  const [cancelledConfirm, setCancelledConfirm] = useState(false);
 
   const del = async () => {
     if (appointment.series_id) {
@@ -576,8 +577,9 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     } else {
       if (!confirm('Cancel this appointment?')) return;
       await api.patch(`/appointments/${appointment.id}/status`, { status: 'cancelled', late_cancel_pct: null, late_cancel_billable: 0 });
+      setField('status', 'cancelled');
       setLastSeriesScope('this_only');
-      onSaved();
+      setCancelledConfirm(true);
     }
   };
 
@@ -588,8 +590,10 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
       setLateCancelConfirm(data);
     } else {
       await api.patch(`/appointments/${appointment.id}/status`, { status: 'cancelled', late_cancel_pct: null, late_cancel_billable: 0 });
+      setField('status', 'cancelled');
       setLastSeriesScope('this_only');
-      onSaved();
+      setSeriesEndPrompt(null);
+      setCancelledConfirm(true);
     }
   };
 
@@ -612,8 +616,9 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
       setSeriesEndPrompt(null);
       setSeriesLateCancelInfo({ cancelFrom, tier: policyData.tier });
     } else {
+      setField('status', 'cancelled');
       setSeriesEndPrompt(null);
-      onSaved();
+      setCancelledConfirm(true);
     }
   };
 
@@ -626,9 +631,10 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
       late_cancel_pct: pct ? Number(pct) : null,
       late_cancel_billable: applyPolicy ? 1 : 0,
     });
+    setField('status', 'cancelled');
     setLateCancelConfirm(null);
     setLastSeriesScope('this_only');
-    onSaved();
+    setCancelledConfirm(true);
   };
 
   const saveSeriesThis = async () => {
@@ -1216,15 +1222,31 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
                     });
                   }
                 }
+                setField('status', 'cancelled');
                 setSeriesLateCancelInfo(null);
-                onSaved();
+                setCancelledConfirm(true);
               }} className="w-full justify-center">
                 Apply {seriesLateCancelInfo.tier.percent}% fee to cancelled appointments
               </Button>
-              <Button variant="secondary" onClick={() => { setSeriesLateCancelInfo(null); onSaved(); }} className="w-full justify-center">
+              <Button variant="secondary" onClick={() => { setField('status', 'cancelled'); setSeriesLateCancelInfo(null); setCancelledConfirm(true); }} className="w-full justify-center">
                 Cancel without fee
               </Button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Post-cancellation notify prompt */}
+      {cancelledConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+            <h3 className="font-semibold text-gray-900">Appointment cancelled</h3>
+            <p className="text-sm text-gray-600">Send a notification about this cancellation?</p>
+            <div className="flex items-center gap-2">
+              <NotifyBtn label="Notify Practitioner" target="practitioner" status={notifyStatus.practitioner} onClick={() => notify('practitioner')} />
+              <NotifyBtn label="Notify Client"       target="client"       status={notifyStatus.client}       onClick={() => notify('client')} />
+            </div>
+            <Button variant="secondary" onClick={onSaved} className="w-full justify-center">Done</Button>
           </div>
         </div>
       )}

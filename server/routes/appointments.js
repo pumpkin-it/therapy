@@ -51,7 +51,7 @@ const withItems = appt => {
 };
 
 router.get('/', auth, perm('calendar'), (req, res) => {
-  const { date, from, to, client_id, practitioner_id, series_id } = req.query;
+  const { date, from, to, client_id, practitioner_id, series_id, status } = req.query;
 
   let where = '1=1';
   const params = [];
@@ -66,6 +66,7 @@ router.get('/', auth, perm('calendar'), (req, res) => {
   if (client_id)       { where += ' AND a.client_id = ?';       params.push(client_id); }
   if (practitioner_id) { where += ' AND a.practitioner_id = ?'; params.push(practitioner_id); }
   if (series_id)       { where += ' AND a.series_id = ?';       params.push(series_id); }
+  if (status)           { where += ' AND a.status = ?';          params.push(status); }
 
   const appointments = db.prepare(`${APPT_SELECT} WHERE ${where} ORDER BY a.start_time ASC`).all(...params);
 

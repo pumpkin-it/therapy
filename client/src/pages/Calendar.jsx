@@ -8,6 +8,7 @@ import api from '../lib/api';
 import { cn } from '../lib/utils';
 import Button from '../components/ui/Button';
 import AppointmentModal from '../components/AppointmentModal';
+import CancelledAppointmentsModal from '../components/CancelledAppointmentsModal';
 import { DayView, WeekView, MonthView } from '../components/CalendarViews';
 import { useAuth } from '../context/AuthContext';
 
@@ -19,6 +20,7 @@ export default function Calendar() {
   const [practitioners, setPractitioners] = useState([]);
   const [practitionerFilter, setPractitionerFilter] = useState('');
   const [showCancelled, setShowCancelled] = useState(false);
+  const [showCancelledList, setShowCancelledList] = useState(false);
   const [modal, setModal] = useState(null);
 
   const dateStr = format(date, 'yyyy-MM-dd');
@@ -100,6 +102,8 @@ export default function Calendar() {
           Show cancelled
         </label>
 
+        <Button variant="ghost" size="sm" onClick={() => setShowCancelledList(true)}>Cancelled appointments</Button>
+
         <div className="ml-auto">
           <Button onClick={() => setModal({ _new: true, date: dateStr })}><Plus className="h-4 w-4" /> New appointment</Button>
         </div>
@@ -130,6 +134,10 @@ export default function Calendar() {
           onSaved={() => { setModal(null); load(); }}
           onRefresh={() => load()}
         />
+      )}
+
+      {showCancelledList && (
+        <CancelledAppointmentsModal onClose={() => setShowCancelledList(false)} />
       )}
     </div>
   );
