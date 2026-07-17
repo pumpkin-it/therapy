@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../lib/api';
 import Modal from './ui/Modal';
 import Button from './ui/Button';
+import AddressAutocomplete from './AddressAutocomplete';
 import { Trash2, Plus, FileText, Pencil, RefreshCw, Mail, AlertCircle, CheckCircle, TriangleAlert } from 'lucide-react';
 import { localToday, fmtDate, fmtDateTime } from '../lib/utils';
 import { useSettings } from '../context/SettingsContext';
@@ -810,9 +811,13 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
               </select>
             )}
             {form.location_type === 'other' && (
-              <input className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mt-1"
-                placeholder="Enter address…"
-                value={form.location_other} onChange={e => setField('location_other', e.target.value)} />
+              <div className="mt-1">
+                <AddressAutocomplete
+                  value={form.location_other}
+                  onChange={v => setField('location_other', v)}
+                  placeholder="Enter address…"
+                />
+              </div>
             )}
           </div>
           <div className="space-y-1">

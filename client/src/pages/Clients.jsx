@@ -8,6 +8,7 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import SearchSelect from '../components/ui/SearchSelect';
+import AddressAutocomplete from '../components/AddressAutocomplete';
 import { localToday, fmtDateTime } from '../lib/utils';
 import { useSettings } from '../context/SettingsContext';
 
@@ -398,7 +399,7 @@ function ClientModal({ client, onClose, onSaved }) {
               <Input label="Phone"      value={form.phone}      onChange={e => set('phone', e.target.value)} />
               {dateInput('Date of birth', form.date_of_birth, v => set('date_of_birth', v))}
               <div className="col-span-2">
-                <Input label="Address" value={form.address} onChange={e => set('address', e.target.value)} />
+                <AddressAutocomplete label="Address" value={form.address} onChange={v => set('address', v)} />
               </div>
             </div>
 
