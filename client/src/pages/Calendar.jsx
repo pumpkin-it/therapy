@@ -69,7 +69,7 @@ export default function Calendar() {
   const goToDay = day => { setDate(startOfDay(day)); setView('day'); };
 
   const visibleAppointments = showCancelled
-    ? appointments
+    ? appointments.filter(a => a.status === 'cancelled')
     : appointments.filter(a => a.status !== 'cancelled');
 
   return (
@@ -99,7 +99,7 @@ export default function Calendar() {
         <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none">
           <input type="checkbox" className="accent-indigo-600"
             checked={showCancelled} onChange={e => setShowCancelled(e.target.checked)} />
-          Show cancelled
+          Show cancelled only
         </label>
 
         <Button variant="ghost" size="sm" onClick={() => setShowCancelledList(true)}>Cancelled appointments</Button>

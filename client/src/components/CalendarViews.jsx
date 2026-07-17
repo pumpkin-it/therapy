@@ -347,6 +347,7 @@ export function EmbeddedCalendar({ clientId, practitionerId }) {
   const [appointments, setAppointments] = useState([]);
   const [practitioners, setPractitioners] = useState([]);
   const [modal, setModal] = useState(null);
+  const [showCancelled, setShowCancelled] = useState(false);
 
   const dateStr = format(date, 'yyyy-MM-dd');
 
@@ -365,8 +366,12 @@ export function EmbeddedCalendar({ clientId, practitionerId }) {
     }
     if (clientId) params += `&client_id=${clientId}`;
     if (practitionerId) params += `&practitioner_id=${practitionerId}`;
-    api.get(`/appointments?${params}`).then(r => setAppointments(r.data.filter(a => a.status !== 'cancelled')));
+    api.get(`/appointments?${params}`).then(r => setAppointments(r.data));
   };
+
+  const visibleAppointments = showCancelled
+    ? appointments.filter(a => a.status === 'cancelled')
+    : appointments.filter(a => a.status !== 'cancelled');
 
   useEffect(() => { api.get('/practitioners').then(r => setPractitioners(r.data)); }, []);
   useEffect(() => { load(); }, [dateStr, view]);
@@ -405,24 +410,29 @@ export function EmbeddedCalendar({ clientId, practitionerId }) {
             </button>
           ))}
         </div>
+        <label className="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none">
+          <input type="checkbox" className="accent-indigo-600"
+            checked={showCancelled} onChange={e => setShowCancelled(e.target.checked)} />
+          Show cancelled only
+        </label>
         <div className="ml-auto">
           <Button size="sm" onClick={() => setModal({ _new: true, date: defaultDate })}><Plus className="h-4 w-4" /> New</Button>
         </div>
       </div>
 
       {view === 'day' && (
-        <DayView date={date} appointments={appointments} practitioners={practitioners}
+        <DayView date={date} appointments={visibleAppointments} practitioners={practitioners}
           filteredPractitionerId={practitionerId || ''} dateStr={defaultDate}
           onClickAppt={setModal} onClickSlot={slot => setModal({ _new: true, ...slot })} />
       )}
       {view === 'week' && (
-        <WeekView date={date} appointments={appointments} practitioners={practitioners}
+        <WeekView date={date} appointments={visibleAppointments} practitioners={practitioners}
           filteredPractitionerId={practitionerId || ''}
           onClickAppt={setModal} onClickDay={goToDay}
           onClickSlot={slot => setModal({ _new: true, ...slot })} />
       )}
       {view === 'month' && (
-        <MonthView date={date} appointments={appointments} practitioners={practitioners}
+        <MonthView date={date} appointments={visibleAppointments} practitioners={practitioners}
           filteredPractitionerId={practitionerId || ''}
           onClickAppt={setModal} onClickDay={goToDay} />
       )}
