@@ -115,7 +115,7 @@ function ToSendTab({ mode }) {
         {canViewClients && (
           <select className="ml-auto rounded-lg border border-gray-300 px-2 py-1.5 text-sm" value={clientFilter} onChange={e => setClientFilter(e.target.value)}>
             <option value="">All clients</option>
-            {clients.map(c => <option key={c.id} value={c.id}>{c.first_name} {c.last_name}</option>)}
+            {clients.map(c => <option key={c.id} value={c.id}>{c.first_name} {c.last_name}{!c.active && ' (inactive)'}</option>)}
           </select>
         )}
         <select className={`rounded-lg border border-gray-300 px-2 py-1.5 text-sm ${canViewClients ? '' : 'ml-auto'}`} value={practFilter} onChange={e => setPractFilter(e.target.value)}>
