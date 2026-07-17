@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Pause, Play, Clock, User, Calendar } from 'lucide-react';
+import { ArrowLeft, Clock, User, Calendar } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import api from '../lib/api';
 import { localToday, fmtDateTime } from '../lib/utils';
@@ -30,11 +30,6 @@ export default function RecurringSeriesDetail() {
   useEffect(() => { load(); }, [id]);
 
   if (!series) return <div className="p-6 text-gray-400">Loading…</div>;
-
-  const toggleActive = async () => {
-    await api.patch(`/recurring-series/${id}/active`, { active: !series.active });
-    load();
-  };
 
   const startEndEdit = () => setEndEdit({
     end_type: series.end_type || 'never',
@@ -76,9 +71,6 @@ export default function RecurringSeriesDetail() {
           <h1 className="text-2xl font-semibold"><span className="font-mono text-base text-indigo-500 mr-2">SER-{String(series.id).padStart(5,'0')}</span>{series.client_name}</h1>
           <p className="text-sm text-gray-500">{series.practitioner_name} · {FREQ_LABEL[series.freq]} on {DAY_NAMES[new Date(series.start_time).getDay()]}s starting {series.start_time?.slice(0,10)}</p>
         </div>
-        <Button variant={series.active ? 'secondary' : 'primary'} size="sm" onClick={toggleActive}>
-          {series.active ? <><Pause className="h-3.5 w-3.5" /> Pause series</> : <><Play className="h-3.5 w-3.5" /> Resume series</>}
-        </Button>
       </div>
 
       {/* Summary cards */}
