@@ -19,6 +19,7 @@ export default function Settings() {
   const SECTIONS = [
     { key: 'calendar',      label: 'Calendar' },
     { key: 'clients',       label: 'Clients' },
+    { key: 'funding_periods', label: 'Funding Periods' },
     { key: 'users',         label: 'Users' },
     { key: 'funds_managers',label: 'Funders' },
     { key: 'locations',     label: 'Locations' },
@@ -28,10 +29,10 @@ export default function Settings() {
   ];
   const ROLE_LABELS = { owner: 'Owner', admin: 'Admin', practitioner: 'Practitioner', finance: 'Finance' };
   const DEFAULT_PERMS = {
-    owner:        { calendar:true,  clients:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  settings:true  },
-    admin:        { calendar:true,  clients:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  settings:false },
-    practitioner: { calendar:true,  clients:true,  users:false, funds_managers:false, locations:true,  services:true,  invoices:false, settings:false },
-    finance:      { calendar:false, clients:true,  users:false, funds_managers:true,  locations:false, services:true,  invoices:true,  settings:false },
+    owner:        { calendar:true,  clients:true,  funding_periods:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  settings:true  },
+    admin:        { calendar:true,  clients:true,  funding_periods:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  settings:false },
+    practitioner: { calendar:true,  clients:true,  funding_periods:false, users:false, funds_managers:false, locations:true,  services:true,  invoices:false, settings:false },
+    finance:      { calendar:false, clients:true,  funding_periods:true,  users:false, funds_managers:true,  locations:false, services:true,  invoices:true,  settings:false },
   };
   const [perms, setPerms] = useState(DEFAULT_PERMS);
 
