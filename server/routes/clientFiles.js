@@ -23,7 +23,15 @@ router.get('/', auth, (req, res) => {
   res.json(db.prepare('SELECT * FROM client_files WHERE client_id = ? ORDER BY created_at DESC').all(client_id));
 });
 
-router.post('/', auth, upload.single('file'), (req, res) => {
+router.post('/', auth, (req, res, next) => {
+  upload.single('file')(req, res, err => {
+    if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'File is too large — the maximum upload size is 20MB.' });
+    }
+    if (err) return res.status(400).json({ error: err.message || 'Failed to upload file' });
+    next();
+  });
+}, (req, res) => {
   const { client_id } = req.body;
   if (!req.file) return res.status(400).json({ error: 'No file' });
   const result = db.prepare(`

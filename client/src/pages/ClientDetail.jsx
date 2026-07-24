@@ -561,6 +561,7 @@ function FilesTab({ clientId }) {
   const { timezone } = useSettings();
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   const inputRef = useRef();
 
   const load = () => api.get(`/client-files?client_id=${clientId}`).then(r => setFiles(r.data));
@@ -570,12 +571,18 @@ function FilesTab({ clientId }) {
     const file = e.target.files[0];
     if (!file) return;
     setUploading(true);
+    setUploadError('');
     try {
       const fd = new FormData();
       fd.append('file', file);
       fd.append('client_id', clientId);
       await api.post('/client-files', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       load();
+    } catch (err) {
+      const reason = err.response?.data?.error
+        || (err.response?.status === 413 ? 'File is too large to upload.' : null)
+        || 'Failed to upload file. Please try again.';
+      setUploadError(reason);
     } finally { setUploading(false); e.target.value = ''; }
   };
 
@@ -594,6 +601,9 @@ function FilesTab({ clientId }) {
 
   return (
     <div className="space-y-3">
+      {uploadError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{uploadError}</div>
+      )}
       <div className="flex justify-end">
         <input ref={inputRef} type="file" className="hidden" onChange={upload} />
         <Button size="sm" onClick={() => inputRef.current.click()} disabled={uploading}>
