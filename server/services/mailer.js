@@ -136,7 +136,9 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
       c.first_name AS client_first_name,
       p.first_name || ' ' || p.last_name AS practitioner_name,
       p.email AS practitioner_email,
+      c.address AS client_address,
       l.name AS location_name,
+      l.address AS location_address,
       rs.freq AS series_freq,
       rs.start_time AS series_start
     FROM appointments a
@@ -153,7 +155,9 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
     return { practitionerError: msg, clientError: msg };
   }
 
-  const location = appt.location_name || appt.location_other || appt.location || '';
+  const location = appt.location_name && appt.location_address
+    ? `${appt.location_name} — ${appt.location_address}`
+    : appt.location_other || appt.client_address || appt.location || '';
   const apptDate = fmt(appt.start_time);
 
   // For update emails, pull the before/after snapshot recorded on the audit log so we
