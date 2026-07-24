@@ -22,7 +22,7 @@ const AGREEMENT_STATUS_COLOR = {
 
 function AgreementsTab({ clientId }) {
   const { user } = useAuth();
-  const canManageTemplates = !!user?.permissions?.settings;
+  const canCreateAgreement = !!user?.permissions?.clients;
   const { timezone } = useSettings();
   const [agreements, setAgreements] = useState([]);
   const [templates, setTemplates] = useState([]);
@@ -152,12 +152,12 @@ function AgreementsTab({ clientId }) {
       )}
       {!active && (
         <>
-          {canManageTemplates && (
+          {canCreateAgreement && (
             <div className="flex justify-end">
               <Button size="sm" onClick={() => setShowNew(s => !s)}><Plus className="h-3.5 w-3.5" /> New agreement</Button>
             </div>
           )}
-          {showNew && canManageTemplates && (
+          {showNew && canCreateAgreement && (
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 flex items-center gap-2">
               <select className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm"
                 value={newTemplateId} onChange={e => setNewTemplateId(e.target.value)}>
