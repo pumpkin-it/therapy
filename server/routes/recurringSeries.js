@@ -36,7 +36,7 @@ function addInterval(date, freq) {
   return localDT(d);
 }
 
-function generateForSeries(series, horizon) {
+function generateForSeries(series, horizon, regenerateSlots = new Set()) {
   const items = series.items_json ? JSON.parse(series.items_json) : [];
   const endDate = series.end_type === 'date' && series.end_date ? new Date(series.end_date + 'T23:59') : null;
   const maxOccurrences = series.end_type === 'occurrences' ? series.end_occurrences : null;
@@ -79,8 +79,9 @@ function generateForSeries(series, horizon) {
     if (maxOccurrences && totalCount >= maxOccurrences) break;
 
     if (stDate.getDay() === series.day_of_week) {
-      const existing = db.prepare("SELECT id FROM appointments WHERE series_id=? AND start_time=? AND status != 'cancelled'").get(series.id, st);
-      if (!existing) {
+      const existing = db.prepare("SELECT id, status FROM appointments WHERE series_id=? AND start_time=?").get(series.id, st);
+      const canInsert = !existing || (existing.status === 'cancelled' && regenerateSlots.has(st));
+      if (canInsert) {
         const r = insertAppt.run(
           series.practitioner_id, series.client_id, series.location, series.location_id,
           series.location_other, series.title, st, et, series.notes, series.id
@@ -324,6 +325,9 @@ router.patch('/:id', auth, (req, res) => {
   // If frequency changed, cancel appointments from the change date and regenerate
   if (freq && freq !== series.freq) {
     const changeFrom = freq_change_from || localDate(new Date());
+    const toCancel = db.prepare(
+      "SELECT start_time FROM appointments WHERE series_id=? AND start_time >= ? AND status='scheduled'"
+    ).all(req.params.id, changeFrom + 'T00:00');
     const cancelled = db.prepare(
       "UPDATE appointments SET status='cancelled' WHERE series_id=? AND start_time >= ? AND status='scheduled'"
     ).run(req.params.id, changeFrom + 'T00:00');
@@ -334,7 +338,10 @@ router.patch('/:id', auth, (req, res) => {
       localDate(new Date(new Date(changeFrom).getTime() - 86400000)), req.params.id
     );
     const updatedSeries = db.prepare('SELECT * FROM recurring_series WHERE id=?').get(req.params.id);
-    const generated = generateForSeries(updatedSeries, getHorizon());
+    // Only the appointments this operation itself just cancelled are eligible to be regenerated —
+    // any other cancelled slot (e.g. an independent once-off cancellation) stays permanently skipped.
+    const regenerateSlots = new Set(toCancel.map(r => r.start_time));
+    const generated = generateForSeries(updatedSeries, getHorizon(), regenerateSlots);
     if (generated > 0) changes.push(`Regenerated ${generated} appointments at new frequency`);
   }
 
