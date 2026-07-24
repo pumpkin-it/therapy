@@ -8,6 +8,9 @@ import { useSettings } from '../context/SettingsContext';
 import Button from '../components/ui/Button';
 
 const FREQ_LABEL = { weekly: 'Weekly', fortnightly: 'Fortnightly', every3weeks: 'Every 3 weeks', monthly: 'Monthly' };
+// every3weeks/monthly are temporarily disabled for new selections (bugged) — kept in FREQ_LABEL
+// above so any already-existing series with those frequencies still display correctly.
+const SELECTABLE_FREQ = ['weekly', 'fortnightly'];
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const STATUS_STYLE = {
   scheduled: 'bg-blue-50 text-blue-700',
@@ -88,7 +91,7 @@ export default function RecurringSeriesDetail() {
               <div className="flex items-center gap-2">
                 <label className="text-xs text-gray-500 w-20">Frequency:</label>
                 <select className="rounded border border-gray-300 px-2 py-1 text-sm" value={freqEdit.freq} onChange={e => setFreqEdit(f => ({ ...f, freq: e.target.value }))}>
-                  {Object.entries(FREQ_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  {SELECTABLE_FREQ.map(v => <option key={v} value={v}>{FREQ_LABEL[v]}</option>)}
                 </select>
               </div>
               <div className="flex items-center gap-2">

@@ -856,8 +856,6 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
                     value={recurrence.freq} onChange={e => setRecurrence(r => ({ ...r, freq: e.target.value }))}>
                     <option value="weekly">Weekly</option>
                     <option value="fortnightly">Fortnightly</option>
-                    <option value="every3weeks">Every 3 weeks</option>
-                    <option value="monthly">Monthly</option>
                   </select>
                 </div>
 
@@ -1053,8 +1051,6 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
                     value={makeRecurring.freq} onChange={e => setMakeRecurring(r => ({ ...r, freq: e.target.value }))}>
                     <option value="weekly">Weekly</option>
                     <option value="fortnightly">Fortnightly</option>
-                    <option value="every3weeks">Every 3 weeks</option>
-                    <option value="monthly">Monthly</option>
                   </select>
                 </div>
                 <div className="space-y-1.5">
