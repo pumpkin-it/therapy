@@ -821,6 +821,7 @@ export default function ClientDetail() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [createdClient, setCreatedClient] = useState(null);
   const load = () => {
     if (isNew) return;
     api.get(`/clients/${id}`).then(r => {
@@ -856,7 +857,7 @@ export default function ClientDetail() {
     try {
       if (isNew) {
         const res = await api.post('/clients', form);
-        navigate(`/clients/${res.data.id}`, { replace: true });
+        setCreatedClient(res.data);
       } else {
         await api.patch(`/clients/${id}`, form);
         setSaved(true);
@@ -1001,6 +1002,16 @@ export default function ClientDetail() {
           <Button onClick={save} disabled={saving}>
             {saving ? 'Saving…' : saved ? '✓ Saved' : isNew ? 'Create client' : 'Save changes'}
           </Button>
+        </div>
+      )}
+
+      {createdClient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+            <h3 className="font-semibold text-gray-900">Client created</h3>
+            <p className="text-sm text-gray-600">{createdClient.first_name} {createdClient.last_name} has been added successfully.</p>
+            <Button onClick={() => navigate(`/clients/${createdClient.id}`, { replace: true })} className="w-full justify-center">Close</Button>
+          </div>
         </div>
       )}
     </div>

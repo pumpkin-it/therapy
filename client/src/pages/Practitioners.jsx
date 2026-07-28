@@ -28,6 +28,7 @@ function UserModal({ user, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [duplicates, setDuplicates] = useState([]);
   const [error, setError] = useState('');
+  const [created, setCreated] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const dupTimer = useRef(null);
 
@@ -46,9 +47,13 @@ function UserModal({ user, onClose, onSaved }) {
     setSaving(true);
     setError('');
     try {
-      if (user) await api.patch(`/practitioners/${user.id}`, form);
-      else      await api.post('/practitioners', form);
-      onSaved();
+      if (user) {
+        await api.patch(`/practitioners/${user.id}`, form);
+        onSaved();
+      } else {
+        await api.post('/practitioners', form);
+        setCreated(true);
+      }
     } catch (e) {
       if (e.response?.status === 409) setError(e.response.data.message);
     } finally { setSaving(false); }
@@ -128,6 +133,16 @@ function UserModal({ user, onClose, onSaved }) {
         <Button variant="secondary" onClick={onClose}>Cancel</Button>
         <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
       </div>
+
+      {created && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+            <h3 className="font-semibold text-gray-900">User created</h3>
+            <p className="text-sm text-gray-600">{form.first_name} {form.last_name} has been added successfully.</p>
+            <Button onClick={onSaved} className="w-full justify-center">Close</Button>
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }
