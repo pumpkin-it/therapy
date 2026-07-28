@@ -154,20 +154,78 @@ function decodeHtmlEntities(str) {
     .replace(/[☐☑]/g, ch => PDF_UNSAFE_CHARS[ch]);
 }
 
-// Strip HTML down to plain paragraphs, preserving line breaks from block elements — same
-// approach as the client-side htmlToPlain helper in AppointmentModal.jsx, plus full entity
-// decoding since PDF output (unlike a browser) never decodes HTML entities on its own.
-function htmlToPlain(html) {
-  if (!html) return '';
-  return decodeHtmlEntities(
-    html
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/p>/gi, '\n\n')
-      .replace(/<\/li>/gi, '\n')
-      .replace(/<[^>]+>/g, '')
-  )
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+// Parses a Quill-authored HTML fragment (agreement template body) into block-level chunks
+// (paragraphs / list items), each holding an ordered list of inline runs with their
+// bold/italic/underline state — so PDF output can preserve the formatting visible in the
+// template editor instead of flattening everything to plain text.
+function parseInlineRuns(html) {
+  const runs = [];
+  const withBreaks = html.replace(/<br\s*\/?>/gi, '\n');
+  const tagRegex = /<(\/?)(strong|b|em|i|u)>/gi;
+  let bold = false, italic = false, underline = false;
+  let lastIndex = 0;
+  let m;
+  while ((m = tagRegex.exec(withBreaks))) {
+    const text = withBreaks.slice(lastIndex, m.index).replace(/<[^>]+>/g, '');
+    if (text) runs.push({ text: decodeHtmlEntities(text), bold, italic, underline });
+    const closing = m[1] === '/';
+    const tag = m[2].toLowerCase();
+    if (tag === 'strong' || tag === 'b') bold = !closing;
+    else if (tag === 'em' || tag === 'i') italic = !closing;
+    else if (tag === 'u') underline = !closing;
+    lastIndex = tagRegex.lastIndex;
+  }
+  const rest = withBreaks.slice(lastIndex).replace(/<[^>]+>/g, '');
+  if (rest) runs.push({ text: decodeHtmlEntities(rest), bold, italic, underline });
+  return runs.filter(r => r.text.length > 0);
+}
+
+function parseRichHtml(html) {
+  if (!html) return [];
+  const blocks = [];
+  const blockRegex = /<li[^>]*>([\s\S]*?)<\/li>|<p[^>]*>([\s\S]*?)<\/p>/gi;
+  let match;
+  let any = false;
+  while ((match = blockRegex.exec(html))) {
+    any = true;
+    const isListItem = match[0].toLowerCase().startsWith('<li');
+    const inner = match[1] !== undefined ? match[1] : match[2];
+    const runs = parseInlineRuns(inner);
+    if (runs.length) blocks.push({ listItem: isListItem, runs });
+  }
+  if (!any && html.trim()) {
+    const runs = parseInlineRuns(html);
+    if (runs.length) blocks.push({ listItem: false, runs });
+  }
+  return blocks;
+}
+
+function fontFor(bold, italic) {
+  if (bold && italic) return 'Helvetica-BoldOblique';
+  if (bold) return 'Helvetica-Bold';
+  if (italic) return 'Helvetica-Oblique';
+  return 'Helvetica';
+}
+
+// Draws parsed rich-text blocks at the given position, preserving bold/italic/underline and
+// bullet points (PDFKit has no built-in HTML renderer, so formatting must be replayed manually
+// via font switching between each inline run within a `continued: true` chain).
+function drawRichBlocks(doc, blocks, x, y, { width = 495, fontSize = 10 } = {}) {
+  doc.x = x;
+  doc.y = y;
+  doc.fillColor('#111').fontSize(fontSize);
+  for (const block of blocks) {
+    if (!block.runs.length) continue;
+    const prefix = block.listItem ? '•  ' : '';
+    block.runs.forEach((run, i) => {
+      const text = i === 0 ? prefix + run.text : run.text;
+      doc.font(fontFor(run.bold, run.italic));
+      const isLast = i === block.runs.length - 1;
+      doc.text(text, { continued: !isLast, underline: run.underline, width });
+    });
+    doc.moveDown(0.5);
+  }
+  return doc.y;
 }
 
 // Renders an agreement's rendered_html (prose + the {{pricing_table}} placeholder already
@@ -195,11 +253,12 @@ function generateAgreementPdf(agreement) {
     doc.fontSize(16).font('Helvetica-Bold').text(agreement.title, 50, titleY);
     doc.moveDown(1);
 
-    const [before, after] = htmlToPlain(agreement.rendered_html.replace(/<table[\s\S]*?<\/table>/i, '\n[[PRICING_TABLE]]\n'))
+    const [beforeHtml, afterHtml] = agreement.rendered_html
+      .replace(/<table[\s\S]*?<\/table>/i, '[[PRICING_TABLE]]')
       .split('[[PRICING_TABLE]]');
 
-    doc.font('Helvetica').fontSize(10).fillColor('#111');
-    if (before?.trim()) doc.text(before.trim(), 50, doc.y, { width: 495 });
+    const beforeBlocks = parseRichHtml(beforeHtml);
+    if (beforeBlocks.length) drawRichBlocks(doc, beforeBlocks, 50, doc.y, { width: 495 });
 
     // Pricing table
     const tableY = doc.y + 15;
@@ -230,8 +289,8 @@ function generateAgreementPdf(agreement) {
     doc.text(`$${grandTotal.toFixed(2)}`, 465, rowY + 8, { width: 65, align: 'right' });
 
     let footerY = rowY + 35;
-    doc.font('Helvetica').fontSize(10).fillColor('#111');
-    if (after?.trim()) { doc.text(after.trim(), 50, footerY, { width: 495 }); footerY = doc.y + 20; }
+    const afterBlocks = parseRichHtml(afterHtml);
+    if (afterBlocks.length) { footerY = drawRichBlocks(doc, afterBlocks, 50, footerY, { width: 495 }) + 20; }
 
     if (agreement.signer_name) {
       doc.moveTo(50, footerY).lineTo(right, footerY).strokeColor('#e5e7eb').stroke();
