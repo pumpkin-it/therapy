@@ -26,6 +26,7 @@ router.get('/:token', (req, res) => {
   if (agreement.status === 'sent') {
     db.prepare("UPDATE agreements SET status='viewed', viewed_at=? WHERE id=?").run(new Date().toISOString(), agreement.id);
     agreement.status = 'viewed';
+    audit.log('agreement', agreement.id, 'viewed', 'Agreement viewed by client');
   }
   res.json({
     title: agreement.title,

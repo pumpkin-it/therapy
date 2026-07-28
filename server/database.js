@@ -358,6 +358,8 @@ const defaults = {
   remittance_email: '',
   invoice_payment_terms_days: '14',
   invoice_reminder_interval_days: '7',
+  agreement_reminder_interval_days: '3',
+  agreement_reminder_duration_days: '10',
   invoicing_mode: 'generate',
   role_permissions: JSON.stringify({
     owner:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:true, funding_periods:true },
@@ -528,6 +530,12 @@ const emailSeeds = [
     subject: 'Session notes for {{client_name}}',
     body: '<p>Hi {{recipient_name}},</p><p>Please find attached the session notes for {{client_name}} covering {{date_range}}.</p><p>Regards,<br>{{practitioner_name}}</p>',
   },
+  {
+    code: 'agreement_reminder',
+    name: 'Agreement Signing Reminder',
+    subject: 'Reminder: please sign — {{title}}',
+    body: '<p>Hi {{client_first_name}},</p><p>This is a friendly reminder that your <strong>{{title}}</strong> is still awaiting your signature.</p><p>Please review and sign using the link below.</p><p><a href="{{signing_url}}">{{signing_url}}</a></p>',
+  },
 ];
 const seedStmt = db.prepare(`
   INSERT OR IGNORE INTO templates (type, code, name, subject, body, is_system)
@@ -693,6 +701,14 @@ try { db.exec(`ALTER TABLE templates ADD COLUMN has_pricing_table INTEGER DEFAUL
 try { db.exec(`ALTER TABLE agreements ADD COLUMN start_date TEXT`); } catch {}
 try { db.exec(`ALTER TABLE agreements ADD COLUMN end_date TEXT`); } catch {}
 try { db.exec(`ALTER TABLE agreements ADD COLUMN budget_amount REAL`); } catch {}
+
+// Signing reminder tracking — reminder_end_date is per-agreement (defaults computed from
+// agreement_reminder_duration_days at finalize time, editable any time after via
+// PATCH /agreements/:id/reminder-end-date); last_reminder_at/reminder_count mirror the
+// existing invoices.last_reminder_at/reminder_count pattern used by sendOverdueReminders.
+try { db.exec(`ALTER TABLE agreements ADD COLUMN reminder_end_date TEXT`); } catch {}
+try { db.exec(`ALTER TABLE agreements ADD COLUMN last_reminder_at TEXT`); } catch {}
+try { db.exec(`ALTER TABLE agreements ADD COLUMN reminder_count INTEGER DEFAULT 0`); } catch {}
 
 const SERVICE_AGREEMENT_PLACEHOLDER_BODY =
   '<p>This Service Agreement is made between {{practice_name}} and {{client_name}} on {{date}}.</p>' +

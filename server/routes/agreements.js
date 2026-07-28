@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const db = require('../database');
 const auth = require('../middleware/auth');
 const audit = require('../services/audit');
-const { renderTemplate, graphSend } = require('../services/mailer');
+const { renderTemplate, graphSend, getTemplate } = require('../services/mailer');
 const { renderPricingTableHtml } = require('../services/templateVars');
 const { generateAgreementPdf } = require('../services/pdf');
 const { getAgreementSpend } = require('../services/budgets');
@@ -133,15 +133,16 @@ router.patch('/:id', auth, (req, res) => {
   if (!agreement) return res.status(404).json({ error: 'Not found' });
   if (!assertDraft(agreement, res)) return;
 
-  const { effective_date, title, start_date, end_date, budget_amount } = req.body;
+  const { effective_date, title, start_date, end_date, budget_amount, reminder_end_date } = req.body;
   db.prepare(`
-    UPDATE agreements SET effective_date = ?, title = ?, start_date = ?, end_date = ?, budget_amount = ? WHERE id = ?
+    UPDATE agreements SET effective_date = ?, title = ?, start_date = ?, end_date = ?, budget_amount = ?, reminder_end_date = ? WHERE id = ?
   `).run(
     effective_date || agreement.effective_date,
     title || agreement.title,
     start_date !== undefined ? (start_date || null) : agreement.start_date,
     end_date !== undefined ? (end_date || null) : agreement.end_date,
     budget_amount !== undefined ? (budget_amount || null) : agreement.budget_amount,
+    reminder_end_date !== undefined ? (reminder_end_date || null) : agreement.reminder_end_date,
     agreement.id
   );
   res.json(getAgreementWithItems(agreement.id));
@@ -209,10 +210,24 @@ router.post('/:id/finalize', auth, async (req, res) => {
 
   const renderedHtml = renderAgreementContent(agreement, req.user.id);
   const token = crypto.randomBytes(24).toString('hex');
+  const sentAt = new Date().toISOString();
+
+  // A per-agreement reminder end date can be set on the draft before sending; if none was
+  // set, default to sentAt + agreement_reminder_duration_days from Settings.
+  let reminderEndDate = req.body.reminder_end_date || agreement.reminder_end_date || null;
+  if (!reminderEndDate) {
+    const settings = getSettings();
+    const durationDays = parseInt(settings.agreement_reminder_duration_days || '10');
+    if (durationDays) {
+      const d = new Date(sentAt);
+      d.setDate(d.getDate() + durationDays);
+      reminderEndDate = d.toISOString().slice(0, 10);
+    }
+  }
 
   db.prepare(`
-    UPDATE agreements SET rendered_html = ?, signing_token = ?, status = 'sent', sent_at = ? WHERE id = ?
-  `).run(renderedHtml, token, new Date().toISOString(), agreement.id);
+    UPDATE agreements SET rendered_html = ?, signing_token = ?, status = 'sent', sent_at = ?, reminder_end_date = ? WHERE id = ?
+  `).run(renderedHtml, token, sentAt, reminderEndDate, agreement.id);
 
   const signingUrl = `${process.env.APP_URL || ''}/sign/${token}`;
 
@@ -248,6 +263,18 @@ router.post('/:id/resend', auth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// Lets the reminder end date be changed any time — unlike the main PATCH /:id route this is
+// not draft-only, since it's metadata unrelated to the immutable rendered_html snapshot.
+router.patch('/:id/reminder-end-date', auth, (req, res) => {
+  const agreement = db.prepare('SELECT * FROM agreements WHERE id = ?').get(req.params.id);
+  if (!agreement) return res.status(404).json({ error: 'Not found' });
+  const { reminder_end_date } = req.body;
+  db.prepare('UPDATE agreements SET reminder_end_date = ? WHERE id = ?').run(reminder_end_date || null, agreement.id);
+  audit.log('agreement', agreement.id, 'reminder_end_date_changed',
+    `Reminder end date ${reminder_end_date ? `set to ${reminder_end_date}` : 'cleared'}`);
+  res.json(getAgreementWithItems(agreement.id));
+});
+
 router.get('/:id/pdf', auth, async (req, res) => {
   const agreement = getAgreementWithItems(req.params.id);
   if (!agreement) return res.status(404).json({ error: 'Not found' });
@@ -263,4 +290,43 @@ router.get('/:id/pdf', auth, async (req, res) => {
   res.send(pdf);
 });
 
+// ─── Send reminders for agreements awaiting signature (called by scheduler) ─────────────────
+// Mirrors sendOverdueReminders in invoices.js: interval-based eligibility tracked via
+// last_reminder_at/reminder_count, but also bounded by a per-agreement reminder_end_date
+// (invoices remind indefinitely until paid; agreements stop after a configured window).
+async function sendAgreementReminders() {
+  const settings = getSettings();
+  const intervalDays = parseInt(settings.agreement_reminder_interval_days || '3');
+  if (!intervalDays) return 0;
+
+  const cutoff = new Date(Date.now() - intervalDays * 86400000).toISOString();
+  const due = db.prepare(`
+    SELECT a.*, c.first_name || ' ' || c.last_name AS client_name, c.first_name AS client_first_name, c.email AS client_email
+    FROM agreements a JOIN clients c ON c.id = a.client_id
+    WHERE a.status IN ('sent', 'viewed')
+      AND (a.reminder_end_date IS NULL OR DATE('now') <= DATE(a.reminder_end_date))
+      AND (a.last_reminder_at IS NULL OR a.last_reminder_at < ?)
+  `).all(cutoff);
+
+  let sent = 0;
+  for (const agreement of due) {
+    if (!agreement.client_email || !agreement.signing_token) continue;
+    try {
+      const signingUrl = `${process.env.APP_URL || ''}/sign/${agreement.signing_token}`;
+      const vars = { client_first_name: agreement.client_first_name, title: agreement.title, signing_url: signingUrl };
+      const tpl = getTemplate('agreement_reminder');
+      const subject = tpl ? renderTemplate(tpl.subject, vars) : `Reminder: please sign — ${agreement.title}`;
+      const html = tpl ? renderTemplate(tpl.body, vars)
+        : `<p>Hi ${agreement.client_first_name},</p><p>This is a friendly reminder that your <strong>${agreement.title}</strong> is still awaiting your signature.</p><p><a href="${signingUrl}">${signingUrl}</a></p>`;
+      await graphSend({ to: agreement.client_email, subject, html });
+      db.prepare('UPDATE agreements SET last_reminder_at=?, reminder_count=reminder_count+1 WHERE id=?')
+        .run(new Date().toISOString(), agreement.id);
+      audit.log('agreement', agreement.id, 'reminder_sent', `Reminder ${agreement.reminder_count + 1} sent to ${agreement.client_email}`);
+      sent++;
+    } catch (e) { console.error(`Agreement reminder failed for agreement ${agreement.id}:`, e.message); }
+  }
+  return sent;
+}
+
 module.exports = router;
+module.exports.sendAgreementReminders = sendAgreementReminders;

@@ -14,6 +14,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import AgreementPricingTable from '../components/AgreementPricingTable';
 import SessionNoteEmailModal from '../components/SessionNoteEmailModal';
+import EntityAuditLog from '../components/EntityAuditLog';
 
 const AGREEMENT_STATUS_COLOR = {
   draft: 'bg-gray-100 text-gray-600', sent: 'bg-blue-100 text-blue-700', viewed: 'bg-amber-100 text-amber-700',
@@ -34,10 +35,12 @@ function AgreementsTab({ clientId }) {
   const [resending, setResending] = useState(false);
   const [resent, setResent] = useState(false);
   const [agreementError, setAgreementError] = useState('');
-  const [meta, setMeta] = useState({ start_date: '', end_date: '', budget_amount: '' });
+  const [meta, setMeta] = useState({ start_date: '', end_date: '', budget_amount: '', reminder_end_date: '' });
   const [savingMeta, setSavingMeta] = useState(false);
   const [fundingPeriods, setFundingPeriods] = useState([]);
   const [spend, setSpend] = useState(null);
+  const [reminderDurationDays, setReminderDurationDays] = useState(10);
+  const [savingReminderEndDate, setSavingReminderEndDate] = useState(false);
   const pricingTableRef = useRef();
 
   const load = () => api.get(`/agreements?client_id=${clientId}`).then(r => setAgreements(r.data));
@@ -45,6 +48,7 @@ function AgreementsTab({ clientId }) {
     load();
     api.get('/templates?type=agreement').then(r => setTemplates(r.data));
     api.get(`/funding-periods?client_id=${clientId}`).then(r => setFundingPeriods(r.data)).catch(() => {});
+    api.get('/settings').then(r => setReminderDurationDays(parseInt(r.data.agreement_reminder_duration_days || '10'))).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -54,9 +58,17 @@ function AgreementsTab({ clientId }) {
 
   useEffect(() => {
     if (!active) { setSpend(null); return; }
-    setMeta({ start_date: active.start_date || '', end_date: active.end_date || '', budget_amount: active.budget_amount ?? '' });
+    // Default the draft's reminder end date to today + agreement_reminder_duration_days until
+    // the user (or finalize, server-side) sets a real one.
+    const defaultReminderEnd = active.status === 'draft' && !active.reminder_end_date
+      ? new Date(Date.now() + reminderDurationDays * 86400000).toISOString().slice(0, 10)
+      : (active.reminder_end_date || '');
+    setMeta({
+      start_date: active.start_date || '', end_date: active.end_date || '', budget_amount: active.budget_amount ?? '',
+      reminder_end_date: defaultReminderEnd,
+    });
     api.get(`/agreements/${active.id}/spend`).then(r => setSpend(r.data)).catch(() => setSpend(null));
-  }, [active?.id, active?.start_date, active?.end_date, active?.budget_amount]);
+  }, [active?.id, active?.start_date, active?.end_date, active?.budget_amount, active?.reminder_end_date, reminderDurationDays]);
 
   // Non-blocking warning if the agreement's dates fall outside the client's funding period
   // for the same funding type — save is never prevented, this is purely informational.
@@ -79,12 +91,28 @@ function AgreementsTab({ clientId }) {
         start_date: meta.start_date || null,
         end_date: meta.end_date || null,
         budget_amount: meta.budget_amount === '' ? null : Number(meta.budget_amount),
+        reminder_end_date: meta.reminder_end_date || null,
       });
       setActive(res.data);
     } catch (e) {
       setAgreementError(e.response?.data?.error || 'Failed to save');
     } finally {
       setSavingMeta(false);
+    }
+  };
+
+  // Reminder end date can also be changed after the agreement has already been sent —
+  // dedicated endpoint since the main PATCH /:id route is draft-only.
+  const changeReminderEndDate = async newDate => {
+    setSavingReminderEndDate(true);
+    setAgreementError('');
+    try {
+      const res = await api.patch(`/agreements/${active.id}/reminder-end-date`, { reminder_end_date: newDate || null });
+      setActive(res.data);
+    } catch (e) {
+      setAgreementError(e.response?.data?.error || 'Failed to update reminder end date');
+    } finally {
+      setSavingReminderEndDate(false);
     }
   };
 
@@ -207,7 +235,7 @@ function AgreementsTab({ clientId }) {
       {active && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <button onClick={() => { setActiveId(null); setSendResult(null); }} className="text-sm text-gray-500 hover:text-gray-700">&larr; Back to agreements</button>
+            <button onClick={() => setActiveId(null)} className="text-sm text-gray-500 hover:text-gray-700">&larr; Back to agreements</button>
             <span className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${AGREEMENT_STATUS_COLOR[active.status] || 'bg-gray-100 text-gray-600'}`}>{active.status}</span>
           </div>
           <p className="text-lg font-semibold text-gray-900">{active.title}</p>
@@ -224,6 +252,10 @@ function AgreementsTab({ clientId }) {
                     value={meta.budget_amount} onChange={e => setMeta(m => ({ ...m, budget_amount: e.target.value }))} />
                 </div>
               </div>
+              <div className="grid grid-cols-3 gap-3">
+                <ClearableDateInput label="Reminder end date" value={meta.reminder_end_date} onChange={v => setMeta(m => ({ ...m, reminder_end_date: v }))} />
+              </div>
+              <p className="text-xs text-gray-400 -mt-2">Signing reminders stop after this date. Defaults to {reminderDurationDays} days from send.</p>
               {fundingWarning && (
                 <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-700">
                   <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />{fundingWarning}
@@ -273,6 +305,15 @@ function AgreementsTab({ clientId }) {
                   </Button>
                 )}
               </div>
+              {active.status !== 'signed' && active.status !== 'voided' && active.status !== 'declined' && (
+                <div className="flex items-center gap-2 pt-1">
+                  <label className="text-xs text-indigo-700">Reminders until:</label>
+                  <input type="date" className="rounded border border-indigo-200 px-2 py-1 text-xs bg-white"
+                    value={active.reminder_end_date || ''} disabled={savingReminderEndDate}
+                    onChange={e => changeReminderEndDate(e.target.value)} />
+                  {active.reminder_count > 0 && <span className="text-xs text-indigo-600">{active.reminder_count} sent so far</span>}
+                </div>
+              )}
             </div>
           )}
 
@@ -290,6 +331,13 @@ function AgreementsTab({ clientId }) {
               </Button>
             )}
           </div>
+
+          <EntityAuditLog entityType="agreement" entityId={active.id} defaultOpen
+            actionColors={{
+              created: 'text-green-700', sent: 'text-blue-700', resent: 'text-blue-700',
+              viewed: 'text-amber-600', signed: 'text-green-700', declined: 'text-red-600',
+              voided: 'text-red-600', reminder_sent: 'text-indigo-600', reminder_end_date_changed: 'text-gray-500',
+            }} />
         </div>
       )}
     </div>
@@ -902,7 +950,7 @@ export default function ClientDetail() {
 
   const TABS = [
     ['details', 'Details'], ['funding', 'Funding'], ['medical', 'Medical'],
-    ['notes', 'Session Notes'], ['agreements', 'Agreements'], ['billing', 'Billing'], ['files', 'Files'], ['calendar', 'Calendar'],
+    ['notes', 'Session Notes'], ['agreements', 'Agreements'], ['billing', 'Billing'], ['files', 'Files'], ['calendar', 'Calendar'], ['history', 'History'],
   ];
 
   return (
@@ -1025,6 +1073,10 @@ export default function ClientDetail() {
         {tab === 'billing'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view billing.</p> : <BillingSummaryTab clientId={id} />)}
         {tab === 'files'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to upload files.</p> : <FilesTab     clientId={id} />)}
         {tab === 'calendar'  && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view calendar.</p> : <EmbeddedCalendar clientId={id} />)}
+        {tab === 'history'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view history.</p> : (
+          <EntityAuditLog entityType="client" entityId={id} defaultOpen
+            actionColors={{ created: 'text-green-700', updated: 'text-blue-700', deactivated: 'text-red-600', reactivated: 'text-green-700' }} />
+        ))}
       </div>
 
       {/* Save bar */}

@@ -265,6 +265,20 @@ export default function Settings() {
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
         <div>
+          <h2 className="font-semibold text-gray-900">Service Agreement Reminders</h2>
+          <p className="text-sm text-gray-500 mt-1">Unsigned agreements are automatically re-emailed at this interval until either signed or the reminder window ends.</p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          {field('Reminder interval (days)', 'agreement_reminder_interval_days', 'number')}
+          {field('Reminder duration (days)', 'agreement_reminder_duration_days', 'number')}
+        </div>
+        <p className="text-xs text-gray-400">
+          e.g. interval 3 / duration 10 ≈ 3 reminders sent. Sets the default for new agreements — each one's reminder end date can also be changed individually.
+        </p>
+      </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+        <div>
           <h2 className="font-semibold text-gray-900">Late Cancellation Policy</h2>
           <p className="text-sm text-gray-500 mt-1">Define tiers by how many days before the appointment the cancellation occurs. Tiers are sorted automatically — the shortest window takes priority.</p>
         </div>

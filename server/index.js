@@ -70,12 +70,14 @@ app.use((err, _req, res, _next) => {
 
 app.listen(PORT, () => {
   console.log(`Therapy API running on :${PORT}`);
-  // Daily scheduler: recurring appointments + invoice reminders
+  // Daily scheduler: recurring appointments + invoice reminders + agreement signing reminders
   const { generateAll } = require('./routes/recurringSeries');
   const { sendOverdueReminders } = require('./routes/invoices');
+  const { sendAgreementReminders } = require('./routes/agreements');
   const runDaily = async () => {
     try { generateAll(); } catch (e) { console.error('Recurring generation error:', e.message); }
     try { await sendOverdueReminders(); } catch (e) { console.error('Invoice reminder error:', e.message); }
+    try { await sendAgreementReminders(); } catch (e) { console.error('Agreement reminder error:', e.message); }
   };
   runDaily();
   setInterval(runDaily, 24 * 60 * 60 * 1000);
