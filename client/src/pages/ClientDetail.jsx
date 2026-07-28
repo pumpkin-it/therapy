@@ -30,7 +30,9 @@ function AgreementsTab({ clientId }) {
   const [newTemplateId, setNewTemplateId] = useState('');
   const [activeId, setActiveId] = useState(null);
   const [active, setActive] = useState(null);
-  const [sendResult, setSendResult] = useState(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resent, setResent] = useState(false);
   const [agreementError, setAgreementError] = useState('');
   const [meta, setMeta] = useState({ start_date: '', end_date: '', budget_amount: '' });
   const [savingMeta, setSavingMeta] = useState(false);
@@ -109,11 +111,32 @@ function AgreementsTab({ clientId }) {
     }
     try {
       const res = await api.post(`/agreements/${activeId}/finalize`, { send_email: sendEmail });
-      setSendResult(sendEmail ? 'Emailed to client.' : res.data.signing_url);
       setActive(res.data);
       load();
     } catch (e) {
       setAgreementError(e.response?.data?.error || 'Failed to send agreement');
+    }
+  };
+
+  const signingUrl = active?.signing_token ? `${window.location.origin}/sign/${active.signing_token}` : '';
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(signingUrl);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  };
+
+  const resendEmail = async () => {
+    setAgreementError('');
+    setResending(true);
+    try {
+      await api.post(`/agreements/${activeId}/resend`);
+      setResent(true);
+      setTimeout(() => setResent(false), 3000);
+    } catch (e) {
+      setAgreementError(e.response?.data?.error || 'Failed to resend agreement');
+    } finally {
+      setResending(false);
     }
   };
 
@@ -239,9 +262,17 @@ function AgreementsTab({ clientId }) {
 
           <AgreementPricingTable ref={pricingTableRef} agreement={active} onUpdate={setActive} />
 
-          {sendResult && (
-            <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-800 break-all">
-              {sendResult.startsWith('http') ? <>Signing link: <a href={sendResult} target="_blank" rel="noreferrer" className="underline">{sendResult}</a></> : sendResult}
+          {signingUrl && (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-800 space-y-2">
+              <div className="break-all">Signing link: <a href={signingUrl} target="_blank" rel="noreferrer" className="underline">{signingUrl}</a></div>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="secondary" onClick={copyLink}>{linkCopied ? 'Copied!' : 'Copy link'}</Button>
+                {active.client_email && (
+                  <Button size="sm" variant="secondary" onClick={resendEmail} disabled={resending}>
+                    {resending ? 'Sending…' : resent ? 'Sent!' : 'Resend email'}
+                  </Button>
+                )}
+              </div>
             </div>
           )}
 

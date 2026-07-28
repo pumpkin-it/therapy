@@ -229,6 +229,25 @@ router.post('/:id/finalize', auth, async (req, res) => {
   res.json({ ...getAgreementWithItems(agreement.id), signing_url: signingUrl });
 });
 
+// Re-sends the existing signing link by email — does NOT regenerate the token, so a link the
+// client may have already opened (or bookmarked) keeps working.
+router.post('/:id/resend', auth, async (req, res) => {
+  const agreement = getAgreementWithItems(req.params.id);
+  if (!agreement) return res.status(404).json({ error: 'Not found' });
+  if (!agreement.signing_token) return res.status(409).json({ error: 'Agreement has not been sent yet' });
+  if (!agreement.client_email) return res.status(400).json({ error: 'Client has no email on file' });
+
+  const signingUrl = `${process.env.APP_URL || ''}/sign/${agreement.signing_token}`;
+  await graphSend({
+    to: agreement.client_email,
+    subject: `Please sign: ${agreement.title}`,
+    html: `<p>Hi ${agreement.client_name.split(' ')[0] || ''},</p><p>Please review and sign your ${agreement.title} using the link below.</p><p><a href="${signingUrl}">${signingUrl}</a></p>`,
+  });
+
+  audit.log('agreement', agreement.id, 'resent', `Agreement resent by email to ${agreement.client_email}`);
+  res.json({ ok: true });
+});
+
 router.get('/:id/pdf', auth, async (req, res) => {
   const agreement = getAgreementWithItems(req.params.id);
   if (!agreement) return res.status(404).json({ error: 'Not found' });
