@@ -449,7 +449,8 @@ export function EmbeddedCalendar({ clientId, practitionerId }) {
           appointment={modal === 'new' || modal?._new ? null : modal}
           defaultDate={modal?._new ? modal.date : defaultDate}
           defaultTime={modal?._new ? modal.time : null}
-          defaultPractitioner={modal?._new ? modal.practitionerId : null}
+          defaultPractitioner={modal?._new ? (modal.practitionerId || practitionerId) : null}
+          defaultClient={modal?._new ? clientId : null}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); load(); }}
           onRefresh={() => load()}

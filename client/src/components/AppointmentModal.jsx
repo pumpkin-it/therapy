@@ -260,7 +260,7 @@ export function NotifyBtn({ label, target, status, onClick }) {
   );
 }
 
-export default function AppointmentModal({ appointment, defaultDate, defaultTime, defaultPractitioner, onClose, onSaved, onRefresh }) {
+export default function AppointmentModal({ appointment, defaultDate, defaultTime, defaultPractitioner, defaultClient, onClose, onSaved, onRefresh }) {
   const { timezone } = useSettings();
   const { user } = useAuth();
   const editing = !!appointment;
@@ -300,7 +300,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
 
   const [form, setForm] = useState({
     practitioner_id: defaultPractitioner || (user?.role === 'practitioner' ? user.id : ''),
-    client_id: '',
+    client_id: defaultClient || '',
     location_type: 'home',
     location_id: '',
     location_other: '',
