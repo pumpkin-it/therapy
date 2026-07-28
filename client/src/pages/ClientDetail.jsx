@@ -1010,7 +1010,7 @@ export default function ClientDetail() {
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
             <h3 className="font-semibold text-gray-900">Client created</h3>
             <p className="text-sm text-gray-600">{createdClient.first_name} {createdClient.last_name} has been added successfully.</p>
-            <Button onClick={() => navigate(`/clients/${createdClient.id}`, { replace: true })} className="w-full justify-center">Close</Button>
+            <Button onClick={() => { const newId = createdClient.id; setCreatedClient(null); navigate(`/clients/${newId}`, { replace: true }); }} className="w-full justify-center">Close</Button>
           </div>
         </div>
       )}
