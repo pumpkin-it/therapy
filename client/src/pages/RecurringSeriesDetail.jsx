@@ -3,14 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Clock, User, Calendar } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import api from '../lib/api';
-import { localToday, fmtDateTime } from '../lib/utils';
+import { fmtDateTime } from '../lib/utils';
 import { useSettings } from '../context/SettingsContext';
 import Button from '../components/ui/Button';
 
 const FREQ_LABEL = { weekly: 'Weekly', fortnightly: 'Fortnightly', every3weeks: 'Every 3 weeks', monthly: 'Monthly' };
-// every3weeks/monthly are temporarily disabled for new selections (bugged) — kept in FREQ_LABEL
-// above so any already-existing series with those frequencies still display correctly.
-const SELECTABLE_FREQ = ['weekly', 'fortnightly'];
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const STATUS_STYLE = {
   scheduled: 'bg-blue-50 text-blue-700',
@@ -26,7 +23,6 @@ export default function RecurringSeriesDetail() {
   const navigate = useNavigate();
   const [series, setSeries] = useState(null);
   const [endEdit, setEndEdit] = useState(null);
-  const [freqEdit, setFreqEdit] = useState(null); // null | { freq, fromDate }
   const [saving, setSaving] = useState(false);
 
   const load = () => api.get(`/recurring-series/${id}`).then(r => setSeries(r.data));
@@ -45,17 +41,6 @@ export default function RecurringSeriesDetail() {
     try {
       await api.patch(`/recurring-series/${id}`, endEdit);
       setEndEdit(null);
-      load();
-    } finally { setSaving(false); }
-  };
-
-  const saveFreqEdit = async () => {
-    if (!freqEdit || freqEdit.freq === series.freq) { setFreqEdit(null); return; }
-    if (!confirm(`Change frequency from ${FREQ_LABEL[series.freq]} to ${FREQ_LABEL[freqEdit.freq]} from ${freqEdit.fromDate}? Scheduled appointments from that date will be cancelled and regenerated at the new frequency.`)) return;
-    setSaving(true);
-    try {
-      await api.patch(`/recurring-series/${id}`, { freq: freqEdit.freq, freq_change_from: freqEdit.fromDate });
-      setFreqEdit(null);
       load();
     } finally { setSaving(false); }
   };
@@ -86,30 +71,9 @@ export default function RecurringSeriesDetail() {
           <p className="font-medium text-gray-900">{series.start_time?.slice(11,16)} – {series.end_time?.slice(11,16)}</p>
 
           {/* Frequency */}
-          {freqEdit !== null ? (
-            <div className="mt-2 space-y-2">
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-500 w-20">Frequency:</label>
-                <select className="rounded border border-gray-300 px-2 py-1 text-sm" value={freqEdit.freq} onChange={e => setFreqEdit(f => ({ ...f, freq: e.target.value }))}>
-                  {SELECTABLE_FREQ.map(v => <option key={v} value={v}>{FREQ_LABEL[v]}</option>)}
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-500 w-20">Change from:</label>
-                <input type="date" className="rounded border border-gray-300 px-2 py-1 text-sm"
-                  value={freqEdit.fromDate} onChange={e => setFreqEdit(f => ({ ...f, fromDate: e.target.value }))} />
-              </div>
-              <div className="flex gap-2">
-                <Button size="sm" onClick={saveFreqEdit} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
-                <Button size="sm" variant="secondary" onClick={() => setFreqEdit(null)}>Cancel</Button>
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs text-gray-500 mt-1">
-              {FREQ_LABEL[series.freq]} on {DAY_NAMES[new Date(series.start_time).getDay()]}s
-              <button onClick={() => setFreqEdit({ freq: series.freq, fromDate: localToday() })} className="ml-2 text-indigo-600 hover:underline">change</button>
-            </p>
-          )}
+          <p className="text-xs text-gray-500 mt-1">
+            {FREQ_LABEL[series.freq]} on {DAY_NAMES[new Date(series.start_time).getDay()]}s
+          </p>
 
           {endEdit ? (
             <div className="mt-2 space-y-2">
