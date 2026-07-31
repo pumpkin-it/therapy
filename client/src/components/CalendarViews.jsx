@@ -18,29 +18,57 @@ export const STATUS_CLASS = {
   no_show:    'bg-orange-50 border-orange-300 text-orange-900',
 };
 
-export const HOUR_START = 6;
-export const HOUR_COUNT = 16; // 6am–9pm
-export const HOURS = Array.from({ length: HOUR_COUNT }, (_, i) => i + HOUR_START);
-const SLOT_COUNT = HOUR_COUNT * 4; // 15-min slots
+// Standard working-hours window — the grid's default, always-visible range.
+export const STANDARD_HOUR_START = 8;
+export const STANDARD_HOUR_COUNT = 11; // 8am–7pm
 
-function calcTimeFromClick(e, containerEl) {
+// Expands the grid beyond the standard window only when an appointment actually falls outside
+// it (e.g. an early or late session), rather than always rendering a full 24h grid.
+function getHourRange(appointments) {
+  let start = STANDARD_HOUR_START;
+  let end = STANDARD_HOUR_START + STANDARD_HOUR_COUNT;
+  for (const a of appointments) {
+    const s = new Date(a.start_time);
+    const e = new Date(a.end_time);
+    start = Math.min(start, Math.floor(s.getHours() + s.getMinutes() / 60));
+    end   = Math.max(end,   Math.ceil(e.getHours() + e.getMinutes() / 60));
+  }
+  return { hourStart: start, hourCount: end - start };
+}
+
+function calcTimeFromClick(e, containerEl, hourStart, hourCount) {
   const rect = containerEl.getBoundingClientRect();
   const y = e.clientY - rect.top;
   const pct = y / rect.height;
-  const totalMin = Math.max(0, Math.min(pct * HOUR_COUNT * 60, HOUR_COUNT * 60 - 15));
-  const h = Math.floor(totalMin / 60) + HOUR_START;
+  const totalMin = Math.max(0, Math.min(pct * hourCount * 60, hourCount * 60 - 15));
+  const h = Math.floor(totalMin / 60) + hourStart;
   const m = Math.floor(totalMin % 60 / 15) * 15;
   return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
 }
 
 export const apptRef = id => `APT-${String(id).padStart(5,'0')}`;
 
-export function getStyle(startISO, endISO) {
+export function getStyle(startISO, endISO, hourStart, hourCount) {
   const start = new Date(startISO);
   const end   = new Date(endISO);
-  const top    = ((start.getHours() - HOUR_START + start.getMinutes() / 60) / HOUR_COUNT) * 100;
-  const height = Math.max(((end - start) / 1000 / 3600 / HOUR_COUNT) * 100, 1.5);
+  const top    = ((start.getHours() - hourStart + start.getMinutes() / 60) / hourCount) * 100;
+  const height = Math.max(((end - start) / 1000 / 3600 / hourCount) * 100, 1.5);
   return { top: `${top}%`, height: `${height}%` };
+}
+
+// Grey overlay bands covering the portion of the grid outside standard working hours (before
+// STANDARD_HOUR_START / after STANDARD_HOUR_START+STANDARD_HOUR_COUNT), so an early/late
+// appointment that expanded the grid is still visually obvious as "outside standard hours".
+function OutOfHoursBands({ hourStart, hourCount }) {
+  const standardEnd = STANDARD_HOUR_START + STANDARD_HOUR_COUNT;
+  const topPct = Math.max(0, ((STANDARD_HOUR_START - hourStart) / hourCount) * 100);
+  const bottomPct = Math.max(0, (((hourStart + hourCount) - standardEnd) / hourCount) * 100);
+  return (
+    <>
+      {topPct > 0 && <div className="absolute inset-x-0 top-0 bg-gray-100 pointer-events-none" style={{ height: `${topPct}%` }} />}
+      {bottomPct > 0 && <div className="absolute inset-x-0 bottom-0 bg-gray-100 pointer-events-none" style={{ height: `${bottomPct}%` }} />}
+    </>
+  );
 }
 
 export function travelBlocks(appt) {
@@ -119,6 +147,10 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
     ? practitioners.filter(p => p.id === Number(filteredPractitionerId))
     : practitioners;
 
+  const { hourStart, hourCount } = getHourRange(appointments);
+  const hours = Array.from({ length: hourCount }, (_, i) => i + hourStart);
+  const slotCount = hourCount * 4;
+
   return (
     <div className="flex-1 overflow-auto rounded-xl border border-gray-200 bg-white shadow-sm">
       <div className="grid min-w-max" style={{ gridTemplateColumns: `56px repeat(${Math.max(cols.length, 1)}, minmax(160px, 1fr))` }}>
@@ -132,26 +164,28 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
           </div>
         ))}
 
-        <div className="relative border-r border-gray-100" style={{ height: `${SLOT_COUNT * 20}px` }}>
-          {HOURS.map(h => (
-            <div key={h} className="absolute right-2 text-xs text-gray-400" style={{ top: `${((h - HOUR_START) / HOUR_COUNT) * 100}%` }}>
+        <div className="relative border-r border-gray-100" style={{ height: `${slotCount * 20}px` }}>
+          <OutOfHoursBands hourStart={hourStart} hourCount={hourCount} />
+          {hours.map(h => (
+            <div key={h} className="absolute right-2 text-xs text-gray-400" style={{ top: `${((h - hourStart) / hourCount) * 100}%` }}>
               {h % 12 || 12}{h < 12 ? 'am' : 'pm'}
             </div>
           ))}
-          {Array.from({ length: SLOT_COUNT }, (_, i) => {
+          {Array.from({ length: slotCount }, (_, i) => {
             const isHour = i % 4 === 0;
             return <div key={i} className={`absolute w-full ${isHour ? 'border-t border-gray-200' : 'border-t border-gray-50'}`}
-              style={{ top: `${(i / SLOT_COUNT) * 100}%` }} />;
+              style={{ top: `${(i / slotCount) * 100}%` }} />;
           })}
         </div>
 
         {cols.map(p => (
-          <div key={p.id} className="relative border-l border-gray-100 cursor-pointer" style={{ height: `${SLOT_COUNT * 20}px` }}
-            onClick={e => { if (e.target.closest('[data-appt]')) return; const time = calcTimeFromClick(e, e.currentTarget); onClickSlot({ date: dateStr || format(date, 'yyyy-MM-dd'), time, practitionerId: p.id }); }}>
-            {Array.from({ length: SLOT_COUNT }, (_, i) => {
+          <div key={p.id} className="relative border-l border-gray-100 cursor-pointer" style={{ height: `${slotCount * 20}px` }}
+            onClick={e => { if (e.target.closest('[data-appt]')) return; const time = calcTimeFromClick(e, e.currentTarget, hourStart, hourCount); onClickSlot({ date: dateStr || format(date, 'yyyy-MM-dd'), time, practitionerId: p.id }); }}>
+            <OutOfHoursBands hourStart={hourStart} hourCount={hourCount} />
+            {Array.from({ length: slotCount }, (_, i) => {
               const isHour = i % 4 === 0;
               return <div key={i} className={`absolute w-full ${isHour ? 'border-t border-gray-200' : 'border-t border-gray-50'}`}
-                style={{ top: `${(i / SLOT_COUNT) * 100}%`, height: `${100 / SLOT_COUNT}%` }} />;
+                style={{ top: `${(i / slotCount) * 100}%`, height: `${100 / slotCount}%` }} />;
             })}
             {(() => {
               const pAppts = appointments.filter(a => a.practitioner_id === p.id);
@@ -163,7 +197,7 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
                   {travelBlocks(appt).map(tb => (
                     <div key={`${appt.id}-${tb.key}`}
                       className="absolute rounded border px-1.5 py-0.5 text-xs overflow-hidden pointer-events-none"
-                      style={{ ...getStyle(tb.startISO, tb.endISO), left: ol.left, width: ol.width, borderColor: p.color, background: p.color + '22' }}
+                      style={{ ...getStyle(tb.startISO, tb.endISO, hourStart, hourCount), left: ol.left, width: ol.width, borderColor: p.color, background: p.color + '22' }}
                     >
                       <div className="truncate" style={{ color: p.color }}>Travel</div>
                     </div>
@@ -172,7 +206,7 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
                     onClick={e => { e.stopPropagation(); onClickAppt(appt); }}
                     data-appt title={apptRef(appt.id)}
                     className={cn('absolute rounded border px-1.5 py-1 text-xs cursor-pointer overflow-hidden hover:shadow transition-shadow', STATUS_CLASS[appt.status] || STATUS_CLASS.scheduled)}
-                    style={{ ...getStyle(appt.start_time, appt.end_time), left: ol.left, width: ol.width }}
+                    style={{ ...getStyle(appt.start_time, appt.end_time, hourStart, hourCount), left: ol.left, width: ol.width }}
                   >
                     <div className="absolute bottom-0.5 right-0.5 flex gap-0.5">
                       {appt.status === 'cancelled' && <span className="h-3.5 w-3.5 rounded-full bg-red-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">C</span>}
@@ -205,6 +239,10 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
 
   const practitionerColor = id => practitioners.find(p => p.id === id)?.color || '#6366f1';
 
+  const { hourStart, hourCount } = getHourRange(filteredAppts);
+  const hours = Array.from({ length: hourCount }, (_, i) => i + hourStart);
+  const slotCount = hourCount * 4;
+
   return (
     <div className="flex-1 overflow-auto rounded-xl border border-gray-200 bg-white shadow-sm">
       <div className="grid min-w-max" style={{ gridTemplateColumns: '56px repeat(7, minmax(120px, 1fr))' }}>
@@ -220,26 +258,28 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
           </div>
         ))}
 
-        <div className="relative border-r border-gray-100" style={{ height: `${SLOT_COUNT * 20}px` }}>
-          {HOURS.map(h => (
-            <div key={h} className="absolute right-2 text-xs text-gray-400" style={{ top: `${((h - HOUR_START) / HOUR_COUNT) * 100}%` }}>
+        <div className="relative border-r border-gray-100" style={{ height: `${slotCount * 20}px` }}>
+          <OutOfHoursBands hourStart={hourStart} hourCount={hourCount} />
+          {hours.map(h => (
+            <div key={h} className="absolute right-2 text-xs text-gray-400" style={{ top: `${((h - hourStart) / hourCount) * 100}%` }}>
               {h % 12 || 12}{h < 12 ? 'am' : 'pm'}
             </div>
           ))}
-          {Array.from({ length: SLOT_COUNT }, (_, i) => {
+          {Array.from({ length: slotCount }, (_, i) => {
             const isHour = i % 4 === 0;
             return <div key={i} className={`absolute w-full ${isHour ? 'border-t border-gray-200' : 'border-t border-gray-50'}`}
-              style={{ top: `${(i / SLOT_COUNT) * 100}%` }} />;
+              style={{ top: `${(i / slotCount) * 100}%` }} />;
           })}
         </div>
 
         {days.map(day => (
-          <div key={day.toISOString()} className={cn('relative border-l border-gray-100 cursor-pointer', isSameDay(day, today) && 'bg-indigo-50/20')} style={{ height: `${SLOT_COUNT * 20}px` }}
-            onClick={e => { if (onClickSlot && !e.target.closest('[data-appt]')) { const time = calcTimeFromClick(e, e.currentTarget); onClickSlot({ date: format(day, 'yyyy-MM-dd'), time }); } }}>
-            {Array.from({ length: SLOT_COUNT }, (_, i) => {
+          <div key={day.toISOString()} className={cn('relative border-l border-gray-100 cursor-pointer', isSameDay(day, today) && 'bg-indigo-50/20')} style={{ height: `${slotCount * 20}px` }}
+            onClick={e => { if (onClickSlot && !e.target.closest('[data-appt]')) { const time = calcTimeFromClick(e, e.currentTarget, hourStart, hourCount); onClickSlot({ date: format(day, 'yyyy-MM-dd'), time }); } }}>
+            <OutOfHoursBands hourStart={hourStart} hourCount={hourCount} />
+            {Array.from({ length: slotCount }, (_, i) => {
               const isHour = i % 4 === 0;
               return <div key={i} className={`absolute w-full ${isHour ? 'border-t border-gray-200' : 'border-t border-gray-50'}`}
-                style={{ top: `${(i / SLOT_COUNT) * 100}%`, height: `${100 / SLOT_COUNT}%` }} />;
+                style={{ top: `${(i / slotCount) * 100}%`, height: `${100 / slotCount}%` }} />;
             })}
             {(() => {
               const dayAppts = filteredAppts.filter(a => isSameDay(new Date(a.start_time), day));
@@ -251,7 +291,7 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
                   {travelBlocks(appt).map(tb => (
                     <div key={`${appt.id}-${tb.key}`}
                       className="absolute rounded border px-1 py-0.5 text-xs overflow-hidden pointer-events-none"
-                      style={{ ...getStyle(tb.startISO, tb.endISO), left: ol.left, width: ol.width, borderColor: practitionerColor(appt.practitioner_id), background: practitionerColor(appt.practitioner_id) + '22' }}
+                      style={{ ...getStyle(tb.startISO, tb.endISO, hourStart, hourCount), left: ol.left, width: ol.width, borderColor: practitionerColor(appt.practitioner_id), background: practitionerColor(appt.practitioner_id) + '22' }}
                     >
                       <div className="truncate text-[10px]" style={{ color: practitionerColor(appt.practitioner_id) }}>Travel</div>
                     </div>
@@ -260,7 +300,7 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
                     onClick={() => onClickAppt(appt)}
                     data-appt title={apptRef(appt.id)}
                     className="absolute rounded border px-1.5 py-1 text-xs cursor-pointer overflow-hidden hover:shadow transition-shadow"
-                    style={{ ...getStyle(appt.start_time, appt.end_time), left: ol.left, width: ol.width, borderColor: practitionerColor(appt.practitioner_id), background: practitionerColor(appt.practitioner_id) + '22', color: '#111' }}
+                    style={{ ...getStyle(appt.start_time, appt.end_time, hourStart, hourCount), left: ol.left, width: ol.width, borderColor: practitionerColor(appt.practitioner_id), background: practitionerColor(appt.practitioner_id) + '22', color: '#111' }}
                   >
                     <div className="absolute bottom-0.5 right-0.5 flex gap-0.5">
                       {appt.status === 'cancelled' && <span className="h-3.5 w-3.5 rounded-full bg-red-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">C</span>}
