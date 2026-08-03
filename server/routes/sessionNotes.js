@@ -29,7 +29,7 @@ function dateRangeLabel(notes) {
 
 router.get('/', auth, (req, res) => {
   const { client_id, appointment_id } = req.query;
-  let where = '1=1';
+  let where = 'cn.archived = 0';
   const params = [];
   if (client_id)      { where += ' AND cn.client_id = ?';      params.push(client_id); }
   if (appointment_id) { where += ' AND cn.appointment_id = ?'; params.push(appointment_id); }

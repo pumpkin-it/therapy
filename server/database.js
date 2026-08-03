@@ -318,6 +318,7 @@ try { db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `); } catch {}
+try { db.exec(`ALTER TABLE session_notes ADD COLUMN archived INTEGER DEFAULT 0`); } catch {}
 
 // Migrate case_notes → session_notes if the old table still exists
 try {
