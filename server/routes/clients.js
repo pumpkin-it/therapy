@@ -26,7 +26,9 @@ router.get('/', auth, (req, res) => {
   const { search, active } = req.query;
   // active=0 → inactive only, active=1 → active only (default), active=all → both
   const activeFilter = active === 'all' ? null : active === '0' ? 0 : 1;
-  const whereParts = [];
+  // Test/dummy data is excluded from every list view regardless of the active filter — distinct
+  // from a genuinely deactivated client, which stays visible under Inactive/All for history.
+  const whereParts = ['(c.is_test_data IS NULL OR c.is_test_data = 0)'];
   const params = [];
   if (activeFilter !== null) { whereParts.push('c.active = ?'); params.push(activeFilter); }
   if (search) {
@@ -92,7 +94,7 @@ router.post('/', auth, (req, res) => {
   const {
     first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes, alert,
     emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
-    diagnosis, allergies, regular_medication, gender,
+    diagnosis, allergies, regular_medication, gender, is_test_data,
   } = req.body;
   if (ndis_number) {
     const existing = db.prepare('SELECT id FROM clients WHERE LOWER(ndis_number) = LOWER(?) LIMIT 1').get(ndis_number);
@@ -101,12 +103,12 @@ router.post('/', auth, (req, res) => {
   const result = db.prepare(`
     INSERT INTO clients (first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes, alert,
       emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
-      diagnosis, allergies, regular_medication, gender)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      diagnosis, allergies, regular_medication, gender, is_test_data)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, notes||null, alert||null,
     emergency_contact_name||null, emergency_contact_phone||null, emergency_contact_relationship||null, emergency_contact_email||null,
-    diagnosis||null, allergies||null, regular_medication||null, gender||null,
+    diagnosis||null, allergies||null, regular_medication||null, gender||null, is_test_data ? 1 : 0,
   );
   const newClient = db.prepare(`${CLIENT_SELECT} WHERE c.id = ?`).get(result.lastInsertRowid);
   audit.log('client', newClient.id, 'created', `Created client ${first_name} ${last_name}`);
@@ -117,7 +119,7 @@ router.patch('/:id', auth, (req, res) => {
   const {
     first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes, alert,
     emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
-    diagnosis, allergies, regular_medication, gender,
+    diagnosis, allergies, regular_medication, gender, is_test_data,
   } = req.body;
   if (ndis_number) {
     const existing = db.prepare('SELECT id FROM clients WHERE LOWER(ndis_number) = LOWER(?) AND id != ? LIMIT 1').get(ndis_number, req.params.id);
@@ -128,12 +130,12 @@ router.patch('/:id', auth, (req, res) => {
     UPDATE clients SET
       first_name=?, last_name=?, email=?, phone=?, date_of_birth=?, address=?, ndis_number=?, notes=?, alert=?,
       emergency_contact_name=?, emergency_contact_phone=?, emergency_contact_relationship=?, emergency_contact_email=?,
-      diagnosis=?, allergies=?, regular_medication=?, gender=?
+      diagnosis=?, allergies=?, regular_medication=?, gender=?, is_test_data=?
     WHERE id=?
   `).run(
     first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, notes||null, alert||null,
     emergency_contact_name||null, emergency_contact_phone||null, emergency_contact_relationship||null, emergency_contact_email||null,
-    diagnosis||null, allergies||null, regular_medication||null, gender||null,
+    diagnosis||null, allergies||null, regular_medication||null, gender||null, is_test_data ? 1 : 0,
     req.params.id,
   );
   const changes = audit.diff(before, req.body, ['first_name','last_name','email','phone','date_of_birth','address','gender','ndis_number','notes','alert']);

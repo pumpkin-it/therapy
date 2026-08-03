@@ -887,7 +887,7 @@ const EMPTY_FORM = {
   first_name: '', last_name: '', email: '', phone: '', date_of_birth: '', address: '', gender: '',
   ndis_number: '', notes: '', alert: '',
   emergency_contact_name: '', emergency_contact_phone: '', emergency_contact_relationship: '', emergency_contact_email: '',
-  diagnosis: '', allergies: '', regular_medication: '',
+  diagnosis: '', allergies: '', regular_medication: '', is_test_data: false,
 };
 
 export default function ClientDetail() {
@@ -923,6 +923,7 @@ export default function ClientDetail() {
         diagnosis:         r.data.diagnosis         || '',
         allergies:         r.data.allergies         || '',
         regular_medication: r.data.regular_medication || '',
+        is_test_data: !!r.data.is_test_data,
       });
     });
   };
@@ -1052,6 +1053,11 @@ export default function ClientDetail() {
               <textarea rows={3} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none focus:border-indigo-500 focus:outline-none"
                 value={form.notes} onChange={e => set('notes', e.target.value)} />
             </div>
+
+            <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer pt-2 border-t border-gray-100">
+              <input type="checkbox" className="accent-gray-400" checked={form.is_test_data} onChange={e => set('is_test_data', e.target.checked)} />
+              Test / dummy data <span className="text-gray-400">(hidden from all client lists, regardless of active status)</span>
+            </label>
           </div>
         )}
 
