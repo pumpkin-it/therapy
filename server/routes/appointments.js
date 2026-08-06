@@ -224,6 +224,24 @@ router.patch('/:id/status', auth, perm('calendar'), (req, res) => {
   res.json({ ok: true });
 });
 
+// Counts weekdays (Mon–Fri) strictly between "now" and "until", both truncated to whole
+// calendar days — i.e. how many business days' notice was given. Today itself never counts,
+// so a same-day or past-due cancellation is always 0.
+function businessDaysUntil(now, until) {
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const end = new Date(until.getFullYear(), until.getMonth(), until.getDate());
+  if (end <= start) return 0;
+  let count = 0;
+  const d = new Date(start);
+  d.setDate(d.getDate() + 1);
+  while (d <= end) {
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) count++;
+    d.setDate(d.getDate() + 1);
+  }
+  return count;
+}
+
 // Returns the applicable cancellation policy tier for a given appointment
 router.get('/:id/cancel-policy', auth, perm('calendar'), (req, res) => {
   const appt = db.prepare('SELECT start_time FROM appointments WHERE id=?').get(req.params.id);
@@ -235,14 +253,14 @@ router.get('/:id/cancel-policy', auth, perm('calendar'), (req, res) => {
 
   const now = new Date();
   const apptDate = new Date(appt.start_time);
-  const daysUntil = (apptDate - now) / (1000 * 60 * 60 * 24);
+  const daysUntil = businessDaysUntil(now, apptDate);
 
-  // Find the most restrictive tier that applies (smallest days window that still covers daysUntil)
+  // Find the most restrictive tier that applies (smallest business-day window that still covers daysUntil)
   const applicable = tiers
     .filter(t => daysUntil <= Number(t.days))
     .sort((a, b) => Number(a.days) - Number(b.days))[0] || null;
 
-  res.json({ daysUntil: Math.round(daysUntil * 10) / 10, tier: applicable });
+  res.json({ daysUntil, tier: applicable });
 });
 
 router.post('/:id/notify', auth, perm('calendar'), async (req, res) => {

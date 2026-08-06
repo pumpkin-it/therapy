@@ -1266,7 +1266,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
                 <p className="text-sm text-gray-600 mt-1">
                   Some cancelled appointments fall within your late cancellation policy
                   (<span className="font-medium text-amber-700">{seriesLateCancelInfo.tier.percent}%</span> within{' '}
-                  <span className="font-medium">{seriesLateCancelInfo.tier.days} days</span>).
+                  <span className="font-medium">{seriesLateCancelInfo.tier.days} business day{Number(seriesLateCancelInfo.tier.days) === 1 ? '' : 's'}</span>).
                 </p>
               </div>
             </div>
@@ -1321,9 +1321,9 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
               <div>
                 <h3 className="font-semibold text-gray-900">Late Cancellation</h3>
                 <p className="text-sm text-gray-600 mt-1">
-                  This appointment is <span className="font-medium">{lateCancelConfirm.daysUntil < 0 ? 'in the past' : `${lateCancelConfirm.daysUntil.toFixed(1)} days away`}</span>.
+                  This appointment is <span className="font-medium">{lateCancelConfirm.daysUntil <= 0 ? 'today or in the past' : `${lateCancelConfirm.daysUntil} business day${lateCancelConfirm.daysUntil === 1 ? '' : 's'} away`}</span>.
                   Your policy charges <span className="font-medium text-amber-700">{lateCancelConfirm.tier.percent}%</span> for cancellations within{' '}
-                  <span className="font-medium">{lateCancelConfirm.tier.days} days</span>.
+                  <span className="font-medium">{lateCancelConfirm.tier.days} business day{Number(lateCancelConfirm.tier.days) === 1 ? '' : 's'}</span>.
                 </p>
               </div>
             </div>

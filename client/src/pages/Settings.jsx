@@ -280,7 +280,7 @@ export default function Settings() {
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
         <div>
           <h2 className="font-semibold text-gray-900">Late Cancellation Policy</h2>
-          <p className="text-sm text-gray-500 mt-1">Define tiers by how many days before the appointment the cancellation occurs. Tiers are sorted automatically — the shortest window takes priority.</p>
+          <p className="text-sm text-gray-500 mt-1">Define tiers by how many business days before the appointment the cancellation occurs (weekends don't count toward the notice period). Tiers are sorted automatically — the shortest window takes priority.</p>
         </div>
         <div className="space-y-2">
           {cancelTiers.length === 0 && (
@@ -289,10 +289,10 @@ export default function Settings() {
           {cancelTiers.map((tier, i) => (
             <div key={i} className="flex items-center gap-2">
               <span className="text-sm text-gray-600 shrink-0">Within</span>
-              <input type="number" min="1" placeholder="days"
-                className="w-20 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              <input type="number" min="1" placeholder="business days"
+                className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 value={tier.days} onChange={e => setTier(i, 'days', e.target.value)} />
-              <span className="text-sm text-gray-600 shrink-0">days, charge</span>
+              <span className="text-sm text-gray-600 shrink-0">business days, charge</span>
               <input type="number" min="0" max="100" placeholder="%"
                 className="w-20 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                 value={tier.percent} onChange={e => setTier(i, 'percent', e.target.value)} />
