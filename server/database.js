@@ -311,6 +311,16 @@ try { db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `); } catch {}
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS client_file_folders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec(`ALTER TABLE client_files ADD COLUMN folder_id INTEGER REFERENCES client_file_folders(id)`); } catch {}
+try { db.exec(`ALTER TABLE client_files ADD COLUMN label TEXT`); } catch {}
 
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS session_notes (

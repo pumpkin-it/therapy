@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
-import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, X, UserX, UserCheck } from 'lucide-react';
+import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, Folder, FolderPlus, X, UserX, UserCheck } from 'lucide-react';
 import api from '../lib/api';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import Input from '../components/ui/Input';
 import SearchSelect from '../components/ui/SearchSelect';
+import Modal from '../components/ui/Modal';
 import { EmbeddedCalendar } from '../components/CalendarViews';
 import { localToday, fmtDateTime, fmtDateOnly, downloadFile, currency } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
@@ -638,42 +639,99 @@ function BillingSummaryTab({ clientId }) {
 // ─── Files tab ────────────────────────────────────────────────────────────────
 function FilesTab({ clientId }) {
   const { timezone } = useSettings();
+  const [folders, setFolders] = useState([]);
+  const [currentFolder, setCurrentFolder] = useState(null); // folder object, or null = root
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [pendingFile, setPendingFile] = useState(null); // File awaiting a label before upload
+  const [labelDraft, setLabelDraft] = useState('');
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [editingLabelId, setEditingLabelId] = useState(null);
+  const [editLabelDraft, setEditLabelDraft] = useState('');
+  const [blockedFolder, setBlockedFolder] = useState(null); // { name, usage }
   const inputRef = useRef();
 
-  const load = () => api.get(`/client-files?client_id=${clientId}`).then(r => setFiles(r.data));
-  useEffect(() => { load(); }, []);
+  const loadFolders = () => api.get(`/client-file-folders?client_id=${clientId}`).then(r => setFolders(r.data));
+  const loadFiles = () => api.get(`/client-files?client_id=${clientId}&folder_id=${currentFolder ? currentFolder.id : 'root'}`).then(r => setFiles(r.data));
 
-  const upload = async e => {
+  useEffect(() => { loadFolders(); }, []);
+  useEffect(() => { loadFiles(); }, [currentFolder]);
+
+  const pickFile = e => {
     const file = e.target.files[0];
     if (!file) return;
+    setUploadError('');
+    setPendingFile(file);
+    setLabelDraft(file.name.replace(/\.[^.]+$/, ''));
+  };
+
+  const confirmUpload = async () => {
+    if (!pendingFile) return;
     setUploading(true);
     setUploadError('');
     try {
       const fd = new FormData();
-      fd.append('file', file);
+      fd.append('file', pendingFile);
       fd.append('client_id', clientId);
+      if (currentFolder) fd.append('folder_id', currentFolder.id);
+      if (labelDraft.trim()) fd.append('label', labelDraft.trim());
       await api.post('/client-files', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-      load();
+      setPendingFile(null);
+      loadFiles();
+      if (currentFolder) loadFolders();
     } catch (err) {
       const reason = err.response?.data?.error
         || (err.response?.status === 413 ? 'File is too large to upload.' : null)
         || 'Failed to upload file. Please try again.';
       setUploadError(reason);
-    } finally { setUploading(false); e.target.value = ''; }
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = '';
+    }
   };
 
   const remove = async id => {
     if (!confirm('Delete this file?')) return;
     await api.delete(`/client-files/${id}`);
-    load();
+    loadFiles();
+    if (currentFolder) loadFolders();
   };
 
   const download = id => {
     const file = files.find(f => f.id === id);
     downloadFile(api, `/client-files/${id}/download`, file?.original_name || 'download');
+  };
+
+  const saveLabel = async id => {
+    await api.patch(`/client-files/${id}`, { label: editLabelDraft.trim() || null });
+    setEditingLabelId(null);
+    loadFiles();
+  };
+
+  const moveFile = async (id, folderId) => {
+    await api.patch(`/client-files/${id}`, { folder_id: folderId || null });
+    loadFiles();
+    loadFolders();
+  };
+
+  const createFolder = async () => {
+    if (!newFolderName.trim()) return;
+    const res = await api.post('/client-file-folders', { client_id: clientId, name: newFolderName.trim() });
+    setFolders(f => [...f, res.data]);
+    setNewFolderName('');
+    setNewFolderOpen(false);
+  };
+
+  const deleteFolder = async f => {
+    if (!confirm(`Delete folder "${f.name}"?`)) return;
+    try {
+      await api.delete(`/client-file-folders/${f.id}`);
+      setFolders(fs => fs.filter(x => x.id !== f.id));
+    } catch (e) {
+      if (e.response?.status === 409) setBlockedFolder({ name: f.name, usage: e.response.data.usage });
+    }
   };
 
   const fmt = bytes => bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
@@ -683,24 +741,130 @@ function FilesTab({ clientId }) {
       {uploadError && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{uploadError}</div>
       )}
-      <div className="flex justify-end">
-        <input ref={inputRef} type="file" className="hidden" onChange={upload} />
-        <Button size="sm" onClick={() => inputRef.current.click()} disabled={uploading}>
-          <Upload className="h-3.5 w-3.5" /> {uploading ? 'Uploading…' : 'Upload file'}
-        </Button>
+
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5 text-sm min-w-0">
+          {currentFolder ? (
+            <button onClick={() => setCurrentFolder(null)} className="flex items-center gap-1 text-gray-500 hover:text-indigo-600 shrink-0">
+              <ArrowLeft className="h-3.5 w-3.5" /> Files
+            </button>
+          ) : (
+            <span className="text-gray-500">Files</span>
+          )}
+          {currentFolder && (
+            <>
+              <span className="text-gray-300">/</span>
+              <span className="font-medium text-gray-700 truncate">{currentFolder.name}</span>
+            </>
+          )}
+        </div>
+        <div className="flex gap-2 shrink-0">
+          {!currentFolder && (
+            <Button size="sm" variant="secondary" onClick={() => setNewFolderOpen(o => !o)}>
+              <FolderPlus className="h-3.5 w-3.5" /> New folder
+            </Button>
+          )}
+          <input ref={inputRef} type="file" className="hidden" onChange={pickFile} />
+          <Button size="sm" onClick={() => inputRef.current.click()} disabled={uploading}>
+            <Upload className="h-3.5 w-3.5" /> {uploading ? 'Uploading…' : 'Upload file'}
+          </Button>
+        </div>
       </div>
-      {files.length === 0 && <p className="text-sm text-gray-400 py-6 text-center">No files uploaded yet.</p>}
+
+      {newFolderOpen && !currentFolder && (
+        <div className="flex gap-2">
+          <input autoFocus className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            placeholder="Folder name" value={newFolderName} onChange={e => setNewFolderName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && createFolder()} />
+          <Button size="sm" onClick={createFolder}>Create</Button>
+        </div>
+      )}
+
+      {!currentFolder && folders.map(f => (
+        <div key={f.id} onClick={() => setCurrentFolder(f)}
+          className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 cursor-pointer hover:border-indigo-300">
+          <Folder className="h-4 w-4 text-indigo-400 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-gray-800 truncate">{f.name}</p>
+            <p className="text-xs text-gray-400">{f.file_count} file{f.file_count === 1 ? '' : 's'}</p>
+          </div>
+          <button onClick={e => { e.stopPropagation(); deleteFolder(f); }} className="text-red-300 hover:text-red-500 p-1">
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      ))}
+
+      {!currentFolder && folders.length === 0 && files.length === 0 && (
+        <p className="text-sm text-gray-400 py-6 text-center">No files uploaded yet.</p>
+      )}
+      {currentFolder && files.length === 0 && (
+        <p className="text-sm text-gray-400 py-6 text-center">No files in this folder yet.</p>
+      )}
+
       {files.map(f => (
         <div key={f.id} className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5">
           <File className="h-4 w-4 text-gray-400 shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-gray-800 truncate">{f.original_name}</p>
-            <p className="text-xs text-gray-400">{fmt(f.size)} · {fmtDateOnly(f.created_at, timezone)}</p>
+            {editingLabelId === f.id ? (
+              <div className="flex gap-1.5">
+                <input autoFocus className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none"
+                  value={editLabelDraft} onChange={e => setEditLabelDraft(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && saveLabel(f.id)} placeholder="Label" />
+                <button onClick={() => saveLabel(f.id)} className="text-xs font-medium text-indigo-500 hover:text-indigo-700">Save</button>
+                <button onClick={() => setEditingLabelId(null)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+              </div>
+            ) : (
+              <p className="text-sm font-medium text-gray-800 truncate flex items-center gap-1.5 group">
+                <span className="truncate">{f.label || f.original_name}</span>
+                <Pencil className="h-3 w-3 text-gray-300 opacity-0 group-hover:opacity-100 cursor-pointer shrink-0"
+                  onClick={() => { setEditingLabelId(f.id); setEditLabelDraft(f.label || ''); }} />
+              </p>
+            )}
+            <p className="text-xs text-gray-400 truncate">
+              {f.label ? `${f.original_name} · ` : ''}{fmt(f.size)} · {fmtDateOnly(f.created_at, timezone)}
+            </p>
           </div>
+          {folders.length > 0 && (
+            <select value={f.folder_id || ''} onChange={e => moveFile(f.id, e.target.value)} title="Move to folder"
+              className="text-xs border border-gray-200 rounded px-1.5 py-1 text-gray-500 max-w-[8rem] shrink-0">
+              <option value="">Root</option>
+              {folders.map(fo => <option key={fo.id} value={fo.id}>{fo.name}</option>)}
+            </select>
+          )}
           <button onClick={() => download(f.id)} className="text-indigo-500 hover:text-indigo-700 p-1"><Download className="h-4 w-4" /></button>
           <button onClick={() => remove(f.id)} className="text-red-300 hover:text-red-500 p-1"><Trash2 className="h-4 w-4" /></button>
         </div>
       ))}
+
+      {pendingFile && (
+        <Modal title="Upload file" onClose={() => !uploading && setPendingFile(null)}>
+          <p className="text-sm text-gray-500 mb-3 truncate">{pendingFile.name}</p>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Label (optional)</label>
+          <input autoFocus className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            placeholder="e.g. Initial Assessment Report" value={labelDraft} onChange={e => setLabelDraft(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && confirmUpload()} />
+          <p className="text-xs text-gray-400 mt-1.5">Shown instead of the filename to give this file more context.</p>
+          <div className="flex justify-end gap-2 mt-5">
+            <Button variant="secondary" onClick={() => setPendingFile(null)} disabled={uploading}>Cancel</Button>
+            <Button onClick={confirmUpload} disabled={uploading}>{uploading ? 'Uploading…' : 'Upload'}</Button>
+          </div>
+        </Modal>
+      )}
+
+      {blockedFolder && (
+        <Modal title="Folder in use" onClose={() => setBlockedFolder(null)}>
+          <p className="text-sm text-gray-700">
+            <span className="font-medium">{blockedFolder.name}</span> can't be removed because it still contains:
+          </p>
+          <ul className="mt-2 text-sm text-gray-700 list-disc list-inside">
+            {blockedFolder.usage.files.map((n, i) => <li key={i}>{n}</li>)}
+          </ul>
+          <p className="text-xs text-gray-400 mt-3">Move or delete those files first, then try again.</p>
+          <div className="flex justify-end mt-5">
+            <Button onClick={() => setBlockedFolder(null)}>Got it</Button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
