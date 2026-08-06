@@ -257,16 +257,21 @@ function DateTimeStepper({ date, time, onChange }) {
     emitDate(y, month, Math.min(day, daysInMonth(y, month)));
   };
   const flipAmpm = a => a === 'AM' ? 'PM' : 'AM';
+  // 12-hour clock stepping: the AM/PM flip happens crossing 11→12 (up) or 12→11 (down), not
+  // when the hour numerically exceeds 12 — 12 is a valid hour (noon or midnight), so a plain
+  // "> 12" / "< 1" check misses the flip exactly at that boundary (11am+1 must become 12pm,
+  // not wrap silently to 12am).
+  const nextHourUp = fromH => fromH === 11 ? { h: 12, flip: true } : fromH === 12 ? { h: 1, flip: false } : { h: fromH + 1, flip: false };
+  const nextHourDown = fromH => fromH === 12 ? { h: 11, flip: true } : fromH === 1 ? { h: 12, flip: false } : { h: fromH - 1, flip: false };
+
   const stepHour = delta => {
-    let newH = h + delta, newAmpm = ampm;
-    if (newH > 12) { newH = 1; newAmpm = flipAmpm(ampm); }
-    if (newH < 1)  { newH = 12; newAmpm = flipAmpm(ampm); }
-    emitTime(newH, m, newAmpm);
+    const { h: newH, flip } = delta > 0 ? nextHourUp(h) : nextHourDown(h);
+    emitTime(newH, m, flip ? flipAmpm(ampm) : ampm);
   };
   const stepMinute = delta => {
     let newM = m + delta, newH = h, newAmpm = ampm;
-    if (newM >= 60) { newM -= 60; newH += 1; if (newH > 12) { newH = 1; newAmpm = flipAmpm(ampm); } }
-    if (newM < 0)   { newM += 60; newH -= 1; if (newH < 1)  { newH = 12; newAmpm = flipAmpm(ampm); } }
+    if (newM >= 60) { newM -= 60; const r = nextHourUp(h);   newH = r.h; if (r.flip) newAmpm = flipAmpm(ampm); }
+    if (newM < 0)   { newM += 60; const r = nextHourDown(h); newH = r.h; if (r.flip) newAmpm = flipAmpm(ampm); }
     emitTime(newH, newM, newAmpm);
   };
 
