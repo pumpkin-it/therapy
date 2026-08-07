@@ -3,7 +3,7 @@ import api from '../lib/api';
 import Modal from './ui/Modal';
 import Button from './ui/Button';
 import AddressAutocomplete from './AddressAutocomplete';
-import { Trash2, Plus, FileText, Pencil, RefreshCw, Mail, AlertCircle, CheckCircle, TriangleAlert, Paperclip, Upload, Download, File as FileIcon } from 'lucide-react';
+import { Trash2, Plus, FileText, Pencil, RefreshCw, Mail, AlertCircle, CheckCircle, TriangleAlert, Paperclip, Upload, Download, File as FileIcon, X } from 'lucide-react';
 import { localToday, fmtDate, fmtDateTime, downloadFile } from '../lib/utils';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
@@ -73,6 +73,26 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
   const [editingFileLabelId, setEditingFileLabelId] = useState(null);
   const [editFileLabelDraft, setEditFileLabelDraft] = useState('');
   const fileInputRefs = useRef({});
+
+  // Files staged on the "new note" compose box, before the note (and therefore a session_note_id) exists
+  const [stagedFiles, setStagedFiles] = useState([]);
+  const [pendingStagedFile, setPendingStagedFile] = useState(null); // File awaiting a label
+  const [stagedLabelDraft, setStagedLabelDraft] = useState('');
+  const stagedInputRef = useRef();
+
+  const pickStagedFile = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setPendingStagedFile(file);
+    setStagedLabelDraft(file.name.replace(/\.[^.]+$/, ''));
+    e.target.value = '';
+  };
+  const confirmStageFile = () => {
+    if (!pendingStagedFile) return;
+    setStagedFiles(fs => [...fs, { key: `${Date.now()}-${Math.random()}`, file: pendingStagedFile, label: stagedLabelDraft.trim() }]);
+    setPendingStagedFile(null);
+  };
+  const removeStagedFile = key => setStagedFiles(fs => fs.filter(f => f.key !== key));
 
   const load = () => { if (appointmentId) api.get(`/session-notes?appointment_id=${appointmentId}`).then(r => { setNotes(r.data); loadAllFiles(r.data); }); };
 
@@ -158,8 +178,15 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
     if (!draft.trim()) return;
     setSaving(true);
     try {
-      await api.post('/session-notes', { appointment_id: appointmentId, client_id: clientId, note: draft.trim() });
-      setDraft(''); load();
+      const res = await api.post('/session-notes', { appointment_id: appointmentId, client_id: clientId, note: draft.trim() });
+      for (const sf of stagedFiles) {
+        const fd = new FormData();
+        fd.append('file', sf.file);
+        fd.append('session_note_id', res.data.id);
+        if (sf.label) fd.append('label', sf.label);
+        await api.post('/session-note-files', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      }
+      setDraft(''); setStagedFiles([]); load();
     } finally { setSaving(false); }
   };
 
@@ -262,10 +289,39 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
         )}
         <textarea rows={3} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           placeholder="Add a session note…" value={draft} onChange={e => setDraft(e.target.value)} />
-        <div className="flex justify-end">
+        {stagedFiles.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {stagedFiles.map(sf => (
+              <span key={sf.key} className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700">
+                <FileIcon className="h-3 w-3" /> {sf.label || sf.file.name}
+                <button onClick={() => removeStagedFile(sf.key)} className="text-indigo-400 hover:text-indigo-700"><X className="h-3 w-3" /></button>
+              </span>
+            ))}
+          </div>
+        )}
+        <div className="flex justify-between items-center">
+          <input ref={stagedInputRef} type="file" className="hidden" onChange={pickStagedFile} />
+          <button type="button" onClick={() => stagedInputRef.current.click()} className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+            <Paperclip className="h-3.5 w-3.5" /> Attach file
+          </button>
           <Button size="sm" onClick={addNote} disabled={saving || !draft.trim()}>{saving ? 'Saving…' : 'Add note'}</Button>
         </div>
       </div>
+
+      {pendingStagedFile && (
+        <Modal title="Attach file" onClose={() => setPendingStagedFile(null)}>
+          <p className="text-sm text-gray-500 mb-3 truncate">{pendingStagedFile.name}</p>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Label (optional)</label>
+          <input autoFocus className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            placeholder="e.g. Referral letter" value={stagedLabelDraft} onChange={e => setStagedLabelDraft(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && confirmStageFile()} />
+          <p className="text-xs text-gray-400 mt-1.5">This file will upload once the note is saved.</p>
+          <div className="flex justify-end gap-2 mt-5">
+            <Button variant="secondary" onClick={() => setPendingStagedFile(null)}>Cancel</Button>
+            <Button onClick={confirmStageFile}>Attach</Button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
