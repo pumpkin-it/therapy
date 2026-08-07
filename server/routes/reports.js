@@ -14,17 +14,29 @@ function daysInRange(from, to) {
   return Math.max(1, Math.round(ms / 86400000) + 1);
 }
 
+// Parses a comma-separated query param (e.g. "1,4,7") into an array of ids, or [] if absent.
+function parseIds(raw) {
+  if (!raw) return [];
+  return String(raw).split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function inClause(column, ids, params) {
+  if (!ids.length) return '';
+  params.push(...ids);
+  return ` AND ${column} IN (${ids.map(() => '?').join(',')})`;
+}
+
 // Booked activity: hours/travel/km/notes/$ resolved per appointment_item, exactly mirroring
 // the invoice-generation rate-resolution join and the billable-cancellation branch in invoices.js
 // (a billable cancellation contributes its fee $ but no hours/travel/km/notes — no session happened).
-function queryBooked({ from, to, practitioner_id, client_id, service_id }) {
-  let where = "(a.status != 'cancelled' OR a.late_cancel_billable = 1) AND a.start_time >= ? AND a.start_time <= ? AND (c.is_test_data IS NULL OR c.is_test_data = 0)";
+function queryBooked({ from, to, practitionerIds, clientIds, serviceIds }) {
   const params = [from, `${to}T23:59`];
-  if (practitioner_id) { where += ' AND a.practitioner_id = ?'; params.push(practitioner_id); }
-  if (client_id)       { where += ' AND a.client_id = ?';       params.push(client_id); }
-  if (service_id)      { where += ' AND ai.service_id = ?';     params.push(service_id); }
+  let where = "(a.status != 'cancelled' OR a.late_cancel_billable = 1) AND a.start_time >= ? AND a.start_time <= ? AND (c.is_test_data IS NULL OR c.is_test_data = 0)";
+  where += inClause('a.practitioner_id', practitionerIds, params);
+  where += inClause('a.client_id', clientIds, params);
+  where += inClause('ai.service_id', serviceIds, params);
 
-  const rows = db.prepare(`
+  return db.prepare(`
     SELECT ai.quantity, ai.unit_rate, ai.travel_time_to, ai.travel_time_from, ai.travel_km, ai.notes_min,
       a.practitioner_id, a.client_id, a.status, a.late_cancel_billable, a.late_cancel_pct,
       ai.service_id, s.name AS service_name,
@@ -42,16 +54,14 @@ function queryBooked({ from, to, practitioner_id, client_id, service_id }) {
     LEFT JOIN service_rates sr ON sr.period_id = rp.id AND sr.service_id = ai.service_id
     WHERE ${where}
   `).all(...params);
-
-  return rows;
 }
 
-function queryInvoiced({ from, to, practitioner_id, client_id, service_id }) {
-  let where = "i.status != 'void' AND ii.service_date BETWEEN ? AND ? AND (c.is_test_data IS NULL OR c.is_test_data = 0)";
+function queryInvoiced({ from, to, practitionerIds, clientIds, serviceIds }) {
   const params = [from, to];
-  if (practitioner_id) { where += ' AND i.practitioner_id = ?'; params.push(practitioner_id); }
-  if (client_id)       { where += ' AND i.client_id = ?';       params.push(client_id); }
-  if (service_id)      { where += ' AND ai2.service_id = ?';    params.push(service_id); }
+  let where = "i.status != 'void' AND ii.service_date BETWEEN ? AND ? AND (c.is_test_data IS NULL OR c.is_test_data = 0)";
+  where += inClause('i.practitioner_id', practitionerIds, params);
+  where += inClause('i.client_id', clientIds, params);
+  where += inClause('ai2.service_id', serviceIds, params);
 
   return db.prepare(`
     SELECT i.practitioner_id, i.client_id, ai2.service_id, SUM(ii.line_total) AS invoiced_total
@@ -70,9 +80,9 @@ function bucketKey(groupBy, row) {
   return row.practitioner_id ?? 'unassigned';
 }
 
-function buildReport({ from, to, practitioner_id, client_id, service_id, groupBy }) {
-  const bookedRows = queryBooked({ from, to, practitioner_id, client_id, service_id });
-  const invoicedRows = queryInvoiced({ from, to, practitioner_id, client_id, service_id });
+function buildReport({ from, to, practitionerIds, clientIds, serviceIds, groupBy }) {
+  const bookedRows = queryBooked({ from, to, practitionerIds, clientIds, serviceIds });
+  const invoicedRows = queryInvoiced({ from, to, practitionerIds, clientIds, serviceIds });
 
   const buckets = {};
   const get = key => (buckets[key] ??= { key, hours: 0, travelMin: 0, km: 0, notesMin: 0, booked: 0, invoiced: 0 });
@@ -107,16 +117,16 @@ function buildReport({ from, to, practitioner_id, client_id, service_id, groupBy
     get(key).invoiced += r.invoiced_total || 0;
   }
 
-  // For the practitioner view, always show every (active, or the filtered) practitioner —
+  // For the practitioner view, always show every (active, or filtered) practitioner —
   // a practitioner with zero billing in the period is exactly what this report should surface,
   // not silently omit.
   if (groupBy === 'practitioner') {
-    const practs = practitioner_id
-      ? db.prepare('SELECT id, first_name, last_name, active, target_amount, target_period FROM practitioners WHERE id = ?').all(practitioner_id)
+    const practs = practitionerIds.length
+      ? db.prepare(`SELECT id, first_name, last_name, active, target_amount, target_period FROM practitioners WHERE id IN (${practitionerIds.map(() => '?').join(',')})`).all(...practitionerIds)
       : db.prepare("SELECT id, first_name, last_name, active, target_amount, target_period FROM practitioners WHERE role = 'practitioner' AND active = 1 ORDER BY first_name, last_name").all();
 
     const range = daysInRange(from, to);
-    const rows = practs.map(p => {
+    return practs.map(p => {
       const bucket = buckets[p.id] || { hours: 0, travelMin: 0, km: 0, notesMin: 0, booked: 0, invoiced: 0 };
       const row = {
         key: p.id,
@@ -135,7 +145,6 @@ function buildReport({ from, to, practitioner_id, client_id, service_id, groupBy
       }
       return row;
     });
-    return rows;
   }
 
   if (groupBy === 'client') {
@@ -157,12 +166,14 @@ function buildReport({ from, to, practitioner_id, client_id, service_id, groupBy
 }
 
 function resolveFilters(req) {
-  const { from, to, client_id, service_id, group_by } = req.query;
-  let practitioner_id = req.query.practitioner_id || null;
+  const { from, to, group_by } = req.query;
+  let practitionerIds = parseIds(req.query.practitioner_id);
   // Security: a practitioner can only ever see their own data, regardless of what's requested.
-  if (req.user.role === 'practitioner') practitioner_id = req.user.id;
+  if (req.user.role === 'practitioner') practitionerIds = [String(req.user.id)];
+  const clientIds = parseIds(req.query.client_id);
+  const serviceIds = parseIds(req.query.service_id);
   const groupBy = ['service', 'client'].includes(group_by) ? group_by : 'practitioner';
-  return { from, to, practitioner_id, client_id: client_id || null, service_id: service_id || null, groupBy };
+  return { from, to, practitionerIds, clientIds, serviceIds, groupBy };
 }
 
 router.get('/billing', auth, (req, res) => {

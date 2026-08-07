@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Download } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
-import SearchSelect from '../components/ui/SearchSelect';
+import MultiSelect from '../components/ui/MultiSelect';
 import { currency, localToday, downloadFile } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
 
@@ -41,9 +41,9 @@ export default function Reports() {
 
   const [from, setFrom] = useState(daysAgo(30));
   const [to, setTo] = useState(localToday());
-  const [practitionerId, setPractitionerId] = useState(isPractitioner ? String(user.id) : '');
-  const [clientId, setClientId] = useState('');
-  const [serviceId, setServiceId] = useState('');
+  const [practitionerIds, setPractitionerIds] = useState(isPractitioner ? [String(user.id)] : []);
+  const [clientIds, setClientIds] = useState([]);
+  const [serviceIds, setServiceIds] = useState([]);
   const [groupBy, setGroupBy] = useState('practitioner');
 
   const [practitioners, setPractitioners] = useState([]);
@@ -60,28 +60,28 @@ export default function Reports() {
     api.get('/services').then(r => setServices(r.data)).catch(() => {});
   }, []);
 
+  const buildParams = () => {
+    const params = new URLSearchParams({ from, to, group_by: groupBy });
+    if (practitionerIds.length) params.set('practitioner_id', practitionerIds.join(','));
+    if (clientIds.length) params.set('client_id', clientIds.join(','));
+    if (serviceIds.length) params.set('service_id', serviceIds.join(','));
+    return params;
+  };
+
   const load = () => {
     if (!from || !to) return;
     setLoading(true);
     setError('');
-    const params = new URLSearchParams({ from, to, group_by: groupBy });
-    if (practitionerId) params.set('practitioner_id', practitionerId);
-    if (clientId) params.set('client_id', clientId);
-    if (serviceId) params.set('service_id', serviceId);
-    api.get(`/reports/billing?${params}`)
+    api.get(`/reports/billing?${buildParams()}`)
       .then(r => setRows(r.data.rows))
       .catch(e => setError(e.response?.data?.error || 'Failed to load report'))
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [from, to, practitionerId, clientId, serviceId, groupBy]);
+  useEffect(() => { load(); }, [from, to, practitionerIds, clientIds, serviceIds, groupBy]);
 
   const exportCsv = () => {
-    const params = new URLSearchParams({ from, to, group_by: groupBy });
-    if (practitionerId) params.set('practitioner_id', practitionerId);
-    if (clientId) params.set('client_id', clientId);
-    if (serviceId) params.set('service_id', serviceId);
-    downloadFile(api, `/reports/billing/csv?${params}`, `billing-report_${from}_${to}.csv`);
+    downloadFile(api, `/reports/billing/csv?${buildParams()}`, `billing-report_${from}_${to}.csv`);
   };
 
   const showTargetCols = groupBy === 'practitioner';
@@ -117,24 +117,24 @@ export default function Reports() {
                 {user.first_name} {user.last_name}
               </div>
             ) : (
-              <SearchSelect
+              <MultiSelect
                 options={practitioners.map(p => ({ value: String(p.id), label: `${p.first_name} ${p.last_name}` }))}
-                value={practitionerId} onChange={setPractitionerId} placeholder="All practitioners" />
+                values={practitionerIds} onChange={setPractitionerIds} placeholder="All practitioners" />
             )}
           </div>
           {canViewClients && (
             <div className="space-y-1">
               <label className="block text-xs font-medium text-gray-500">Client</label>
-              <SearchSelect
+              <MultiSelect
                 options={clients.filter(c => !c.is_test_data).map(c => ({ value: String(c.id), label: `${c.first_name} ${c.last_name}` }))}
-                value={clientId} onChange={setClientId} placeholder="All clients" />
+                values={clientIds} onChange={setClientIds} placeholder="All clients" />
             </div>
           )}
           <div className="space-y-1">
             <label className="block text-xs font-medium text-gray-500">Service</label>
-            <SearchSelect
+            <MultiSelect
               options={services.map(s => ({ value: String(s.id), label: s.name }))}
-              value={serviceId} onChange={setServiceId} placeholder="All services" />
+              values={serviceIds} onChange={setServiceIds} placeholder="All services" />
           </div>
         </div>
 
