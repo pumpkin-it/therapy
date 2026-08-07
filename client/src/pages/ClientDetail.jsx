@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
-import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, Folder, FolderPlus, Paperclip, X, UserX, UserCheck } from 'lucide-react';
+import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, Folder, FolderPlus, Paperclip, X, UserX, UserCheck, Search } from 'lucide-react';
 import api from '../lib/api';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 import Button from '../components/ui/Button';
@@ -870,6 +870,18 @@ function FilesTab({ clientId }) {
 }
 
 // ─── Session Notes tab ────────────────────────────────────────────────────────
+// Splits text on a case-insensitive match of `query` and wraps each match in <mark>.
+function highlightText(text, query) {
+  if (!query.trim()) return text;
+  const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const parts = text.split(new RegExp(`(${escaped})`, 'ig'));
+  return parts.map((part, i) =>
+    part.toLowerCase() === query.trim().toLowerCase()
+      ? <mark key={i} className="bg-amber-200 text-gray-900 rounded-sm px-0.5">{part}</mark>
+      : part
+  );
+}
+
 function SessionNotesTab({ clientId, client }) {
   const { user } = useAuth();
   const { timezone } = useSettings();
@@ -883,6 +895,7 @@ function SessionNotesTab({ clientId, client }) {
   const [selectedIds, setSelectedIds] = useState([]);
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const [expandedIds, setExpandedIds] = useState([]);
   const [filesByNote, setFilesByNote] = useState({});
@@ -1045,10 +1058,29 @@ function SessionNotesTab({ clientId, client }) {
     }
   };
 
+  const q = searchQuery.trim().toLowerCase();
+  const visibleNotes = q ? notes.filter(n => n.note.toLowerCase().includes(q)) : notes;
+
   return (
     <div className="space-y-3">
       {actionError && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>
+      )}
+      {notes.length > 0 && (
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+          <input
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search notes… e.g. incident"
+            className="w-full rounded-lg border border-gray-300 pl-9 pr-8 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
       )}
       {selectedIds.length > 0 && (
         <div className="flex items-center justify-between rounded-lg border border-indigo-100 bg-indigo-50/40 px-3 py-2">
@@ -1124,9 +1156,12 @@ function SessionNotesTab({ clientId, client }) {
       {notes.length === 0 && !showNew && (
         <p className="text-sm text-gray-400 py-6 text-center">No session notes yet.</p>
       )}
+      {notes.length > 0 && visibleNotes.length === 0 && (
+        <p className="text-sm text-gray-400 py-6 text-center">No notes match "{searchQuery}".</p>
+      )}
 
-      {notes.map(n => {
-        const isExpanded = expandedIds.includes(n.id);
+      {visibleNotes.map(n => {
+        const isExpanded = expandedIds.includes(n.id) || !!q;
         const snippet = n.note.length > 90 ? `${n.note.slice(0, 90).trim()}…` : n.note;
         return (
           <div key={n.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
@@ -1144,7 +1179,9 @@ function SessionNotesTab({ clientId, client }) {
                   <input type="checkbox" className="mt-1 accent-indigo-600 shrink-0"
                     checked={selectedIds.includes(n.id)} onClick={e => e.stopPropagation()} onChange={() => toggleSelect(n.id)} />
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm text-gray-800 ${isExpanded ? 'whitespace-pre-wrap' : 'truncate'}`}>{isExpanded ? n.note : snippet}</p>
+                    <p className={`text-sm text-gray-800 ${isExpanded ? 'whitespace-pre-wrap' : 'truncate'}`}>
+                      {q ? highlightText(n.note, searchQuery) : (isExpanded ? n.note : snippet)}
+                    </p>
                     <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1">
                       {n.practitioner_name && <span className="font-medium">{n.practitioner_name} · </span>}
                       {fmtDateTime(n.created_at, timezone)}
