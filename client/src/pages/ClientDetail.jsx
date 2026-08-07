@@ -1096,11 +1096,13 @@ function SessionNotesTab({ clientId, client }) {
                       )}
                     </p>
                   </div>
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                  <div className="flex gap-1 shrink-0">
                     <input ref={el => (fileInputRefs.current[n.id] = el)} type="file" className="hidden" onChange={e => pickFile(n.id, e)} />
                     <button onClick={e => { e.stopPropagation(); fileInputRefs.current[n.id]?.click(); }} className="text-gray-400 hover:text-indigo-600" title="Attach file"><Paperclip className="h-3.5 w-3.5" /></button>
-                    <button onClick={e => { e.stopPropagation(); setEditingId(n.id); setEditText(n.note); }} className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
-                    <button onClick={e => { e.stopPropagation(); remove(n.id); }} className="text-red-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={e => { e.stopPropagation(); setEditingId(n.id); setEditText(n.note); }} className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
+                      <button onClick={e => { e.stopPropagation(); remove(n.id); }} className="text-red-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
+                    </div>
                   </div>
                 </div>
 
