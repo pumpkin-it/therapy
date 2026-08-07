@@ -213,6 +213,10 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
     lastAppointment = last ? fmtDateOnly(last.start_time) : null;
   }
 
+  const lateCancellationNotice = (eventType === 'cancelled' && appt.late_cancel_billable)
+    ? `<p style="color:#dc2626"><strong>This is a late cancellation${appt.late_cancel_pct ? ` and a cancellation fee (${appt.late_cancel_pct}% of the session cost)` : ' and a cancellation fee'} will be charged.</strong></p>`
+    : '';
+
   const baseVars = {
     client_name:       appt.client_name,
     client_first_name: appt.client_first_name,
@@ -221,6 +225,7 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
     appointment_time:  apptDate,
     location,
     appointment_notes: appt.notes || '',
+    late_cancellation_notice: lateCancellationNotice,
   };
 
   const pracTable = eventType === 'cancelled'
@@ -250,7 +255,7 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
     : `<p>Hi ${appt.practitioner_name},</p><p>${eventType === 'created' ? 'A new appointment has been scheduled for you.' : 'An appointment has been updated.'}</p>${pracTable}`;
 
   const fallbackClientHtml = eventType === 'cancelled'
-    ? `<p>Hi ${appt.client_first_name},</p><p>Your appointment on <strong>${apptDate}</strong> has been <strong style="color:#dc2626">cancelled</strong>. Please contact us if you have any questions.</p>`
+    ? `<p>Hi ${appt.client_first_name},</p><p>Your appointment on <strong>${apptDate}</strong> has been <strong style="color:#dc2626">cancelled</strong>. Please contact us if you have any questions.</p>${lateCancellationNotice}`
     : `<p>Hi ${appt.client_first_name},</p><p>${eventType === 'created' ? 'Your appointment has been scheduled.' : 'Your appointment details have been updated.'}</p>${clientTable}`;
 
   const pracCode    = `appt_${eventType}_practitioner`;

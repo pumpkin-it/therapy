@@ -10,7 +10,7 @@ import Input from '../components/ui/Input';
 const EMAIL_VARS = {
   appt_created_client:       ['client_first_name', 'client_name', 'practitioner_name', 'appointment_date', 'location', 'appointment_notes', 'appointment_details'],
   appt_updated_client:       ['client_first_name', 'client_name', 'practitioner_name', 'appointment_date', 'location', 'appointment_notes', 'appointment_details'],
-  appt_cancelled_client:     ['client_first_name', 'client_name', 'appointment_date', 'appointment_notes'],
+  appt_cancelled_client:     ['client_first_name', 'client_name', 'appointment_date', 'appointment_notes', 'late_cancellation_notice'],
   appt_created_practitioner: ['practitioner_name', 'client_name', 'appointment_date', 'location', 'appointment_notes', 'appointment_details'],
   appt_updated_practitioner: ['practitioner_name', 'client_name', 'appointment_date', 'location', 'appointment_notes', 'appointment_details'],
   appt_cancelled_practitioner: ['practitioner_name', 'client_name', 'appointment_date'],
@@ -163,6 +163,11 @@ function EmailTemplates() {
           {editing.code?.startsWith('appt_') && (
             <p className="text-xs text-gray-400">
               <code className="bg-gray-100 px-1 rounded">{'{{appointment_details}}'}</code> inserts a formatted table of appointment details.
+            </p>
+          )}
+          {editing.code === 'appt_cancelled_client' && (
+            <p className="text-xs text-gray-400">
+              <code className="bg-gray-100 px-1 rounded">{'{{late_cancellation_notice}}'}</code> inserts a warning that a cancellation fee applies — only when this cancellation was flagged as late. It's blank otherwise, so it's safe to leave in the template.
             </p>
           )}
           <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">

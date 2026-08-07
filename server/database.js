@@ -519,7 +519,7 @@ const emailSeeds = [
     code: 'appt_cancelled_client',
     name: 'Appointment Cancelled (Client)',
     subject: 'Appointment cancelled — {{appointment_date}}',
-    body: '<p>Hi {{client_first_name}},</p><p>Your appointment on <strong>{{appointment_date}}</strong> has been <strong style="color:#dc2626">cancelled</strong>. Please contact us if you have any questions.</p>',
+    body: '<p>Hi {{client_first_name}},</p><p>Your appointment on <strong>{{appointment_date}}</strong> has been <strong style="color:#dc2626">cancelled</strong>. Please contact us if you have any questions.</p>{{late_cancellation_notice}}',
   },
   {
     code: 'appt_created_practitioner',
@@ -569,6 +569,17 @@ const seedStmt = db.prepare(`
   VALUES ('email', ?, ?, ?, ?, 1)
 `);
 for (const s of emailSeeds) seedStmt.run(s.code, s.name, s.subject, s.body);
+
+// One-time backfill: append {{late_cancellation_notice}} to an already-seeded
+// appt_cancelled_client row, but only if it still exactly matches the old default —
+// never touch a practice's customized wording.
+try {
+  db.prepare(`
+    UPDATE templates SET body = body || '{{late_cancellation_notice}}'
+    WHERE code = 'appt_cancelled_client'
+      AND body = '<p>Hi {{client_first_name}},</p><p>Your appointment on <strong>{{appointment_date}}</strong> has been <strong style="color:#dc2626">cancelled</strong>. Please contact us if you have any questions.</p>'
+  `).run();
+} catch {}
 
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS rate_items (
