@@ -214,7 +214,7 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
   }
 
   const lateCancellationNotice = (eventType === 'cancelled' && appt.late_cancel_billable)
-    ? `<p style="color:#dc2626"><strong>This is a late cancellation${appt.late_cancel_pct ? ` and a cancellation fee (${appt.late_cancel_pct}% of the session cost)` : ' and a cancellation fee'} will be charged.</strong></p>`
+    ? `<p style="color:#dc2626"><strong>This is a late cancellation and a cancellation fee will be charged.</strong></p>`
     : '';
 
   const baseVars = {
