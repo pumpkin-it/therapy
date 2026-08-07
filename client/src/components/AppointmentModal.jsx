@@ -542,7 +542,10 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
 
   const [form, setForm] = useState({
     practitioner_id: defaultPractitioner || (user?.role === 'practitioner' ? user.id : ''),
-    client_id: defaultClient || '',
+    // Seeded directly from `appointment` (not left for the hydration effect below) so the
+    // funding-periods-loading effect never sees a transiently-empty client_id on mount and
+    // wipes out the already-correct `fundingPeriodId` init — see funding-periods effect.
+    client_id: editing ? appointment.client_id : (defaultClient || ''),
     location_type: 'home',
     location_id: '',
     location_other: '',
