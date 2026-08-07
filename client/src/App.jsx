@@ -13,6 +13,7 @@ import Locations from './pages/Locations';
 import Services from './pages/Services';
 import ServiceDetail from './pages/ServiceDetail';
 import Invoices from './pages/Invoices';
+import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import FundingTypeRates from './pages/FundingTypeRates';
 import AuditLog from './pages/AuditLog';
@@ -70,6 +71,7 @@ function AuthenticatedApp() {
           {p.calendar && <Route path="/recurring-series" element={<RecurringSeries />} />}
           {p.calendar && <Route path="/recurring-series/:id" element={<RecurringSeriesDetail />} />}
           {p.invoices && <Route path="/invoices" element={<Invoices />} />}
+          {p.reports && <Route path="/reports" element={<Reports />} />}
           {p.settings && <Route path="/templates" element={<Templates />} />}
           <Route path="/audit-log" element={<AuditLog />} />
           {p.settings && <Route path="/settings" element={<Settings />} />}

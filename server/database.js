@@ -218,6 +218,8 @@ try { db.exec(`ALTER TABLE clients ADD COLUMN gender TEXT`); } catch {}
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN gender TEXT`); } catch {}
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN password_hash TEXT`); } catch {}
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN cal_token TEXT`); } catch {}
+try { db.exec(`ALTER TABLE practitioners ADD COLUMN target_amount REAL`); } catch {}
+try { db.exec(`ALTER TABLE practitioners ADD COLUMN target_period TEXT`); } catch {} // 'weekly' | 'fortnightly' | 'monthly'
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS push_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -389,10 +391,10 @@ const defaults = {
   agreement_reminder_duration_days: '10',
   invoicing_mode: 'generate',
   role_permissions: JSON.stringify({
-    owner:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:true, funding_periods:true },
-    admin:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:false, funding_periods:true },
-    practitioner: { calendar:true, clients:true, users:false, funds_managers:false, locations:true, services:true, invoices:false, settings:false, funding_periods:false },
-    finance:      { calendar:false, clients:true, users:false, funds_managers:true, locations:false, services:true, invoices:true, settings:false, funding_periods:true },
+    owner:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:true, funding_periods:true, reports:true },
+    admin:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:false, funding_periods:true, reports:true },
+    practitioner: { calendar:true, clients:true, users:false, funds_managers:false, locations:true, services:true, invoices:false, settings:false, funding_periods:false, reports:true },
+    finance:      { calendar:false, clients:true, users:false, funds_managers:true, locations:false, services:true, invoices:true, settings:false, funding_periods:true, reports:true },
   }),
 };
 
@@ -414,6 +416,28 @@ for (const [key, value] of Object.entries(defaults)) {
       for (const role of Object.keys(perms)) {
         if (perms[role].funding_periods === undefined) {
           perms[role].funding_periods = FUNDING_PERIODS_DEFAULT[role] ?? false;
+          changed = true;
+        }
+      }
+      if (changed) {
+        db.prepare("UPDATE settings SET value = ? WHERE key = 'role_permissions'").run(JSON.stringify(perms));
+      }
+    } catch {}
+  }
+}
+
+// Backfill the reports permission key the same way — new page, existing installs need it merged
+// into their (possibly already-customized) role_permissions row.
+{
+  const REPORTS_DEFAULT = { owner: true, admin: true, practitioner: true, finance: true };
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'role_permissions'").get();
+  if (row) {
+    try {
+      const perms = JSON.parse(row.value);
+      let changed = false;
+      for (const role of Object.keys(perms)) {
+        if (perms[role].reports === undefined) {
+          perms[role].reports = REPORTS_DEFAULT[role] ?? false;
           changed = true;
         }
       }

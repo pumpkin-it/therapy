@@ -21,7 +21,7 @@ const ROLE_COLORS = {
   finance:      'bg-amber-100 text-amber-700',
 };
 
-const EMPTY = { first_name: '', last_name: '', title: '', email: '', phone: '', color: '#6366f1', provider_number: '', role: 'practitioner', gender: '', discipline_id: '', password: '' };
+const EMPTY = { first_name: '', last_name: '', title: '', email: '', phone: '', color: '#6366f1', provider_number: '', role: 'practitioner', gender: '', discipline_id: '', password: '', target_amount: '', target_period: 'fortnightly' };
 
 function UserModal({ user, onClose, onSaved }) {
   const [form, setForm] = useState(user || EMPTY);
@@ -107,6 +107,22 @@ function UserModal({ user, onClose, onSaved }) {
             ))}
           </div>
         </div>
+
+        {form.role === 'practitioner' && (
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Billing target ($)" type="number" value={form.target_amount ?? ''} onChange={e => set('target_amount', e.target.value)}
+              placeholder="e.g. 5000" />
+            <div className="space-y-1">
+              <label className="block text-sm font-medium text-gray-700">Target period</label>
+              <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                value={form.target_period || 'fortnightly'} onChange={e => set('target_period', e.target.value)}>
+                <option value="weekly">Weekly</option>
+                <option value="fortnightly">Fortnightly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+          </div>
+        )}
 
         <div className="space-y-1">
           <label className="block text-sm font-medium text-gray-700">{user ? 'New Password' : 'Password'}</label>

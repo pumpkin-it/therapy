@@ -25,14 +25,15 @@ export default function Settings() {
     { key: 'locations',     label: 'Locations' },
     { key: 'services',      label: 'Services' },
     { key: 'invoices',      label: 'Invoices' },
+    { key: 'reports',       label: 'Reports' },
     { key: 'settings',      label: 'Settings' },
   ];
   const ROLE_LABELS = { owner: 'Owner', admin: 'Admin', practitioner: 'Practitioner', finance: 'Finance' };
   const DEFAULT_PERMS = {
-    owner:        { calendar:true,  clients:true,  funding_periods:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  settings:true  },
-    admin:        { calendar:true,  clients:true,  funding_periods:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  settings:false },
-    practitioner: { calendar:true,  clients:true,  funding_periods:false, users:false, funds_managers:false, locations:true,  services:true,  invoices:false, settings:false },
-    finance:      { calendar:false, clients:true,  funding_periods:true,  users:false, funds_managers:true,  locations:false, services:true,  invoices:true,  settings:false },
+    owner:        { calendar:true,  clients:true,  funding_periods:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  reports:true, settings:true  },
+    admin:        { calendar:true,  clients:true,  funding_periods:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  reports:true, settings:false },
+    practitioner: { calendar:true,  clients:true,  funding_periods:false, users:false, funds_managers:false, locations:true,  services:true,  invoices:false, reports:true, settings:false },
+    finance:      { calendar:false, clients:true,  funding_periods:true,  users:false, funds_managers:true,  locations:false, services:true,  invoices:true,  reports:true, settings:false },
   };
   const [perms, setPerms] = useState(DEFAULT_PERMS);
 

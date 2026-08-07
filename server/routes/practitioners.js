@@ -44,33 +44,33 @@ router.get('/:id', auth, perm('users'), (req, res) => {
 });
 
 router.post('/', auth, perm('users'), (req, res) => {
-  const { first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password } = req.body;
+  const { first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password, target_amount, target_period } = req.body;
   if (email) {
     const existing = db.prepare('SELECT id FROM practitioners WHERE LOWER(email) = LOWER(?) LIMIT 1').get(email);
     if (existing) return res.status(409).json({ field: 'email', message: `A user with email "${email}" already exists` });
   }
   const hash = password ? bcrypt.hashSync(password, 10) : null;
   const result = db.prepare(
-    'INSERT INTO practitioners (first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', provider_number || null, role || 'practitioner', gender || null, discipline_id || null, hash);
+    'INSERT INTO practitioners (first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password_hash, target_amount, target_period) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', provider_number || null, role || 'practitioner', gender || null, discipline_id || null, hash, target_amount ? Number(target_amount) : null, target_period || null);
   audit.log('user', result.lastInsertRowid, 'created', `Created user ${first_name} ${last_name} (${role || 'practitioner'})`);
   res.status(201).json(db.prepare('SELECT * FROM practitioners WHERE id = ?').get(result.lastInsertRowid));
 });
 
 router.patch('/:id', auth, perm('users'), (req, res) => {
-  const { first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password } = req.body;
+  const { first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password, target_amount, target_period } = req.body;
   if (email) {
     const existing = db.prepare('SELECT id FROM practitioners WHERE LOWER(email) = LOWER(?) AND id != ? LIMIT 1').get(email, req.params.id);
     if (existing) return res.status(409).json({ field: 'email', message: `A user with email "${email}" already exists` });
   }
   const before = db.prepare('SELECT * FROM practitioners WHERE id=?').get(req.params.id);
   db.prepare(
-    'UPDATE practitioners SET first_name=?, last_name=?, title=?, email=?, phone=?, color=?, provider_number=?, role=?, gender=?, discipline_id=? WHERE id=?'
-  ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', provider_number || null, role || 'practitioner', gender || null, discipline_id || null, req.params.id);
+    'UPDATE practitioners SET first_name=?, last_name=?, title=?, email=?, phone=?, color=?, provider_number=?, role=?, gender=?, discipline_id=?, target_amount=?, target_period=? WHERE id=?'
+  ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', provider_number || null, role || 'practitioner', gender || null, discipline_id || null, target_amount ? Number(target_amount) : null, target_period || null, req.params.id);
   if (password) {
     db.prepare('UPDATE practitioners SET password_hash=? WHERE id=?').run(bcrypt.hashSync(password, 10), req.params.id);
   }
-  const changes = audit.diff(before, req.body, ['first_name','last_name','title','email','phone','role','gender','provider_number']);
+  const changes = audit.diff(before, req.body, ['first_name','last_name','title','email','phone','role','gender','provider_number','target_amount','target_period']);
   if (changes) audit.log('user', Number(req.params.id), 'updated', changes);
   res.json(db.prepare('SELECT * FROM practitioners WHERE id = ?').get(req.params.id));
 });
