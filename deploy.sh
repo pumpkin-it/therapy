@@ -9,7 +9,7 @@ TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 echo "=== Building frontend ==="
 npm run build --prefix client
 
-echo "=== Packaging (database excluded) ==="
+echo "=== Packaging (database and uploads excluded) ==="
 tar czf /tmp/therapy-deploy.tar.gz \
   --exclude='node_modules' \
   --exclude='client/node_modules' \
@@ -18,6 +18,7 @@ tar czf /tmp/therapy-deploy.tar.gz \
   --exclude='server/*.db-shm' \
   --exclude='server/*.db-wal' \
   --exclude='server/._pm*' \
+  --exclude='uploads' \
   .
 
 echo "=== Uploading package ==="
@@ -36,8 +37,8 @@ CMD_ID=$($AWS ssm send-command \
     \"cp /opt/therapy/server/pm.db /opt/therapy/server/pm.db.bak\",
     \"echo '--- Downloading package ---'\",
     \"curl -s -o /tmp/therapy-deploy.tar.gz '$PRESIGN'\",
-    \"echo '--- Extracting new code (database files excluded) ---'\",
-    \"tar -xzf /tmp/therapy-deploy.tar.gz -C /opt/therapy --exclude='server/pm.db' --exclude='server/pm.db-shm' --exclude='server/pm.db-wal' --exclude='server/._pm*' 2>/dev/null || true\",
+    \"echo '--- Extracting new code (database and uploads excluded) ---'\",
+    \"tar -xzf /tmp/therapy-deploy.tar.gz -C /opt/therapy --exclude='server/pm.db' --exclude='server/pm.db-shm' --exclude='server/pm.db-wal' --exclude='server/._pm*' --exclude='uploads' 2>/dev/null || true\",
     \"echo '--- Verifying database intact ---'\",
     \"sqlite3 /opt/therapy/server/pm.db 'SELECT count(*) || \\\" clients\\\" FROM clients;'\",
     \"cd /opt/therapy && npm install --production\",
