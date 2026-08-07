@@ -321,7 +321,14 @@ function generateSessionNotePdf({ client_name, notes }) {
 
     const right = 545;
 
-    doc.fontSize(16).font('Helvetica-Bold').text('Session Notes', 50, 50);
+    // Logo (top left) — same placement/pattern as the invoice/agreement PDFs
+    const logoPath = path.join(__dirname, '../../uploads/logo');
+    let titleY = 50;
+    if (fs.existsSync(logoPath)) {
+      try { doc.image(logoPath, 50, 40, { height: 50 }); titleY = 110; } catch {}
+    }
+
+    doc.fontSize(16).font('Helvetica-Bold').text('Session Notes', 50, titleY);
     doc.fontSize(10).font('Helvetica').fillColor('#555').text(client_name, 50, doc.y + 4);
     doc.moveDown(1.5);
 

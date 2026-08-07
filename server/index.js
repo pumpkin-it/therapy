@@ -39,6 +39,7 @@ app.use('/api/invoices',        perm('invoices'), require('./routes/invoices'));
 app.use('/api/funds-managers',  perm('funds_managers'), require('./routes/fundsManagers'));
 app.use('/api/locations',       require('./routes/locations')); // perm applied per-route inside
 app.use('/api/session-notes',   perm('clients'), require('./routes/sessionNotes'));
+app.use('/api/session-note-files', perm('clients'), require('./routes/sessionNoteFiles'));
 app.use('/api/funding-periods', require('./routes/fundingPeriods')); // perm applied per-route inside
 app.use('/api/client-files',    perm('clients'), require('./routes/clientFiles'));
 app.use('/api/client-file-folders', perm('clients'), require('./routes/clientFileFolders'));

@@ -333,6 +333,18 @@ try { db.exec(`
   )
 `); } catch {}
 try { db.exec(`ALTER TABLE session_notes ADD COLUMN archived INTEGER DEFAULT 0`); } catch {}
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS session_note_files (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_note_id INTEGER NOT NULL REFERENCES session_notes(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL,
+    original_name TEXT NOT NULL,
+    size INTEGER,
+    mime_type TEXT,
+    label TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
 
 // Migrate case_notes → session_notes if the old table still exists
 try {

@@ -37,7 +37,8 @@ router.get('/', auth, (req, res) => {
   const notes = db.prepare(`
     SELECT cn.*,
       p.first_name || ' ' || p.last_name AS practitioner_name,
-      a.start_time AS appointment_time
+      a.start_time AS appointment_time,
+      (SELECT COUNT(*) FROM session_note_files f WHERE f.session_note_id = cn.id) AS file_count
     FROM session_notes cn
     LEFT JOIN practitioners p ON p.id = cn.practitioner_id
     LEFT JOIN appointments a ON a.id = cn.appointment_id

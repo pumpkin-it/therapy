@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
-import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, Folder, FolderPlus, X, UserX, UserCheck } from 'lucide-react';
+import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, Folder, FolderPlus, Paperclip, X, UserX, UserCheck } from 'lucide-react';
 import api from '../lib/api';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 import Button from '../components/ui/Button';
@@ -884,6 +884,16 @@ function SessionNotesTab({ clientId, client }) {
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [actionError, setActionError] = useState('');
 
+  const [expandedIds, setExpandedIds] = useState([]);
+  const [filesByNote, setFilesByNote] = useState({});
+  const [pendingFile, setPendingFile] = useState(null); // { file, noteId }
+  const [fileLabelDraft, setFileLabelDraft] = useState('');
+  const [uploadingFile, setUploadingFile] = useState(false);
+  const [fileError, setFileError] = useState('');
+  const [editingFileLabelId, setEditingFileLabelId] = useState(null);
+  const [editFileLabelDraft, setEditFileLabelDraft] = useState('');
+  const fileInputRefs = useRef({});
+
   const [nextAppt, setNextAppt] = useState('');
 
   const load = () => api.get(`/session-notes?client_id=${clientId}`).then(r => setNotes(r.data));
@@ -942,6 +952,60 @@ function SessionNotesTab({ clientId, client }) {
   const remove   = async id => { if (!confirm('Delete this note?')) return; await api.delete(`/session-notes/${id}`); load(); };
 
   const toggleSelect = id => setSelectedIds(ids => ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]);
+
+  const loadNoteFiles = id => api.get(`/session-note-files?session_note_id=${id}`).then(r => setFilesByNote(f => ({ ...f, [id]: r.data })));
+
+  const toggleExpand = id => {
+    const isOpen = expandedIds.includes(id);
+    setExpandedIds(ids => isOpen ? ids.filter(x => x !== id) : [...ids, id]);
+    if (!isOpen && !filesByNote[id]) loadNoteFiles(id);
+  };
+
+  const pickFile = (noteId, e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setFileError('');
+    setPendingFile({ file, noteId });
+    setFileLabelDraft(file.name.replace(/\.[^.]+$/, ''));
+    e.target.value = '';
+  };
+
+  const confirmUploadFile = async () => {
+    if (!pendingFile) return;
+    setUploadingFile(true);
+    setFileError('');
+    try {
+      const fd = new FormData();
+      fd.append('file', pendingFile.file);
+      fd.append('session_note_id', pendingFile.noteId);
+      if (fileLabelDraft.trim()) fd.append('label', fileLabelDraft.trim());
+      await api.post('/session-note-files', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      const noteId = pendingFile.noteId;
+      setPendingFile(null);
+      loadNoteFiles(noteId);
+      load();
+    } catch (err) {
+      setFileError(err.response?.data?.error || 'Failed to upload file');
+    } finally { setUploadingFile(false); }
+  };
+
+  const removeFile = async (noteId, fileId) => {
+    if (!confirm('Delete this file?')) return;
+    await api.delete(`/session-note-files/${fileId}`);
+    loadNoteFiles(noteId);
+    load();
+  };
+
+  const downloadNoteFile = (noteId, fileId) => {
+    const file = (filesByNote[noteId] || []).find(f => f.id === fileId);
+    downloadFile(api, `/session-note-files/${fileId}/download`, file?.original_name || 'download');
+  };
+
+  const saveFileLabel = async (noteId, fileId) => {
+    await api.patch(`/session-note-files/${fileId}`, { label: editFileLabelDraft.trim() || null });
+    setEditingFileLabelId(null);
+    loadNoteFiles(noteId);
+  };
 
   const downloadSelected = async () => {
     setActionError('');
@@ -1002,35 +1066,100 @@ function SessionNotesTab({ clientId, client }) {
         <p className="text-sm text-gray-400 py-6 text-center">No session notes yet.</p>
       )}
 
-      {notes.map(n => (
-        <div key={n.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-          {editingId === n.id ? (
-            <div className="space-y-2">
-              <textarea rows={4} className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm resize-y" value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
-              <div className="flex gap-2 justify-end">
-                <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
-                <Button size="sm" onClick={() => saveEdit(n.id)}>Save</Button>
+      {notes.map(n => {
+        const isExpanded = expandedIds.includes(n.id);
+        const snippet = n.note.length > 90 ? `${n.note.slice(0, 90).trim()}…` : n.note;
+        return (
+          <div key={n.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+            {editingId === n.id ? (
+              <div className="space-y-2">
+                <textarea rows={4} className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm resize-y" value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
+                <div className="flex gap-2 justify-end">
+                  <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
+                  <Button size="sm" onClick={() => saveEdit(n.id)}>Save</Button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="group flex gap-2">
-              <input type="checkbox" className="mt-1 accent-indigo-600 shrink-0"
-                checked={selectedIds.includes(n.id)} onChange={() => toggleSelect(n.id)} />
-              <div className="flex-1">
-                <p className="text-sm text-gray-800 whitespace-pre-wrap">{n.note}</p>
-                <p className="text-xs text-gray-400 mt-1.5">
-                  {n.practitioner_name && <span className="font-medium">{n.practitioner_name} · </span>}
-                  {fmtDateTime(n.created_at, timezone)}
-                </p>
+            ) : (
+              <div className="group">
+                <div className="flex gap-2 cursor-pointer" onClick={() => toggleExpand(n.id)}>
+                  <input type="checkbox" className="mt-1 accent-indigo-600 shrink-0"
+                    checked={selectedIds.includes(n.id)} onClick={e => e.stopPropagation()} onChange={() => toggleSelect(n.id)} />
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm text-gray-800 ${isExpanded ? 'whitespace-pre-wrap' : 'truncate'}`}>{isExpanded ? n.note : snippet}</p>
+                    <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1">
+                      {n.practitioner_name && <span className="font-medium">{n.practitioner_name} · </span>}
+                      {fmtDateTime(n.created_at, timezone)}
+                      {n.file_count > 0 && (
+                        <span className="inline-flex items-center gap-0.5 text-gray-400">
+                          · <Paperclip className="h-3 w-3" /> {n.file_count}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <button onClick={e => { e.stopPropagation(); setEditingId(n.id); setEditText(n.note); }} className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
+                    <button onClick={e => { e.stopPropagation(); remove(n.id); }} className="text-red-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Attachments</span>
+                      <input ref={el => (fileInputRefs.current[n.id] = el)} type="file" className="hidden" onChange={e => pickFile(n.id, e)} />
+                      <button onClick={() => fileInputRefs.current[n.id]?.click()} className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                        <Upload className="h-3 w-3" /> Attach file
+                      </button>
+                    </div>
+                    {(filesByNote[n.id] || []).length === 0 && <p className="text-xs text-gray-400">No files attached.</p>}
+                    {(filesByNote[n.id] || []).map(f => (
+                      <div key={f.id} className="flex items-center gap-2 rounded border border-gray-200 bg-white px-2.5 py-1.5">
+                        <File className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          {editingFileLabelId === f.id ? (
+                            <div className="flex gap-1.5">
+                              <input autoFocus className="flex-1 rounded border border-gray-300 px-1.5 py-0.5 text-xs focus:border-indigo-500 focus:outline-none"
+                                value={editFileLabelDraft} onChange={e => setEditFileLabelDraft(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && saveFileLabel(n.id, f.id)} placeholder="Label" />
+                              <button onClick={() => saveFileLabel(n.id, f.id)} className="text-xs font-medium text-indigo-500 hover:text-indigo-700">Save</button>
+                              <button onClick={() => setEditingFileLabelId(null)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                            </div>
+                          ) : (
+                            <p className="text-xs font-medium text-gray-700 truncate flex items-center gap-1 group/file">
+                              <span className="truncate">{f.label || f.original_name}</span>
+                              <Pencil className="h-2.5 w-2.5 text-gray-300 opacity-0 group-hover/file:opacity-100 cursor-pointer shrink-0"
+                                onClick={() => { setEditingFileLabelId(f.id); setEditFileLabelDraft(f.label || ''); }} />
+                            </p>
+                          )}
+                          <p className="text-[11px] text-gray-400 truncate">{f.label ? `${f.original_name} · ` : ''}{fmtDateOnly(f.created_at, timezone)}</p>
+                        </div>
+                        <button onClick={() => downloadNoteFile(n.id, f.id)} className="text-indigo-500 hover:text-indigo-700 p-0.5"><Download className="h-3.5 w-3.5" /></button>
+                        <button onClick={() => removeFile(n.id, f.id)} className="text-red-300 hover:text-red-500 p-0.5"><Trash2 className="h-3.5 w-3.5" /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                <button onClick={() => { setEditingId(n.id); setEditText(n.note); }} className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
-                <button onClick={() => remove(n.id)} className="text-red-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
+            )}
+          </div>
+        );
+      })}
+
+      {pendingFile && (
+        <Modal title="Attach file" onClose={() => !uploadingFile && setPendingFile(null)}>
+          <p className="text-sm text-gray-500 mb-3 truncate">{pendingFile.file.name}</p>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Label (optional)</label>
+          <input autoFocus className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            placeholder="e.g. Referral letter" value={fileLabelDraft} onChange={e => setFileLabelDraft(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && confirmUploadFile()} />
+          <p className="text-xs text-gray-400 mt-1.5">Shown instead of the filename to give this file more context.</p>
+          {fileError && <p className="text-xs text-red-600 mt-1.5">{fileError}</p>}
+          <div className="flex justify-end gap-2 mt-5">
+            <Button variant="secondary" onClick={() => setPendingFile(null)} disabled={uploadingFile}>Cancel</Button>
+            <Button onClick={confirmUploadFile} disabled={uploadingFile}>{uploadingFile ? 'Uploading…' : 'Upload'}</Button>
+          </div>
+        </Modal>
+      )}
 
       {showEmailModal && (
         <SessionNoteEmailModal
