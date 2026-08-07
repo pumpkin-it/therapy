@@ -1097,6 +1097,8 @@ function SessionNotesTab({ clientId, client }) {
                     </p>
                   </div>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    <input ref={el => (fileInputRefs.current[n.id] = el)} type="file" className="hidden" onChange={e => pickFile(n.id, e)} />
+                    <button onClick={e => { e.stopPropagation(); fileInputRefs.current[n.id]?.click(); }} className="text-gray-400 hover:text-indigo-600" title="Attach file"><Paperclip className="h-3.5 w-3.5" /></button>
                     <button onClick={e => { e.stopPropagation(); setEditingId(n.id); setEditText(n.note); }} className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
                     <button onClick={e => { e.stopPropagation(); remove(n.id); }} className="text-red-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
                   </div>
@@ -1106,7 +1108,6 @@ function SessionNotesTab({ clientId, client }) {
                   <div className="mt-3 pt-3 border-t border-gray-200 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Attachments</span>
-                      <input ref={el => (fileInputRefs.current[n.id] = el)} type="file" className="hidden" onChange={e => pickFile(n.id, e)} />
                       <button onClick={() => fileInputRefs.current[n.id]?.click()} className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
                         <Upload className="h-3 w-3" /> Attach file
                       </button>
