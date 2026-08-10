@@ -1,17 +1,19 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import api from '../lib/api';
-import { substituteVars } from '../lib/utils';
+import { substituteVars, fmtDateOnly } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
+import { useSettings } from '../context/SettingsContext';
 import Button from './ui/Button';
 
-function dateRangeLabel(notes) {
+// created_at strings sort lexicographically in chronological order (YYYY-MM-DD HH:MM:SS), so
+// plain string min/max is enough — the actual timezone-correct formatting is fmtDateOnly's job.
+function dateRangeLabel(notes, timezone) {
   if (!notes.length) return '';
-  const fmt = d => d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
-  const dates = notes.map(n => new Date(n.created_at));
-  const min = new Date(Math.min(...dates));
-  const max = new Date(Math.max(...dates));
-  return min.getTime() === max.getTime() ? fmt(min) : `${fmt(min)} – ${fmt(max)}`;
+  const dates = notes.map(n => n.created_at);
+  const min = dates.reduce((a, b) => (a < b ? a : b));
+  const max = dates.reduce((a, b) => (a > b ? a : b));
+  return min === max ? fmtDateOnly(min, timezone) : `${fmtDateOnly(min, timezone)} – ${fmtDateOnly(max, timezone)}`;
 }
 
 // Freeform To/Cc email chip input — types an address, Enter/comma adds it as a chip.
@@ -54,6 +56,7 @@ function EmailChips({ label, value, onChange }) {
 
 export default function SessionNoteEmailModal({ clientId, client, noteIds, notes, onClose, onSent }) {
   const { user } = useAuth();
+  const { timezone } = useSettings();
   const [to, setTo] = useState(client?.email ? [client.email] : []);
   const [cc, setCc] = useState([]);
   const [subject, setSubject] = useState('');
@@ -70,7 +73,7 @@ export default function SessionNoteEmailModal({ clientId, client, noteIds, notes
         client_first_name: client?.first_name || '',
         recipient_name: client?.first_name || 'there',
         practitioner_name: user ? `${user.first_name || ''} ${user.last_name || ''}`.trim() : '',
-        date_range: dateRangeLabel(notes || []),
+        date_range: dateRangeLabel(notes || [], timezone),
         note_count: (notes || []).length,
       };
       const plain = (tpl?.body || '<p>Hi {{recipient_name}},</p><p>Please find attached the session notes for {{client_name}} covering {{date_range}}.</p><p>Regards,<br>{{practitioner_name}}</p>')
