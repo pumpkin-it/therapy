@@ -333,7 +333,12 @@ function generateSessionNotePdf({ client_name, notes }) {
     doc.moveDown(1.5);
 
     for (const note of notes || []) {
-      const dateLabel = note.created_at ? new Date(note.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+      // created_at is a naive UTC string — parse as UTC and convert to Australia/Sydney explicitly,
+      // otherwise a note created before ~10am Sydney time (still "yesterday" in UTC) shows a day early.
+      const dateLabel = note.created_at
+        ? new Date(note.created_at.endsWith('Z') ? note.created_at : note.created_at + 'Z')
+            .toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Australia/Sydney' })
+        : '';
       doc.font('Helvetica-Bold').fontSize(10).fillColor('#111').text(dateLabel, 50, doc.y);
       if (note.practitioner_name) {
         doc.font('Helvetica').fontSize(9).fillColor('#666').text(note.practitioner_name, 50, doc.y + 2);

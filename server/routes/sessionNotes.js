@@ -18,10 +18,14 @@ function loadNotesWithClient(noteIds) {
   return { client, notes };
 }
 
+// created_at is stored as a naive UTC string (SQLite CURRENT_TIMESTAMP, no 'Z') — must be parsed
+// as UTC and explicitly converted to Australia/Sydney, or a note created before ~10am Sydney time
+// (still "yesterday" in UTC) displays a day early. Mirrors client/src/lib/utils.js's fmtDateOnly.
 function dateRangeLabel(notes) {
   if (!notes.length) return '';
-  const dates = notes.map(n => new Date(n.created_at));
-  const fmt = d => d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+  const toUtcDate = s => new Date(s.endsWith('Z') ? s : s + 'Z');
+  const dates = notes.map(n => toUtcDate(n.created_at));
+  const fmt = d => d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Australia/Sydney' });
   const min = new Date(Math.min(...dates));
   const max = new Date(Math.max(...dates));
   return min.getTime() === max.getTime() ? fmt(min) : `${fmt(min)} – ${fmt(max)}`;
