@@ -10,6 +10,7 @@ const { notifyAppointmentChange } = require('../services/push');
 const APPT_SELECT = `
   SELECT a.*,
     c.first_name || ' ' || c.last_name AS client_name,
+    c.address AS client_address,
     p.first_name || ' ' || p.last_name AS practitioner_name,
     p.color AS practitioner_color,
     l.name AS location_name, l.address AS location_address

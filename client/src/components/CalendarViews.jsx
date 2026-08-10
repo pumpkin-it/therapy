@@ -6,7 +6,9 @@ import {
 } from 'date-fns';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import api from '../lib/api';
-import { fmtTime, cn } from '../lib/utils';
+import { fmtTime, cn, resolveApptAddress, suburbFromAddress } from '../lib/utils';
+
+const apptSuburb = appt => suburbFromAddress(resolveApptAddress(appt));
 import Button from './ui/Button';
 import AppointmentModal from './AppointmentModal';
 
@@ -214,6 +216,7 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
                     </div>
                     <div className="font-medium truncate">{appt.client_name}</div>
                     <div className="text-gray-500">{fmtTime(appt.start_time)}–{fmtTime(appt.end_time)}</div>
+                    {apptSuburb(appt) && <div className="text-gray-400 truncate">{apptSuburb(appt)}</div>}
                   </div>
                 </div>
                 );
@@ -307,7 +310,8 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
                       {appt.series_id && <span className="h-3.5 w-3.5 rounded-full bg-indigo-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">R</span>}
                     </div>
                     <div className="font-medium truncate">{appt.client_name}</div>
-                    <div className="opacity-60">{fmtTime(appt.start_time)}</div>
+                    <div className="opacity-60">{fmtTime(appt.start_time)}–{fmtTime(appt.end_time)}</div>
+                    {apptSuburb(appt) && <div className="opacity-60 truncate">{apptSuburb(appt)}</div>}
                   </div>
                 </div>
                 );
@@ -367,11 +371,14 @@ export function MonthView({ date, appointments, practitioners, filteredPractitio
                   <div key={appt.id}
                     onClick={e => { e.stopPropagation(); onClickAppt(appt); }}
                     data-appt title={apptRef(appt.id)}
-                    className="truncate rounded px-1 py-0.5 text-xs font-medium cursor-pointer hover:opacity-80"
+                    className="rounded px-1 py-0.5 text-xs font-medium cursor-pointer hover:opacity-80"
                     style={{ background: practitionerColor(appt.practitioner_id) + '33', color: '#111', borderLeft: `3px solid ${practitionerColor(appt.practitioner_id)}` }}
                   >
-                    {appt.status === 'cancelled' && <span className="inline-flex items-center justify-center h-3 w-3 rounded-full bg-red-600 text-white text-[7px] font-bold mr-0.5 leading-none">C</span>}
-                    {appt.series_id && <span className="inline-flex items-center justify-center h-3 w-3 rounded-full bg-indigo-600 text-white text-[7px] font-bold mr-0.5 leading-none">R</span>}{fmtTime(appt.start_time)} {appt.client_name}
+                    <div className="truncate">
+                      {appt.status === 'cancelled' && <span className="inline-flex items-center justify-center h-3 w-3 rounded-full bg-red-600 text-white text-[7px] font-bold mr-0.5 leading-none">C</span>}
+                      {appt.series_id && <span className="inline-flex items-center justify-center h-3 w-3 rounded-full bg-indigo-600 text-white text-[7px] font-bold mr-0.5 leading-none">R</span>}{fmtTime(appt.start_time)}–{fmtTime(appt.end_time)} {appt.client_name}
+                    </div>
+                    {apptSuburb(appt) && <div className="truncate font-normal opacity-70">{apptSuburb(appt)}</div>}
                   </div>
                 ))}
                 {dayAppts.length > 3 && (

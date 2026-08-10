@@ -950,6 +950,8 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
   };
 
   const selectedPractitioner = practitioners.find(p => p.id === Number(form.practitioner_id));
+  const selectedClient = clients.find(c => c.id === Number(form.client_id));
+  const selectedLocation = locations.find(l => l.id === Number(form.location_id));
   const filteredServices = selectedPractitioner?.discipline_id
     ? scopedServices.filter(s => !s.discipline_id || s.discipline_id === selectedPractitioner.discipline_id)
     : scopedServices;
@@ -1046,12 +1048,22 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
                 </label>
               ))}
             </div>
+            {form.location_type === 'home' && (
+              selectedClient?.address
+                ? <p className="text-sm text-gray-500 mt-1">{selectedClient.address}</p>
+                : selectedClient
+                  ? <p className="text-sm text-amber-600 mt-1">No address on file for this client.</p>
+                  : <p className="text-sm text-gray-400 mt-1">Select a client to see their address.</p>
+            )}
             {form.location_type === 'clinic' && (
-              <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mt-1"
-                value={form.location_id} onChange={e => setField('location_id', e.target.value)}>
-                <option value="">Select clinic…</option>
-                {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-              </select>
+              <>
+                <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm mt-1"
+                  value={form.location_id} onChange={e => setField('location_id', e.target.value)}>
+                  <option value="">Select clinic…</option>
+                  {locations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+                {selectedLocation?.address && <p className="text-sm text-gray-500 mt-1">{selectedLocation.address}</p>}
+              </>
             )}
             {form.location_type === 'other' && (
               <div className="mt-1">

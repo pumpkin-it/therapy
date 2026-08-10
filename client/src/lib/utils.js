@@ -39,6 +39,23 @@ export const localToday = () => {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 };
 
+// Resolves the human-readable address for an appointment, mirroring the precedence used server-side
+// in server/services/mailer.js's sendAppointmentNotification: clinic address, then an ad-hoc "Other"
+// address, then the client's own home address.
+export const resolveApptAddress = appt =>
+  (appt.location_name && appt.location_address)
+    ? appt.location_address
+    : appt.location_other || appt.client_address || '';
+
+// Google's AU-formatted addresses look like "12 Smith St, Richmond VIC 3121, Australia" —
+// the suburb is the locality segment with the trailing state + postcode stripped off.
+export const suburbFromAddress = address => {
+  if (!address) return '';
+  const parts = address.split(',').map(s => s.trim()).filter(Boolean);
+  const localityPart = parts[1] || parts[0] || '';
+  return localityPart.replace(/\s+[A-Z]{2,3}\s+\d{4}$/, '').trim();
+};
+
 // Downloads an auth-protected file via the authenticated api instance (window.open/<a href>
 // can't send the Authorization header, so those approaches 401 on protected routes).
 // Pass { method: 'post', data } when the request needs a body (e.g. a list of ids too long
