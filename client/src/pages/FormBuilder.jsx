@@ -140,7 +140,7 @@ function SectionCard({ section, index, total, active, onSelect, onChange, onRemo
           <button type="button" onClick={e => { e.stopPropagation(); onMove(-1); }} disabled={index === 0} className="p-1 text-indigo-100 hover:text-white disabled:opacity-30"><ArrowUp className="h-4 w-4" /></button>
           <button type="button" onClick={e => { e.stopPropagation(); onMove(1); }} disabled={index === total - 1} className="p-1 text-indigo-100 hover:text-white disabled:opacity-30"><ArrowDown className="h-4 w-4" /></button>
           <button type="button" onClick={e => { e.stopPropagation(); onDuplicate(); }} className="p-1 text-indigo-100 hover:text-white"><Copy className="h-4 w-4" /></button>
-          <button type="button" onClick={e => { e.stopPropagation(); onRemove(); }} className="p-1 text-indigo-100 hover:text-white"><Trash2 className="h-4 w-4" /></button>
+          <button type="button" onClick={e => { e.stopPropagation(); onRemove(); }} disabled={total <= 1} className="p-1 text-indigo-100 hover:text-white disabled:opacity-30 disabled:hover:text-indigo-100" title={total <= 1 ? 'A form needs at least one section' : undefined}><Trash2 className="h-4 w-4" /></button>
         </div>
       </div>
       <div className="bg-gray-50 p-4 space-y-3">
@@ -217,7 +217,7 @@ export default function FormBuilder() {
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
   const [sections, setSections] = useState([makeSection('Section 1')]);
-  const [activeSectionId, setActiveSectionId] = useState(sections[0].id);
+  const [activeSectionId, setActiveSectionId] = useState(() => sections[0].id);
 
   useEffect(() => {
     if (isNew) return;
