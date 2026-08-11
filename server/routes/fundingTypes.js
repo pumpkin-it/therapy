@@ -61,16 +61,18 @@ router.get('/', auth, (_req, res) => {
 });
 
 router.post('/', auth, (req, res) => {
-  const { name, color, has_ndis_management } = req.body;
+  const { name, color, has_ndis_management, identifier_label, show_period_dates } = req.body;
   if (!name) return res.status(400).json({ error: 'Name is required' });
-  const r = db.prepare('INSERT INTO funding_types (name, color, has_ndis_management) VALUES (?, ?, ?)').run(name, color || 'gray', has_ndis_management ? 1 : 0);
+  const r = db.prepare('INSERT INTO funding_types (name, color, has_ndis_management, identifier_label, show_period_dates) VALUES (?, ?, ?, ?, ?)')
+    .run(name, color || 'gray', has_ndis_management ? 1 : 0, identifier_label || 'Client ID', show_period_dates === false ? 0 : 1);
   audit.log('settings', r.lastInsertRowid, 'funding_type_created', `Funding type "${name}" created`);
   res.status(201).json(db.prepare('SELECT * FROM funding_types WHERE id=?').get(r.lastInsertRowid));
 });
 
 router.patch('/:id', auth, (req, res) => {
-  const { name, color, has_ndis_management } = req.body;
-  db.prepare('UPDATE funding_types SET name=?, color=?, has_ndis_management=? WHERE id=?').run(name, color || 'gray', has_ndis_management ? 1 : 0, req.params.id);
+  const { name, color, has_ndis_management, identifier_label, show_period_dates } = req.body;
+  db.prepare('UPDATE funding_types SET name=?, color=?, has_ndis_management=?, identifier_label=?, show_period_dates=? WHERE id=?')
+    .run(name, color || 'gray', has_ndis_management ? 1 : 0, identifier_label || 'Client ID', show_period_dates === false ? 0 : 1, req.params.id);
   audit.log('settings', Number(req.params.id), 'funding_type_updated', `Funding type updated to "${name}"`);
   res.json(db.prepare('SELECT * FROM funding_types WHERE id=?').get(req.params.id));
 });

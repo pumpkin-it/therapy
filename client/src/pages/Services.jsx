@@ -77,7 +77,7 @@ function ServicesTab() {
 function FundingTypesTab() {
   const navigate = useNavigate();
   const [fundingTypes, setFundingTypes] = useState([]);
-  const [ftEdit, setFtEdit] = useState(null); // null | { id?, name, color, has_ndis_management }
+  const [ftEdit, setFtEdit] = useState(null); // null | { id?, name, color, has_ndis_management, identifier_label, show_period_dates }
 
   const loadFT = () => api.get('/funding-types').then(r => setFundingTypes(r.data));
   useEffect(() => { loadFT(); }, []);
@@ -103,9 +103,10 @@ function FundingTypesTab() {
               <span className="font-mono text-xs text-gray-400 w-16">F{String(ft.id).padStart(4, '0')}</span>
               <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${FT_COLOR_CLASSES[ft.color] || 'bg-gray-100 text-gray-700'}`}>{ft.name}</span>
               {ft.has_ndis_management ? <span className="text-xs text-indigo-500">NDIS management</span> : null}
+              <span className="text-xs text-gray-400">"{ft.identifier_label || 'Client ID'}"{ft.show_period_dates ? '' : ' · no dates'}</span>
               <div className="ml-auto flex gap-1">
                 <button onClick={() => navigate(`/funding-types/${ft.id}/rates`)} className="text-gray-400 hover:text-gray-600" title="Manage rates"><DollarSign className="h-3.5 w-3.5" /></button>
-                <button onClick={() => setFtEdit({ id: ft.id, name: ft.name, color: ft.color, has_ndis_management: ft.has_ndis_management })} className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
+                <button onClick={() => setFtEdit({ id: ft.id, name: ft.name, color: ft.color, has_ndis_management: ft.has_ndis_management, identifier_label: ft.identifier_label || '', show_period_dates: ft.show_period_dates !== 0 })} className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
                 <button onClick={() => deleteFT(ft.id)} className="text-red-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
               </div>
             </div>
@@ -126,13 +127,22 @@ function FundingTypesTab() {
                 NDIS management options
               </label>
             </div>
+            <div className="grid grid-cols-2 gap-2 items-center">
+              <input className="rounded border border-gray-300 px-2 py-1.5 text-sm" placeholder="Client ID label (e.g. Medicare number)"
+                value={ftEdit.identifier_label} onChange={e => setFtEdit(f => ({ ...f, identifier_label: e.target.value }))} />
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" className="accent-indigo-600" checked={ftEdit.show_period_dates}
+                  onChange={e => setFtEdit(f => ({ ...f, show_period_dates: e.target.checked }))} />
+                Show period start/end dates
+              </label>
+            </div>
             <div className="flex gap-2">
               <Button size="sm" onClick={saveFT}>{ftEdit.id ? 'Save' : 'Add'}</Button>
               <Button size="sm" variant="secondary" onClick={() => setFtEdit(null)}>Cancel</Button>
             </div>
           </div>
         ) : (
-          <Button variant="secondary" size="sm" onClick={() => setFtEdit({ name: '', color: 'gray', has_ndis_management: false })}>
+          <Button variant="secondary" size="sm" onClick={() => setFtEdit({ name: '', color: 'gray', has_ndis_management: false, identifier_label: '', show_period_dates: true })}>
             <Plus className="h-3.5 w-3.5" /> Add funding type
           </Button>
         )}

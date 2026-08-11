@@ -36,7 +36,7 @@ app.use('/api/clients',         perm('clients'), require('./routes/clients'));
 app.use('/api/services',        perm('services'), require('./routes/services'));
 app.use('/api/appointments',    require('./routes/appointments')); // perm applied per-route inside
 app.use('/api/invoices',        perm('invoices'), require('./routes/invoices'));
-app.use('/api/funds-managers',  perm('funds_managers'), require('./routes/fundsManagers'));
+app.use('/api/funds-managers',  require('./routes/fundsManagers')); // perm applied per-route inside
 app.use('/api/locations',       require('./routes/locations')); // perm applied per-route inside
 app.use('/api/session-notes',   perm('clients'), require('./routes/sessionNotes'));
 app.use('/api/session-note-files', perm('clients'), require('./routes/sessionNoteFiles'));
@@ -50,7 +50,7 @@ app.use('/api/audit-logs',      require('./routes/auditLogs'));
 app.use('/api/gst-rates',       perm('settings'), require('./routes/gstRates'));
 app.use('/api/funding-types',   perm('services'), require('./routes/fundingTypes'));
 app.use('/api/templates',        perm('settings'), require('./routes/templates'));
-app.use('/api/form-templates',  perm('settings'), require('./routes/formTemplates'));
+app.use('/api/form-templates',  require('./routes/formTemplates')); // perm applied per-route inside
 app.use('/api/form-responses',  perm('clients'), require('./routes/formResponses'));
 app.use('/api/agreements',      perm('clients'), require('./routes/agreements'));
 app.use('/api/reports',         perm('reports'), require('./routes/reports'));

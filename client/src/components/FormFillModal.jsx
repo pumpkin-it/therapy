@@ -8,6 +8,10 @@ import { localToday } from '../lib/utils';
 const isActivePeriod = p => (!p.start_date || p.start_date === '1111-01-01' || p.start_date <= localToday())
   && (!p.end_date || p.end_date === '9999-09-09' || p.end_date >= localToday());
 
+// '1111-01-01'/'9999-09-09' are this app's "indefinite" sentinel bounds (see FundingTab.jsx's
+// own openEdit) — show them as blank rather than as literal dates.
+const realDate = d => (!d || d === '1111-01-01' || d === '9999-09-09') ? '' : d;
+
 // Prefill smart fields from the client's own record (and their currently-active funding period,
 // if any) so the practitioner isn't retyping data the practice already has. This is display-only
 // convenience — submitting the form does NOT write these values back to clients/funding_periods;
@@ -18,14 +22,21 @@ function buildInitialAnswers(schema, client, activeFundingPeriod) {
     for (const field of section.fields) {
       if (field.kind !== 'smart') continue;
       switch (field.type) {
-        case 'first_name':      answers[field.id] = client?.first_name || ''; break;
-        case 'last_name':       answers[field.id] = client?.last_name || ''; break;
-        case 'date_of_birth':   answers[field.id] = client?.date_of_birth || ''; break;
-        case 'gender':          answers[field.id] = client?.gender || ''; break;
-        case 'address':         answers[field.id] = client?.address || ''; break;
-        case 'ndis_number':     answers[field.id] = activeFundingPeriod?.client_identifier || ''; break;
-        case 'funder':          answers[field.id] = activeFundingPeriod?.funding_type || ''; break;
-        case 'fund_management': answers[field.id] = activeFundingPeriod?.ndis_management || ''; break;
+        case 'first_name':    answers[field.id] = client?.first_name || ''; break;
+        case 'last_name':     answers[field.id] = client?.last_name || ''; break;
+        case 'date_of_birth': answers[field.id] = client?.date_of_birth || ''; break;
+        case 'gender':        answers[field.id] = client?.gender || ''; break;
+        case 'address':       answers[field.id] = client?.address || ''; break;
+        case 'funding_details':
+          answers[field.id] = {
+            funding_type: activeFundingPeriod?.funding_type || '',
+            ndis_management: activeFundingPeriod?.ndis_management || '',
+            funds_manager_id: activeFundingPeriod?.funds_manager_id || '',
+            client_identifier: activeFundingPeriod?.client_identifier || '',
+            start_date: realDate(activeFundingPeriod?.start_date),
+            end_date: realDate(activeFundingPeriod?.end_date),
+          };
+          break;
         default: break;
       }
     }
@@ -38,16 +49,19 @@ export default function FormFillModal({ clientId, client, formTemplate, response
   const [templateName, setTemplateName] = useState(formTemplate?.name || '');
   const [answers, setAnswers] = useState({});
   const [funderOptions, setFunderOptions] = useState([]);
+  const [fundsManagerOptions, setFundsManagerOptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const [fundingTypesRes, periodsRes] = await Promise.all([
+      const [fundingTypesRes, periodsRes, fundsManagersRes] = await Promise.all([
         api.get('/funding-types'),
         api.get(`/funding-periods?client_id=${clientId}`),
+        api.get('/funds-managers'),
       ]);
       setFunderOptions(fundingTypesRes.data.filter(ft => ft.active));
+      setFundsManagerOptions(fundsManagersRes.data.filter(fm => fm.active));
       const activePeriod = periodsRes.data.find(isActivePeriod);
 
       if (responseId) {
@@ -82,7 +96,7 @@ export default function FormFillModal({ clientId, client, formTemplate, response
         <p className="text-sm text-gray-400 py-8 text-center">Loading…</p>
       ) : (
         <div className="space-y-6">
-          <FormRenderer schema={schema} values={answers} onChange={setAnswer} funderOptions={funderOptions} />
+          <FormRenderer schema={schema} values={answers} onChange={setAnswer} funderOptions={funderOptions} fundsManagerOptions={fundsManagerOptions} />
           <div className="flex justify-end gap-2 pt-4 border-t border-gray-100">
             <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
             <Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>

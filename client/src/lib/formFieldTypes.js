@@ -1,16 +1,22 @@
 // Smart fields bind to a real column and are written back to the client/funding_periods record
 // once a submitted form is accepted (that accept step isn't built yet — see server/database.js's
 // form_templates/form_responses comment block for the full contract). Each `binding` here matches
-// exactly one column, never a composite, so the future accept step is a straight field write.
+// exactly one column, never a composite, EXCEPT 'funding_details' — see its own note below.
 export const SMART_FIELDS = [
   { type: 'first_name',      label: 'First name',       binding: 'client.first_name' },
   { type: 'last_name',       label: 'Last name',        binding: 'client.last_name' },
   { type: 'date_of_birth',   label: 'Date of birth',    binding: 'client.date_of_birth' },
   { type: 'gender',          label: 'Gender identity',  binding: 'client.gender' },
   { type: 'address',         label: 'Address',          binding: 'client.address' },
-  { type: 'ndis_number',     label: 'NDIS number',      binding: 'funding_period.client_identifier' },
-  { type: 'funder',          label: 'Funder',           binding: 'funding_period.funding_type' },
-  { type: 'fund_management', label: 'Fund management',  binding: 'funding_period.ndis_management' },
+  // Composite — one field that renders a Funder select (funding_period.funding_type), then
+  // conditionally reveals Fund management + Fund manager (only when the selected funding_type's
+  // has_ndis_management is set) and Start/End date (only when its show_period_dates is set),
+  // plus an identifier input always shown and labeled per that funding type's identifier_label
+  // (e.g. "NDIS number" vs "Medicare number" vs generic "Client ID"). Its answer is a small
+  // object, not a scalar: { funding_type, ndis_management, funds_manager_id, client_identifier,
+  // start_date, end_date }. binding is 'funding_period.*' because accept must write the whole
+  // object into one funding_periods row, not a single column.
+  { type: 'funding_details', label: 'Funding details',  binding: 'funding_period.*' },
 ];
 
 // Generic/custom fields — answers only ever live in form_responses.answers_json, never written

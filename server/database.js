@@ -942,4 +942,19 @@ try { db.exec(`CREATE INDEX idx_form_responses_template ON form_responses(form_t
 try { db.exec(`CREATE INDEX idx_form_responses_client ON form_responses(client_id)`); } catch {}
 try { db.exec(`CREATE UNIQUE INDEX idx_form_responses_token ON form_responses(token) WHERE token IS NOT NULL`); } catch {}
 
+// Per-funding-type form behaviour — lets the "Funding details" composite form field (see
+// formFieldTypes.js on the client) show the right sub-fields for whichever funder is selected:
+// identifier_label customizes what funding_periods.client_identifier is called (e.g. "NDIS
+// number" vs "Medicare number" vs generic "Client ID"), show_period_dates controls whether
+// Start/End date inputs appear for that type. Both default sensibly and are edited in
+// Settings → Services & Rates → Funding Types (Services.jsx's FundingTypesTab).
+try { db.exec(`ALTER TABLE funding_types ADD COLUMN identifier_label TEXT`); } catch {}
+try { db.exec(`ALTER TABLE funding_types ADD COLUMN show_period_dates INTEGER DEFAULT 1`); } catch {}
+try {
+  const defaultLabels = { NDIS: 'NDIS number', Medicare: 'Medicare number' };
+  const unlabeled = db.prepare('SELECT id, name FROM funding_types WHERE identifier_label IS NULL').all();
+  const setLabel = db.prepare('UPDATE funding_types SET identifier_label = ? WHERE id = ?');
+  for (const ft of unlabeled) setLabel.run(defaultLabels[ft.name] || 'Client ID', ft.id);
+} catch {}
+
 module.exports = db;
