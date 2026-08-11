@@ -50,6 +50,8 @@ app.use('/api/audit-logs',      require('./routes/auditLogs'));
 app.use('/api/gst-rates',       perm('settings'), require('./routes/gstRates'));
 app.use('/api/funding-types',   perm('services'), require('./routes/fundingTypes'));
 app.use('/api/templates',        perm('settings'), require('./routes/templates'));
+app.use('/api/form-templates',  perm('settings'), require('./routes/formTemplates'));
+app.use('/api/form-responses',  perm('clients'), require('./routes/formResponses'));
 app.use('/api/agreements',      perm('clients'), require('./routes/agreements'));
 app.use('/api/reports',         perm('reports'), require('./routes/reports'));
 

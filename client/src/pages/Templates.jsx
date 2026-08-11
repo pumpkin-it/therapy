@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, X } from 'lucide-react';
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
@@ -383,13 +384,58 @@ function AgreementTemplates() {
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
-export default function Templates() {
-  const [tab, setTab] = useState('email');
-  const TABS = [['email', 'Email Templates'], ['session_note', 'Session Note Templates'], ['agreement', 'Agreement Templates']];
+// ─── Forms tab ────────────────────────────────────────────────────────────────
+function FormTemplates() {
+  const [forms, setForms] = useState([]);
+  const navigate = useNavigate();
+
+  const load = () => api.get('/form-templates').then(r => setForms(r.data));
+  useEffect(() => { load(); }, []);
+
+  const remove = async id => {
+    if (!confirm('Delete this form?')) return;
+    await api.delete(`/form-templates/${id}`);
+    load();
+  };
+
+  const fieldCount = f => (f.schema?.sections || []).reduce((n, s) => n + s.fields.length, 0);
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <Button size="sm" onClick={() => navigate('/templates/forms/new')}><Plus className="h-3.5 w-3.5" /> New form</Button>
+      </div>
+
+      {forms.length === 0 && (
+        <p className="text-sm text-gray-400 py-8 text-center">No forms yet — build one to gather client info in-session or send it ahead via a link.</p>
+      )}
+
+      {forms.map(f => (
+        <div key={f.id} className="rounded-xl border border-gray-200 bg-white shadow-sm p-4 flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-gray-900 text-sm">{f.name}</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {(f.schema?.sections || []).length} section{(f.schema?.sections || []).length === 1 ? '' : 's'} &middot; {fieldCount(f)} field{fieldCount(f) === 1 ? '' : 's'}
+            </p>
+          </div>
+          <div className="flex gap-1 shrink-0">
+            <button onClick={() => navigate(`/templates/forms/${f.id}`)} className="p-1.5 text-gray-400 hover:text-indigo-600"><Pencil className="h-4 w-4" /></button>
+            <button onClick={() => remove(f.id)} className="p-1.5 text-gray-400 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+export default function Templates() {
+  const location = useLocation();
+  const [tab, setTab] = useState(location.state?.tab || 'email');
+  const TABS = [['email', 'Email Templates'], ['session_note', 'Session Note Templates'], ['agreement', 'Agreement Templates'], ['forms', 'Forms']];
+
+  return (
+    <div className={tab === 'forms' ? 'space-y-6' : 'max-w-3xl mx-auto space-y-6'}>
       <div>
         <h1 className="text-xl font-semibold text-gray-900">Templates</h1>
         <p className="text-sm text-gray-500 mt-0.5">Edit system email templates and create session note templates</p>
@@ -411,6 +457,7 @@ export default function Templates() {
       {tab === 'email'        && <EmailTemplates />}
       {tab === 'session_note' && <NoteTemplates />}
       {tab === 'agreement'    && <AgreementTemplates />}
+      {tab === 'forms'        && <FormTemplates />}
     </div>
   );
 }

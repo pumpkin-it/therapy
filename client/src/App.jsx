@@ -20,6 +20,7 @@ import AuditLog from './pages/AuditLog';
 import RecurringSeries from './pages/RecurringSeries';
 import RecurringSeriesDetail from './pages/RecurringSeriesDetail';
 import Templates from './pages/Templates';
+import FormBuilder from './pages/FormBuilder';
 import SignAgreement from './pages/SignAgreement';
 
 function AuthenticatedApp() {
@@ -73,6 +74,7 @@ function AuthenticatedApp() {
           {p.invoices && <Route path="/invoices" element={<Invoices />} />}
           {p.reports && <Route path="/reports" element={<Reports />} />}
           {p.settings && <Route path="/templates" element={<Templates />} />}
+          {p.settings && <Route path="/templates/forms/:id" element={<FormBuilder />} />}
           <Route path="/audit-log" element={<AuditLog />} />
           {p.settings && <Route path="/settings" element={<Settings />} />}
           {p.services && <Route path="/funding-types/:id/rates" element={<FundingTypeRates />} />}

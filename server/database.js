@@ -880,4 +880,66 @@ try {
     .run(SERVICE_AGREEMENT_BODY, SERVICE_AGREEMENT_PLACEHOLDER_BODY);
 } catch {}
 
+// Form templates & responses — a buildable form module (sections of fields a practitioner
+// assembles from a palette), modelled after the Splose form builder. Three fill contexts share
+// these two tables:
+//   1. In-app: practitioner fills a form against an existing client during a session
+//      (client_id set at creation, no token needed).
+//   2. Prefill link: sent to an existing client to fill in before their appointment
+//      (client_id set, token generated) — same public-token trust model as
+//      agreements.signing_token / the cal feed token.
+//   3. Referral intake: a blank form sent to an external referrer with no client attached yet
+//      (client_id NULL until a staff member reviews the submission and accepts it into a new
+//      or existing client). The review/accept flow itself is NOT built yet, but client_id is
+//      nullable and status already has 'accepted'/'declined' so it can be added later without
+//      a schema change.
+//
+// schema_json on form_templates shapes as { sections: [{ id, title, fields: [...] }] }.
+// Each field is { id, kind: 'smart'|'custom', type, label, required, options?, binding? }.
+//   - kind:'custom' fields (statement, short_answer, paragraph, checkboxes, dropdown,
+//     multiple_choice, page_break, file_upload) are pure content — their answers only ever
+//     live in form_responses.answers_json.
+//   - kind:'smart' fields carry a `binding` (e.g. 'client.first_name', 'client.ndis_number',
+//     'funding_period.client_identifier', 'funding_period.ndis_management',
+//     'funding_period.funding_type') naming the real column they're destined to write on
+//     accept — not enforced by the DB, just the contract the (not-yet-built) accept step will
+//     read. A 'funding_period.*' binding implies accept must create/update a funding_periods
+//     row, not just the client row — this is why NDIS number/fund management aren't generic
+//     text fields: this practice's funding model isn't NDIS-only, so "fund management" only
+//     makes sense in the context of a specific funding_type that has_ndis_management=1.
+// answers_json on form_responses is { [fieldId]: value }.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS form_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    schema_json TEXT NOT NULL DEFAULT '{"sections":[]}',
+    active INTEGER DEFAULT 1,
+    created_by INTEGER REFERENCES practitioners(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS form_responses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    form_template_id INTEGER NOT NULL REFERENCES form_templates(id),
+    client_id INTEGER REFERENCES clients(id) ON DELETE SET NULL,
+    token TEXT UNIQUE,
+    status TEXT NOT NULL DEFAULT 'draft',
+    answers_json TEXT NOT NULL DEFAULT '{}',
+    created_by INTEGER REFERENCES practitioners(id),
+    sent_at DATETIME,
+    viewed_at DATETIME,
+    submitted_at DATETIME,
+    accepted_at DATETIME,
+    accepted_by INTEGER REFERENCES practitioners(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec(`CREATE INDEX idx_form_responses_template ON form_responses(form_template_id)`); } catch {}
+try { db.exec(`CREATE INDEX idx_form_responses_client ON form_responses(client_id)`); } catch {}
+try { db.exec(`CREATE UNIQUE INDEX idx_form_responses_token ON form_responses(token) WHERE token IS NOT NULL`); } catch {}
+
 module.exports = db;

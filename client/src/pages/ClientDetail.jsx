@@ -15,6 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import AgreementPricingTable from '../components/AgreementPricingTable';
 import SessionNoteEmailModal from '../components/SessionNoteEmailModal';
+import FormFillModal from '../components/FormFillModal';
 import EntityAuditLog from '../components/EntityAuditLog';
 
 const AGREEMENT_STATUS_COLOR = {
@@ -869,6 +870,67 @@ function FilesTab({ clientId }) {
   );
 }
 
+// ─── Forms tab ────────────────────────────────────────────────────────────────
+const RESPONSE_STATUS_COLOR = { draft: 'gray', sent: 'blue', viewed: 'blue', submitted: 'green', accepted: 'indigo', declined: 'red' };
+
+function FormsTab({ clientId, client }) {
+  const [templates, setTemplates] = useState([]);
+  const [responses, setResponses] = useState([]);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [fillTarget, setFillTarget] = useState(null); // { formTemplate } or { responseId }
+
+  const load = () => {
+    api.get('/form-templates').then(r => setTemplates(r.data));
+    api.get(`/form-responses?client_id=${clientId}`).then(r => setResponses(r.data));
+  };
+  useEffect(() => { load(); }, []);
+
+  const startNew = async template => {
+    setPickerOpen(false);
+    setFillTarget({ formTemplate: template });
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end relative">
+        <Button size="sm" onClick={() => setPickerOpen(o => !o)}><Plus className="h-3.5 w-3.5" /> Fill in a form</Button>
+        {pickerOpen && (
+          <div className="absolute right-0 top-10 z-10 w-64 rounded-lg border border-gray-200 bg-white shadow-lg py-1">
+            {templates.length === 0 && <p className="px-3 py-2 text-sm text-gray-400">No form templates yet — build one under Templates → Forms.</p>}
+            {templates.map(t => (
+              <button key={t.id} onClick={() => startNew(t)} className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">{t.name}</button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {responses.length === 0 && <p className="text-sm text-gray-400 py-8 text-center">No forms filled in for this client yet.</p>}
+
+      {responses.map(r => (
+        <button key={r.id} onClick={() => setFillTarget({ responseId: r.id })}
+          className="w-full text-left rounded-xl border border-gray-200 bg-white shadow-sm p-4 flex items-center justify-between gap-3 hover:border-indigo-200">
+          <div>
+            <p className="font-medium text-gray-900 text-sm">{r.template_name}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{r.submitted_at ? fmtDateTime(r.submitted_at) : '—'}</p>
+          </div>
+          <Badge color={RESPONSE_STATUS_COLOR[r.status] || 'gray'}>{r.status}</Badge>
+        </button>
+      ))}
+
+      {fillTarget && (
+        <FormFillModal
+          clientId={clientId}
+          client={client}
+          formTemplate={fillTarget.formTemplate}
+          responseId={fillTarget.responseId}
+          onClose={() => setFillTarget(null)}
+          onSaved={() => { setFillTarget(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── Session Notes tab ────────────────────────────────────────────────────────
 // Splits text on a case-insensitive match of `query` and wraps each match in <mark>.
 function highlightText(text, query) {
@@ -1343,7 +1405,7 @@ export default function ClientDetail() {
 
   const TABS = [
     ['details', 'Details'], ['funding', 'Funding'], ['medical', 'Medical'],
-    ['notes', 'Session Notes'], ['agreements', 'Agreements'], ['billing', 'Billing'], ['files', 'Files'], ['calendar', 'Calendar'], ['history', 'History'],
+    ['notes', 'Session Notes'], ['agreements', 'Agreements'], ['forms', 'Forms'], ['billing', 'Billing'], ['files', 'Files'], ['calendar', 'Calendar'], ['history', 'History'],
   ];
 
   return (
@@ -1468,6 +1530,7 @@ export default function ClientDetail() {
         {tab === 'funding'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to manage funding.</p> : <FundingTab  clientId={id} />)}
         {tab === 'notes'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to add notes.</p> : <SessionNotesTab clientId={id} client={client} />)}
         {tab === 'agreements' && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to create agreements.</p> : <AgreementsTab clientId={id} />)}
+        {tab === 'forms'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to fill in forms.</p> : <FormsTab clientId={id} client={client} />)}
         {tab === 'billing'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view billing.</p> : <BillingSummaryTab clientId={id} />)}
         {tab === 'files'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to upload files.</p> : <FilesTab     clientId={id} />)}
         {tab === 'calendar'  && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view calendar.</p> : <EmbeddedCalendar clientId={id} />)}
