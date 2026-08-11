@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Pencil, UserX, UserCheck, Calendar, ArrowLeft, Link2 } from 'lucide-react';
+import { Plus, Pencil, UserX, UserCheck, Calendar, ArrowLeft, Link2, Mail } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
 import DisciplinePicker from '../components/DisciplinePicker';
 import { EmbeddedCalendar } from '../components/CalendarViews';
+import { useAuth } from '../context/AuthContext';
 
 const ROLES = [
   { value: 'owner',        label: 'Owner',        desc: 'Full access' },
@@ -24,11 +25,15 @@ const ROLE_COLORS = {
 const EMPTY = { first_name: '', last_name: '', title: '', email: '', phone: '', color: '#6366f1', provider_number: '', role: 'practitioner', gender: '', discipline_id: '', password: '', target_amount: '', target_period: 'fortnightly' };
 
 function UserModal({ user, onClose, onSaved }) {
+  const { user: authUser } = useAuth();
+  const isSelf = !!(user && authUser && Number(user.id) === Number(authUser.id));
   const [form, setForm] = useState(user || EMPTY);
   const [saving, setSaving] = useState(false);
   const [duplicates, setDuplicates] = useState([]);
   const [error, setError] = useState('');
   const [created, setCreated] = useState(false);
+  const [createdEmail, setCreatedEmail] = useState(null); // { sent, error } from the create response
+  const [resetStatus, setResetStatus] = useState(null); // 'sending' | 'sent' | { error }
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const dupTimer = useRef(null);
 
@@ -48,15 +53,32 @@ function UserModal({ user, onClose, onSaved }) {
     setError('');
     try {
       if (user) {
-        await api.patch(`/practitioners/${user.id}`, form);
+        // Only self-service edits (or the no-email fallback) ever carry a `password` field here —
+        // stripping it otherwise means re-saving unrelated fields can never accidentally blank a
+        // password that's meant to be managed via the set-password email flow instead.
+        const payload = (isSelf || !form.email) ? form : { ...form, password: undefined };
+        await api.patch(`/practitioners/${user.id}`, payload);
         onSaved();
       } else {
-        await api.post('/practitioners', form);
+        const res = await api.post('/practitioners', form);
+        setCreatedEmail(res.data.setPasswordEmail || null);
         setCreated(true);
       }
     } catch (e) {
-      if (e.response?.status === 409) setError(e.response.data.message);
+      if (e.response?.status === 409 || e.response?.status === 400) setError(e.response.data.message || e.response.data.error);
     } finally { setSaving(false); }
+  };
+
+  const sendSetPasswordLink = async () => {
+    setResetStatus('sending');
+    try {
+      await api.post(`/practitioners/${user.id}/send-set-password`);
+      setResetStatus('sent');
+    } catch (e) {
+      setResetStatus({ error: e.response?.data?.error || 'Failed to send' });
+    } finally {
+      setTimeout(() => setResetStatus(null), 5000);
+    }
   };
 
   return (
@@ -124,13 +146,37 @@ function UserModal({ user, onClose, onSaved }) {
           </div>
         )}
 
-        <div className="space-y-1">
-          <label className="block text-sm font-medium text-gray-700">{user ? 'New Password' : 'Password'}</label>
-          <input type="password" value={form.password || ''} onChange={e => set('password', e.target.value)}
-            placeholder={user ? 'Leave blank to keep current' : 'Set login password'}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-          <p className="text-xs text-gray-400">Required for login. Leave blank if this user doesn't need to log in.</p>
-        </div>
+        {isSelf ? (
+          <div className="space-y-1">
+            <label className="block text-sm font-medium text-gray-700">New Password</label>
+            <input type="password" value={form.password || ''} onChange={e => set('password', e.target.value)}
+              placeholder="Leave blank to keep current"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+            <p className="text-xs text-gray-400">Changing your own password takes effect immediately.</p>
+          </div>
+        ) : user && form.email ? (
+          <div className="space-y-1">
+            <label className="block text-sm font-medium text-gray-700">Password</label>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="secondary" size="sm" onClick={sendSetPasswordLink} disabled={resetStatus === 'sending'}>
+                <Mail className="h-3.5 w-3.5" /> {resetStatus === 'sending' ? 'Sending…' : 'Send set-password link'}
+              </Button>
+              {resetStatus === 'sent' && <span className="text-xs text-green-600">✓ Sent to {form.email}</span>}
+              {resetStatus?.error && <span className="text-xs text-red-600">{resetStatus.error}</span>}
+            </div>
+            <p className="text-xs text-gray-400">Emails {form.email} a link to set their own password — nobody but them ever sees it.</p>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <label className="block text-sm font-medium text-gray-700">{user ? 'New Password' : 'Password'}</label>
+            <input type="password" value={form.password || ''} onChange={e => set('password', e.target.value)}
+              placeholder={user ? 'Leave blank to keep current' : 'Set login password'}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
+            <p className="text-xs text-gray-400">
+              {form.email ? 'Add an email above to send a set-password link instead.' : "No email on file, so a password must be set directly. Leave blank if this user doesn't need to log in."}
+            </p>
+          </div>
+        )}
 
         <div className="space-y-1">
           <label className="block text-sm font-medium text-gray-700">Calendar colour</label>
@@ -155,6 +201,12 @@ function UserModal({ user, onClose, onSaved }) {
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
             <h3 className="font-semibold text-gray-900">User created</h3>
             <p className="text-sm text-gray-600">{form.first_name} {form.last_name} has been added successfully.</p>
+            {createdEmail?.sent && (
+              <p className="text-sm text-green-600">✓ A set-password email was sent to {form.email}.</p>
+            )}
+            {createdEmail && !createdEmail.sent && (
+              <p className="text-sm text-amber-600">The set-password email failed to send ({createdEmail.error}). You can retry from their user edit screen once created.</p>
+            )}
             <Button onClick={onSaved} className="w-full justify-center">Close</Button>
           </div>
         </div>

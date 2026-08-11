@@ -43,18 +43,35 @@ router.get('/:id', auth, perm('users'), (req, res) => {
   res.json(row);
 });
 
-router.post('/', auth, perm('users'), (req, res) => {
-  const { first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password, target_amount, target_period } = req.body;
-  if (email) {
-    const existing = db.prepare('SELECT id FROM practitioners WHERE LOWER(email) = LOWER(?) LIMIT 1').get(email);
-    if (existing) return res.status(409).json({ field: 'email', message: `A user with email "${email}" already exists` });
-  }
-  const hash = password ? bcrypt.hashSync(password, 10) : null;
-  const result = db.prepare(
-    'INSERT INTO practitioners (first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password_hash, target_amount, target_period) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', provider_number || null, role || 'practitioner', gender || null, discipline_id || null, hash, target_amount ? Number(target_amount) : null, target_period || null);
-  audit.log('user', result.lastInsertRowid, 'created', `Created user ${first_name} ${last_name} (${role || 'practitioner'})`);
-  res.status(201).json(db.prepare('SELECT * FROM practitioners WHERE id = ?').get(result.lastInsertRowid));
+router.post('/', auth, perm('users'), async (req, res, next) => {
+  try {
+    const { first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password, target_amount, target_period } = req.body;
+    if (email) {
+      const existing = db.prepare('SELECT id FROM practitioners WHERE LOWER(email) = LOWER(?) LIMIT 1').get(email);
+      if (existing) return res.status(409).json({ field: 'email', message: `A user with email "${email}" already exists` });
+    }
+    if (!password && !email) {
+      return res.status(400).json({ error: 'Provide either a password or an email address (to send a set-password link).' });
+    }
+    const hash = password ? bcrypt.hashSync(password, 10) : null;
+    const result = db.prepare(
+      'INSERT INTO practitioners (first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password_hash, target_amount, target_period) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', provider_number || null, role || 'practitioner', gender || null, discipline_id || null, hash, target_amount ? Number(target_amount) : null, target_period || null);
+    audit.log('user', result.lastInsertRowid, 'created', `Created user ${first_name} ${last_name} (${role || 'practitioner'})`);
+    const created = db.prepare('SELECT * FROM practitioners WHERE id = ?').get(result.lastInsertRowid);
+
+    let setPasswordEmail = null;
+    if (!password && email) {
+      try {
+        const { sendSetPasswordEmail } = require('../services/mailer');
+        await sendSetPasswordEmail(created, { isNew: true });
+        setPasswordEmail = { sent: true };
+      } catch (e) {
+        setPasswordEmail = { sent: false, error: e.message };
+      }
+    }
+    res.status(201).json({ ...created, setPasswordEmail });
+  } catch (e) { next(e); }
 });
 
 router.patch('/:id', auth, perm('users'), (req, res) => {
@@ -79,6 +96,22 @@ router.patch('/:id/active', auth, perm('users'), (req, res) => {
   db.prepare('UPDATE practitioners SET active=? WHERE id=?').run(req.body.active ? 1 : 0, req.params.id);
   audit.log('user', Number(req.params.id), req.body.active ? 'reactivated' : 'deactivated', `User ${req.body.active ? 'reactivated' : 'deactivated'}`);
   res.json({ ok: true });
+});
+
+router.post('/:id/send-set-password', auth, perm('users'), async (req, res, next) => {
+  try {
+    const p = db.prepare('SELECT * FROM practitioners WHERE id = ?').get(req.params.id);
+    if (!p) return res.status(404).json({ error: 'Not found' });
+    if (!p.email) return res.status(400).json({ error: 'This user has no email address on file.' });
+    const { sendSetPasswordEmail } = require('../services/mailer');
+    // No password set yet (e.g. a resend of the original welcome link) reads as a welcome email
+    // with the longer expiry; an admin resetting an already-active account is a tighter-window reset.
+    await sendSetPasswordEmail(p, { isNew: !p.password_hash });
+    audit.log('user', p.id, 'password_reset_sent', `Set-password link sent to ${p.email}`);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Failed to send email' });
+  }
 });
 
 router.post('/:id/reset-cal-token', auth, perm('users'), (req, res) => {

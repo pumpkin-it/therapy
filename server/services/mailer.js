@@ -1,4 +1,5 @@
 const db = require('../database');
+const crypto = require('crypto');
 
 // ─── Graph API token cache ────────────────────────────────────────────────────
 
@@ -291,6 +292,40 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
   return errors;
 }
 
+// Issues a password_resets token and emails a set-password link — shared by the self-service
+// "Forgot password?" flow, admin-created users with no password set, and an admin explicitly
+// resending/resetting an existing user's password. `isNew` controls wording and link lifetime:
+// a first-time welcome link stays valid for a week (they may not check email immediately),
+// an admin-triggered reset for an already-active account matches the tighter 1-hour window.
+async function sendSetPasswordEmail(practitioner, { isNew = false } = {}) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresMs = (isNew ? 7 * 24 : 1) * 60 * 60 * 1000;
+  const expiresAt = new Date(Date.now() + expiresMs).toISOString();
+  db.prepare('INSERT INTO password_resets (practitioner_id, token, expires_at) VALUES (?, ?, ?)').run(practitioner.id, token, expiresAt);
+
+  const practiceName = db.prepare("SELECT value FROM settings WHERE key = 'practice_name'").get()?.value || 'Therapy';
+  const url = `${process.env.APP_URL || ''}/reset-password?token=${token}`;
+
+  const subject = isNew ? `Welcome to ${practiceName} — set up your account` : `${practiceName} — Password Reset`;
+  const intro = isNew
+    ? `<p>Hi ${practitioner.first_name},</p><p>An account has been created for you at ${practiceName}. Click below to set your password and get started.</p>`
+    : `<p>Hi ${practitioner.first_name},</p><p>Your password has been reset by an administrator. Click below to set a new password.</p>`;
+  const expiryNote = isNew
+    ? 'This link expires in 7 days.'
+    : "This link expires in 1 hour. If you didn't request this, you can ignore this email.";
+
+  await graphSend({
+    to: practitioner.email,
+    subject,
+    html: `
+      ${intro}
+      <p><a href="${url}" style="display:inline-block;padding:10px 20px;background:#4f46e5;color:#fff;border-radius:8px;text-decoration:none;font-weight:600;">${isNew ? 'Set Password' : 'Reset Password'}</a></p>
+      <p>${expiryNote}</p>
+      <p>— ${practiceName}</p>
+    `,
+  });
+}
+
 async function sendTestEmail(toEmail) {
   await graphSend({
     to: toEmail,
@@ -309,4 +344,4 @@ async function sendReminderEmail(toEmail, invoiceNumber, total, dueDate) {
   await graphSend({ to: toEmail, subject, html });
 }
 
-module.exports = { sendInvoiceEmail, sendAppointmentNotification, sendTestEmail, sendReminderEmail, graphSend, renderTemplate, getTemplate };
+module.exports = { sendInvoiceEmail, sendAppointmentNotification, sendTestEmail, sendReminderEmail, sendSetPasswordEmail, graphSend, renderTemplate, getTemplate };
