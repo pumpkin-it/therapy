@@ -33,8 +33,8 @@ router.get('/', auth, (req, res) => {
   if (activeFilter !== null) { whereParts.push('c.active = ?'); params.push(activeFilter); }
   if (search) {
     const q = `%${search}%`;
-    whereParts.push('(c.first_name LIKE ? OR c.last_name LIKE ? OR c.email LIKE ? OR c.ndis_number LIKE ?)');
-    params.push(q, q, q, q);
+    whereParts.push('(c.first_name LIKE ? OR c.last_name LIKE ? OR c.email LIKE ?)');
+    params.push(q, q, q);
   }
   const where = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
   const rows = db.prepare(`${CLIENT_SELECT} ${where} ORDER BY c.first_name, c.last_name`).all(...params);
@@ -49,7 +49,7 @@ router.get('/check-duplicates', auth, (req, res) => {
     const conditions = ['LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?)'];
     const params = [first_name, last_name];
     if (exclude_id) { conditions.push('id != ?'); params.push(exclude_id); }
-    for (const r of db.prepare(`SELECT id, first_name, last_name, email, ndis_number FROM clients WHERE ${conditions.join(' AND ')}`).all(...params)) {
+    for (const r of db.prepare(`SELECT id, first_name, last_name, email FROM clients WHERE ${conditions.join(' AND ')}`).all(...params)) {
       matches.push({ ...r, match_type: 'name' }); seen.add(r.id);
     }
   }
@@ -57,7 +57,7 @@ router.get('/check-duplicates', auth, (req, res) => {
     const conditions = ["LOWER(email) = LOWER(?)"];
     const params = [email];
     if (exclude_id) { conditions.push('id != ?'); params.push(exclude_id); }
-    for (const r of db.prepare(`SELECT id, first_name, last_name, email, ndis_number FROM clients WHERE ${conditions.join(' AND ')}`).all(...params)) {
+    for (const r of db.prepare(`SELECT id, first_name, last_name, email FROM clients WHERE ${conditions.join(' AND ')}`).all(...params)) {
       if (!seen.has(r.id)) matches.push({ ...r, match_type: 'email' });
     }
   }
@@ -92,21 +92,17 @@ router.get('/:id/spend', auth, (req, res) => {
 
 router.post('/', auth, (req, res) => {
   const {
-    first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes, alert,
+    first_name, last_name, email, phone, date_of_birth, address, notes, alert,
     emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
     diagnosis, allergies, regular_medication, gender, is_test_data,
   } = req.body;
-  if (ndis_number) {
-    const existing = db.prepare('SELECT id FROM clients WHERE LOWER(ndis_number) = LOWER(?) LIMIT 1').get(ndis_number);
-    if (existing) return res.status(409).json({ field: 'ndis_number', message: `A client with NDIS number "${ndis_number}" already exists` });
-  }
   const result = db.prepare(`
-    INSERT INTO clients (first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes, alert,
+    INSERT INTO clients (first_name, last_name, email, phone, date_of_birth, address, notes, alert,
       emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
       diagnosis, allergies, regular_medication, gender, is_test_data)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
-    first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, notes||null, alert||null,
+    first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, notes||null, alert||null,
     emergency_contact_name||null, emergency_contact_phone||null, emergency_contact_relationship||null, emergency_contact_email||null,
     diagnosis||null, allergies||null, regular_medication||null, gender||null, is_test_data ? 1 : 0,
   );
@@ -117,28 +113,24 @@ router.post('/', auth, (req, res) => {
 
 router.patch('/:id', auth, (req, res) => {
   const {
-    first_name, last_name, email, phone, date_of_birth, address, ndis_number, notes, alert,
+    first_name, last_name, email, phone, date_of_birth, address, notes, alert,
     emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
     diagnosis, allergies, regular_medication, gender, is_test_data,
   } = req.body;
-  if (ndis_number) {
-    const existing = db.prepare('SELECT id FROM clients WHERE LOWER(ndis_number) = LOWER(?) AND id != ? LIMIT 1').get(ndis_number, req.params.id);
-    if (existing) return res.status(409).json({ field: 'ndis_number', message: `A client with NDIS number "${ndis_number}" already exists` });
-  }
   const before = db.prepare('SELECT * FROM clients WHERE id=?').get(req.params.id);
   db.prepare(`
     UPDATE clients SET
-      first_name=?, last_name=?, email=?, phone=?, date_of_birth=?, address=?, ndis_number=?, notes=?, alert=?,
+      first_name=?, last_name=?, email=?, phone=?, date_of_birth=?, address=?, notes=?, alert=?,
       emergency_contact_name=?, emergency_contact_phone=?, emergency_contact_relationship=?, emergency_contact_email=?,
       diagnosis=?, allergies=?, regular_medication=?, gender=?, is_test_data=?
     WHERE id=?
   `).run(
-    first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, ndis_number||null, notes||null, alert||null,
+    first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, notes||null, alert||null,
     emergency_contact_name||null, emergency_contact_phone||null, emergency_contact_relationship||null, emergency_contact_email||null,
     diagnosis||null, allergies||null, regular_medication||null, gender||null, is_test_data ? 1 : 0,
     req.params.id,
   );
-  const changes = audit.diff(before, req.body, ['first_name','last_name','email','phone','date_of_birth','address','gender','ndis_number','notes','alert']);
+  const changes = audit.diff(before, req.body, ['first_name','last_name','email','phone','date_of_birth','address','gender','notes','alert']);
   if (changes) audit.log('client', Number(req.params.id), 'updated', changes);
   res.json(db.prepare(`${CLIENT_SELECT} WHERE c.id = ?`).get(req.params.id));
 });

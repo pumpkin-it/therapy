@@ -16,7 +16,7 @@ function getSettings() {
 function getAgreementWithItems(id) {
   const agreement = db.prepare(`
     SELECT a.*, c.first_name || ' ' || c.last_name AS client_name, c.email AS client_email,
-      c.address AS client_address, c.ndis_number AS client_ndis_number,
+      c.address AS client_address,
       ft.name AS funding_type_name
     FROM agreements a
     JOIN clients c ON c.id = a.client_id
@@ -31,7 +31,7 @@ function getAgreementWithItems(id) {
 // date — same "most recent period covering this date" logic used elsewhere (clients.js, etc.)
 function getFundingPeriodContext(clientId, date) {
   return db.prepare(`
-    SELECT fp.start_date AS plan_start_date, fp.end_date AS plan_end_date,
+    SELECT fp.start_date AS plan_start_date, fp.end_date AS plan_end_date, fp.client_identifier,
       fm.name AS funds_manager_name, fm.email AS funds_manager_email, fm.phone AS funds_manager_phone
     FROM funding_periods fp
     LEFT JOIN funds_managers fm ON fm.id = fp.funds_manager_id
@@ -65,7 +65,7 @@ function renderAgreementContent(agreement, practitionerId) {
     client_first_name: agreement.client_name.split(' ')[0] || '',
     client_address: agreement.client_address || '',
     client_email: agreement.client_email || '',
-    client_ndis_number: agreement.client_ndis_number || '',
+    client_ndis_number: fundingContext.client_identifier || '',
     practice_name: settings.practice_name || '',
     practice_phone: settings.practice_phone || '',
     practice_abn: settings.practice_abn || '',

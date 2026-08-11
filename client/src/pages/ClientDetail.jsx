@@ -1339,7 +1339,7 @@ function SessionNotesTab({ clientId, client }) {
 // ─── Main detail page ─────────────────────────────────────────────────────────
 const EMPTY_FORM = {
   first_name: '', last_name: '', email: '', phone: '', date_of_birth: '', address: '', gender: '',
-  ndis_number: '', notes: '', alert: '',
+  notes: '', alert: '',
   emergency_contact_name: '', emergency_contact_phone: '', emergency_contact_relationship: '', emergency_contact_email: '',
   diagnosis: '', allergies: '', regular_medication: '', is_test_data: false,
 };
@@ -1367,7 +1367,6 @@ export default function ClientDetail() {
         date_of_birth: r.data.date_of_birth || '',
         address:    r.data.address    || '',
         gender:     r.data.gender     || '',
-        ndis_number: r.data.ndis_number || '',
         notes:      r.data.notes      || '',
         alert:      r.data.alert      || '',
         emergency_contact_name:         r.data.emergency_contact_name         || '',

@@ -8,7 +8,7 @@ export const SMART_FIELDS = [
   { type: 'date_of_birth',   label: 'Date of birth',    binding: 'client.date_of_birth' },
   { type: 'gender',          label: 'Gender identity',  binding: 'client.gender' },
   { type: 'address',         label: 'Address',          binding: 'client.address' },
-  { type: 'ndis_number',     label: 'NDIS number',      binding: 'client.ndis_number' },
+  { type: 'ndis_number',     label: 'NDIS number',      binding: 'funding_period.client_identifier' },
   { type: 'funder',          label: 'Funder',           binding: 'funding_period.funding_type' },
   { type: 'fund_management', label: 'Fund management',  binding: 'funding_period.ndis_management' },
 ];

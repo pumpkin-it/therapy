@@ -23,7 +23,7 @@ function buildInitialAnswers(schema, client, activeFundingPeriod) {
         case 'date_of_birth':   answers[field.id] = client?.date_of_birth || ''; break;
         case 'gender':          answers[field.id] = client?.gender || ''; break;
         case 'address':         answers[field.id] = client?.address || ''; break;
-        case 'ndis_number':     answers[field.id] = client?.ndis_number || ''; break;
+        case 'ndis_number':     answers[field.id] = activeFundingPeriod?.client_identifier || ''; break;
         case 'funder':          answers[field.id] = activeFundingPeriod?.funding_type || ''; break;
         case 'fund_management': answers[field.id] = activeFundingPeriod?.ndis_management || ''; break;
         default: break;

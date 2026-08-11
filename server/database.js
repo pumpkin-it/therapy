@@ -899,7 +899,7 @@ try {
 //   - kind:'custom' fields (statement, short_answer, paragraph, checkboxes, dropdown,
 //     multiple_choice, page_break, file_upload) are pure content — their answers only ever
 //     live in form_responses.answers_json.
-//   - kind:'smart' fields carry a `binding` (e.g. 'client.first_name', 'client.ndis_number',
+//   - kind:'smart' fields carry a `binding` (e.g. 'client.first_name',
 //     'funding_period.client_identifier', 'funding_period.ndis_management',
 //     'funding_period.funding_type') naming the real column they're destined to write on
 //     accept — not enforced by the DB, just the contract the (not-yet-built) accept step will
