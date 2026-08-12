@@ -742,7 +742,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     });
   }, [scopedServices]);
 
-  const save = async () => {
+  const save = async (statusOverride) => {
     const errors = [];
     if (!form.practitioner_id) errors.push('Practitioner');
     if (!form.client_id) errors.push('Client');
@@ -759,9 +759,11 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
       return;
     }
     setSaving(true); setError('');
+    const status = statusOverride || form.status;
     try {
       const payload = {
         ...form,
+        status,
         start_time: joinDT(startDate, startTime),
         end_time:   joinDT(endDate,   endTime),
         practitioner_id: Number(form.practitioner_id),
@@ -784,6 +786,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
           until: recurrence.endType === 'on' ? recurrence.until : undefined,
           occurrences: recurrence.endType === 'after' ? Number(recurrence.occurrences) : undefined,
         } : null,
+        pending: status === 'pending',
       };
       if (editing && appointment.series_id) {
         setSeriesEditPrompt(payload);
@@ -810,6 +813,17 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
 
   const [lastSeriesScope, setLastSeriesScope] = useState(null);
   const [cancelledConfirm, setCancelledConfirm] = useState(false);
+  const [confirmingPending, setConfirmingPending] = useState(false);
+
+  // Flips a tentatively-booked appointment to 'scheduled' once the client confirms the time
+  // works — a one-click alternative to the Status dropdown for the pending → scheduled step.
+  const confirmPending = async () => {
+    setConfirmingPending(true);
+    try {
+      await api.patch(`/appointments/${appointment.id}/status`, { status: 'scheduled' });
+      setField('status', 'scheduled');
+    } finally { setConfirmingPending(false); }
+  };
 
   const del = async () => {
     if (appointment.series_id) {
@@ -1079,7 +1093,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
             <label className="text-sm font-medium text-gray-700">Status</label>
             <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
               value={form.status} onChange={e => setField('status', e.target.value)}>
-              {['scheduled','confirmed','completed','cancelled','no_show'].map(s =>
+              {['pending','scheduled','confirmed','completed','cancelled','no_show'].map(s =>
                 <option key={s} value={s}>{s.replace('_', ' ')}</option>
               )}
             </select>
@@ -1528,6 +1542,11 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
 
       <div className="flex items-center gap-2 pt-4 border-t border-gray-100 mt-4 flex-wrap">
         {editing && form.status !== 'cancelled' && <Button variant="danger" size="sm" onClick={del}>Cancel appointment</Button>}
+        {editing && form.status === 'pending' && (
+          <Button size="sm" onClick={confirmPending} disabled={confirmingPending}>
+            {confirmingPending ? 'Confirming…' : 'Confirm booking'}
+          </Button>
+        )}
 
         {/* Email send buttons — shown when editing or after new appointment is saved */}
         {(editing || savedId) && (
@@ -1542,7 +1561,13 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
             ? <Button onClick={onSaved}>Done</Button>
             : <>
                 <Button variant="secondary" onClick={onClose}>Close</Button>
-                <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+                {!editing && (
+                  <Button variant="secondary" onClick={() => save('pending')} disabled={saving}
+                    className="!border-amber-300 !text-amber-700 hover:!bg-amber-50">
+                    {saving ? 'Saving…' : 'Save as Pending'}
+                  </Button>
+                )}
+                <Button onClick={() => save()} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
               </>
           }
         </div>

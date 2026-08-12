@@ -13,6 +13,7 @@ import Button from './ui/Button';
 import AppointmentModal from './AppointmentModal';
 
 export const STATUS_CLASS = {
+  pending:    'bg-purple-50 border-purple-300 border-dashed text-purple-900',
   scheduled: 'bg-blue-50 border-blue-300 text-blue-900',
   confirmed:  'bg-green-50 border-green-300 text-green-900',
   completed:  'bg-gray-100 border-gray-300 text-gray-600',
@@ -211,6 +212,7 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
                     style={{ ...getStyle(appt.start_time, appt.end_time, hourStart, hourCount), left: ol.left, width: ol.width }}
                   >
                     <div className="absolute bottom-0.5 right-0.5 flex gap-0.5">
+                      {appt.status === 'pending' && <span className="h-3.5 w-3.5 rounded-full bg-purple-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">P</span>}
                       {appt.status === 'cancelled' && <span className="h-3.5 w-3.5 rounded-full bg-red-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">C</span>}
                       {appt.series_id && <span className="h-3.5 w-3.5 rounded-full bg-indigo-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">R</span>}
                     </div>
@@ -306,6 +308,7 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
                     style={{ ...getStyle(appt.start_time, appt.end_time, hourStart, hourCount), left: ol.left, width: ol.width, borderColor: practitionerColor(appt.practitioner_id), background: practitionerColor(appt.practitioner_id) + '22', color: '#111' }}
                   >
                     <div className="absolute bottom-0.5 right-0.5 flex gap-0.5">
+                      {appt.status === 'pending' && <span className="h-3.5 w-3.5 rounded-full bg-purple-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">P</span>}
                       {appt.status === 'cancelled' && <span className="h-3.5 w-3.5 rounded-full bg-red-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">C</span>}
                       {appt.series_id && <span className="h-3.5 w-3.5 rounded-full bg-indigo-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">R</span>}
                     </div>
@@ -375,6 +378,7 @@ export function MonthView({ date, appointments, practitioners, filteredPractitio
                     style={{ background: practitionerColor(appt.practitioner_id) + '33', color: '#111', borderLeft: `3px solid ${practitionerColor(appt.practitioner_id)}` }}
                   >
                     <div className="truncate">
+                      {appt.status === 'pending' && <span className="inline-flex items-center justify-center h-3 w-3 rounded-full bg-purple-600 text-white text-[7px] font-bold mr-0.5 leading-none">P</span>}
                       {appt.status === 'cancelled' && <span className="inline-flex items-center justify-center h-3 w-3 rounded-full bg-red-600 text-white text-[7px] font-bold mr-0.5 leading-none">C</span>}
                       {appt.series_id && <span className="inline-flex items-center justify-center h-3 w-3 rounded-full bg-indigo-600 text-white text-[7px] font-bold mr-0.5 leading-none">R</span>}{fmtTime(appt.start_time)}–{fmtTime(appt.end_time)} {appt.client_name}
                     </div>

@@ -60,9 +60,10 @@ function generateForSeries(series, horizon, regenerateSlots = new Set()) {
     et = localDT(new Date(new Date(st).getTime() + durMs));
   }
 
+  const occurrenceStatus = series.pending ? 'pending' : 'scheduled';
   const insertAppt = db.prepare(`
     INSERT INTO appointments (practitioner_id, client_id, location, location_id, location_other, title, start_time, end_time, notes, status, series_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertItem = db.prepare(`
     INSERT INTO appointment_items (appointment_id, service_id, description, quantity, unit_rate, travel_time_min, travel_time_to, travel_time_from, travel_km, prep_time_min, item_notes, notes_min)
@@ -84,7 +85,7 @@ function generateForSeries(series, horizon, regenerateSlots = new Set()) {
       if (canInsert) {
         const r = insertAppt.run(
           series.practitioner_id, series.client_id, series.location, series.location_id,
-          series.location_other, series.title, st, et, series.notes, series.id
+          series.location_other, series.title, st, et, series.notes, occurrenceStatus, series.id
         );
         for (const item of items) {
           insertItem.run(r.lastInsertRowid, item.service_id || null, item.description, item.quantity || 1,
@@ -158,7 +159,7 @@ router.get('/:id', auth, (req, res) => {
 // Create series (called from appointment creation with recurrence)
 router.post('/', auth, (req, res) => {
   const { practitioner_id, client_id, location_type, location_id, location_other, title,
-    start_time, end_time, notes, items = [], recurrence } = req.body;
+    start_time, end_time, notes, items = [], recurrence, pending } = req.body;
 
   const { freq, endType = 'never', until, occurrences } = recurrence;
 
@@ -176,8 +177,8 @@ router.post('/', auth, (req, res) => {
 
   const insertSeries = db.prepare(`
     INSERT INTO recurring_series (practitioner_id, client_id, location, location_id, location_other, title,
-      start_time, end_time, notes, freq, day_of_week, end_type, end_date, end_occurrences, items_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      start_time, end_time, notes, freq, day_of_week, end_type, end_date, end_occurrences, items_json, pending)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const insertLog = db.prepare('INSERT INTO recurring_series_logs (series_id, action, details) VALUES (?, ?, ?)');
@@ -201,7 +202,8 @@ router.post('/', auth, (req, res) => {
 
     const r = insertSeries.run(
       practitioner_id, client_id, locationText, resolvedLocationId, locationOther, title || null,
-      adjStart, adjEnd, notes || null, freq, day, endTypeDb, until || null, occurrences || null, itemsJson
+      adjStart, adjEnd, notes || null, freq, day, endTypeDb, until || null, occurrences || null, itemsJson,
+      pending ? 1 : 0
     );
 
     insertLog.run(r.lastInsertRowid, 'created', `Created ${freq} series on ${DAY_NAMES[day]}s`);
@@ -209,7 +211,7 @@ router.post('/', auth, (req, res) => {
     const series = db.prepare('SELECT * FROM recurring_series WHERE id=?').get(r.lastInsertRowid);
     const generated = generateForSeries(series, horizon);
     // Log creation on each generated appointment
-    const genAppts = db.prepare("SELECT id FROM appointments WHERE series_id=? AND status='scheduled'").all(r.lastInsertRowid);
+    const genAppts = db.prepare("SELECT id FROM appointments WHERE series_id=? AND status IN ('scheduled','pending')").all(r.lastInsertRowid);
     for (const a of genAppts) {
       audit.log('appointment', a.id, 'created', `APT-${String(a.id).padStart(5,'0')} generated from SER-${String(r.lastInsertRowid).padStart(5,'0')}`, { ref: `APT-${String(a.id).padStart(5,'0')}` });
     }
@@ -277,7 +279,7 @@ router.patch('/:id', auth, (req, res) => {
     if (end_type === 'date' && end_date) {
       // Cancel all scheduled appointments after the end date
       const cancelled = db.prepare(
-        "UPDATE appointments SET status='cancelled' WHERE series_id=? AND start_time > ? AND status='scheduled'"
+        "UPDATE appointments SET status='cancelled' WHERE series_id=? AND start_time > ? AND status IN ('scheduled','pending')"
       ).run(req.params.id, end_date + 'T23:59');
       if (end_date <= new Date().toISOString().slice(0, 10)) {
         updates.active = 0;
@@ -290,7 +292,7 @@ router.patch('/:id', auth, (req, res) => {
     } else if (end_type === 'occurrences' && end_occurrences) {
       // Cancel excess appointments beyond the occurrence limit
       const allScheduled = db.prepare(
-        "SELECT id FROM appointments WHERE series_id=? AND status='scheduled' ORDER BY start_time ASC"
+        "SELECT id FROM appointments WHERE series_id=? AND status IN ('scheduled','pending') ORDER BY start_time ASC"
       ).all(req.params.id);
       const totalNonCancelled = db.prepare(
         "SELECT COUNT(*) as cnt FROM appointments WHERE series_id=? AND status != 'cancelled'"
@@ -326,10 +328,10 @@ router.patch('/:id', auth, (req, res) => {
   if (freq && freq !== series.freq) {
     const changeFrom = freq_change_from || localDate(new Date());
     const toCancel = db.prepare(
-      "SELECT start_time FROM appointments WHERE series_id=? AND start_time >= ? AND status='scheduled'"
+      "SELECT start_time FROM appointments WHERE series_id=? AND start_time >= ? AND status IN ('scheduled','pending')"
     ).all(req.params.id, changeFrom + 'T00:00');
     const cancelled = db.prepare(
-      "UPDATE appointments SET status='cancelled' WHERE series_id=? AND start_time >= ? AND status='scheduled'"
+      "UPDATE appointments SET status='cancelled' WHERE series_id=? AND start_time >= ? AND status IN ('scheduled','pending')"
     ).run(req.params.id, changeFrom + 'T00:00');
     changes.push(`Frequency: ${FREQ_LABELS[series.freq] || series.freq} → ${FREQ_LABELS[freq] || freq} from ${changeFrom}. Cancelled ${cancelled.changes} appointments`);
 
@@ -347,7 +349,7 @@ router.patch('/:id', auth, (req, res) => {
 
   // Update future appointments
   const fromDate = apply_from || localDate(new Date());
-  const futureAppts = db.prepare("SELECT id FROM appointments WHERE series_id=? AND start_time >= ? AND status='scheduled'")
+  const futureAppts = db.prepare("SELECT id FROM appointments WHERE series_id=? AND start_time >= ? AND status IN ('scheduled','pending')")
     .all(req.params.id, fromDate);
 
   for (const appt of futureAppts) {
@@ -438,6 +440,21 @@ router.patch('/:id/active', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Confirm a tentatively-booked series — flips every existing 'pending' occurrence to 'scheduled'
+// and clears the series' own pending flag so future auto-generated occurrences stop coming out
+// pending too. One-way: there's no "un-confirm", matching how a single appointment's Confirm works.
+router.patch('/:id/confirm', auth, (req, res) => {
+  const series = db.prepare('SELECT * FROM recurring_series WHERE id=?').get(req.params.id);
+  if (!series) return res.status(404).json({ error: 'Not found' });
+  const updated = db.prepare("UPDATE appointments SET status='scheduled' WHERE series_id=? AND status='pending'").run(req.params.id);
+  db.prepare('UPDATE recurring_series SET pending=0 WHERE id=?').run(req.params.id);
+  const seriesRef = `SER-${String(req.params.id).padStart(5,'0')}`;
+  const detail = `Series confirmed — ${updated.changes} pending appointment(s) set to scheduled`;
+  db.prepare('INSERT INTO recurring_series_logs (series_id, action, details) VALUES (?, ?, ?)').run(req.params.id, 'confirmed', detail);
+  audit.log('series', Number(req.params.id), 'confirmed', detail, { ref: seriesRef });
+  res.json({ ok: true, confirmed: updated.changes });
+});
+
 // Convert a single appointment into a recurring series
 router.post('/from-appointment', auth, (req, res) => {
   const { appointment_id, freq, endType = 'never', until, occurrences } = req.body;
@@ -457,14 +474,18 @@ router.post('/from-appointment', auth, (req, res) => {
   const dayOfWeek = new Date(appt.start_time).getDay();
   const endTypeDb = until ? 'date' : occurrences ? 'occurrences' : 'never';
 
+  // Inherit pending from the source appointment so newly generated future occurrences match
+  // its status — otherwise a tentative appointment converted to a series would leave every
+  // subsequent occurrence 'scheduled' while the original stays 'pending'.
   const r = db.prepare(`
     INSERT INTO recurring_series (practitioner_id, client_id, location, location_id, location_other, title,
-      start_time, end_time, notes, freq, day_of_week, end_type, end_date, end_occurrences, items_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      start_time, end_time, notes, freq, day_of_week, end_type, end_date, end_occurrences, items_json, pending)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     appt.practitioner_id, appt.client_id, appt.location, appt.location_id,
     appt.location_other, appt.title, appt.start_time, appt.end_time,
-    appt.notes, freq, dayOfWeek, endTypeDb, until || null, occurrences || null, itemsJson
+    appt.notes, freq, dayOfWeek, endTypeDb, until || null, occurrences || null, itemsJson,
+    appt.status === 'pending' ? 1 : 0
   );
 
   // Link the original appointment to the series

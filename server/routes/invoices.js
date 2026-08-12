@@ -76,7 +76,7 @@ function invoiceWithSettings(inv) {
 // ─── "To Send": completed, uninvoiced appointments ──────────────────────────
 router.get('/to-send', auth, (req, res) => {
   const { client_id, practitioner_id, from, to, all, pending_export_only } = req.query;
-  let where = "(a.status != 'cancelled' OR a.late_cancel_billable = 1) AND a.is_invoiced = 0";
+  let where = "(a.status != 'cancelled' OR a.late_cancel_billable = 1) AND a.status != 'pending' AND a.is_invoiced = 0";
   const params = [];
   if (client_id)       { where += ' AND a.client_id = ?';       params.push(client_id); }
   if (practitioner_id) { where += ' AND a.practitioner_id = ?'; params.push(practitioner_id); }
@@ -134,7 +134,7 @@ router.get('/to-send', auth, (req, res) => {
 router.get('/pending-export-count', auth, (req, res) => {
   const count = db.prepare(`
     SELECT COUNT(*) AS c FROM appointments a
-    WHERE (a.status != 'cancelled' OR a.late_cancel_billable = 1)
+    WHERE (a.status != 'cancelled' OR a.late_cancel_billable = 1) AND a.status != 'pending'
       AND a.is_invoiced = 0 AND a.myob_exported_at IS NULL
   `).get().c;
   res.json({ count });

@@ -957,4 +957,13 @@ try {
   for (const ft of unlabeled) setLabel.run(defaultLabels[ft.name] || 'Client ID', ft.id);
 } catch {}
 
+// Pending/tentative appointments — a slot held on the calendar (blocks double-booking, same as
+// any non-cancelled status already does) while awaiting the client's confirmation, before it's
+// flipped to 'scheduled'. appointments.status is free-text so no column change was needed there
+// — 'pending' is just a new value. recurring_series.pending remembers that a whole series was
+// booked tentatively, so generateForSeries() keeps stamping new occurrences 'pending' until the
+// series itself is confirmed (see recurringSeries.js), at which point both this flag and every
+// existing pending occurrence flip over together.
+try { db.exec(`ALTER TABLE recurring_series ADD COLUMN pending INTEGER DEFAULT 0`); } catch {}
+
 module.exports = db;

@@ -31,7 +31,7 @@ function inClause(column, ids, params) {
 // (a billable cancellation contributes its fee $ but no hours/travel/km/notes — no session happened).
 function queryBooked({ from, to, practitionerIds, clientIds, serviceIds }) {
   const params = [from, `${to}T23:59`];
-  let where = "(a.status != 'cancelled' OR a.late_cancel_billable = 1) AND a.start_time >= ? AND a.start_time <= ? AND (c.is_test_data IS NULL OR c.is_test_data = 0)";
+  let where = "(a.status != 'cancelled' OR a.late_cancel_billable = 1) AND a.status != 'pending' AND a.start_time >= ? AND a.start_time <= ? AND (c.is_test_data IS NULL OR c.is_test_data = 0)";
   where += inClause('a.practitioner_id', practitionerIds, params);
   where += inClause('a.client_id', clientIds, params);
   where += inClause('ai.service_id', serviceIds, params);
