@@ -966,4 +966,20 @@ try {
 // existing pending occurrence flip over together.
 try { db.exec(`ALTER TABLE recurring_series ADD COLUMN pending INTEGER DEFAULT 0`); } catch {}
 
+// Billing overrides — lets finance/owner/admin (the `invoices` permission) bill a line item as
+// different hours/rate than what the practitioner actually booked, e.g. folding an inconsistent
+// travel-time charge into a single billable unit for funders that require whole-unit billing.
+// NULL means "no override, use quantity/unit_rate as booked" — only the session line is affected;
+// travel/km/notes lines always use the raw booked values (see invoices.js's /generate route).
+// billed_by/billed_at exist purely for the "Adjusted by X on Y" transparency note shown in
+// AppointmentModal — not used in any billing calculation.
+// IMPORTANT: appointments.js's PATCH /:id replaces appointment_items wholesale (delete+reinsert)
+// whenever any item field changes, since items have no stable identity across edits. That route
+// must re-apply an existing override onto the new row when it can confirm the same service_id —
+// dropping it otherwise — or a routine unrelated edit would silently destroy a finance override.
+try { db.exec(`ALTER TABLE appointment_items ADD COLUMN billed_quantity REAL`); } catch {}
+try { db.exec(`ALTER TABLE appointment_items ADD COLUMN billed_unit_rate REAL`); } catch {}
+try { db.exec(`ALTER TABLE appointment_items ADD COLUMN billed_by INTEGER REFERENCES practitioners(id)`); } catch {}
+try { db.exec(`ALTER TABLE appointment_items ADD COLUMN billed_at DATETIME`); } catch {}
+
 module.exports = db;

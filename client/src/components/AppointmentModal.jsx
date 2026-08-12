@@ -486,6 +486,103 @@ function AppointmentAuditLog({ appointmentId }) {
   );
 }
 
+function fmtAdjustedDate(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// Lets a finance/owner/admin user (the `invoices` permission) bill a session line as different
+// hours/rate than what was actually booked. The read-only "Adjusted by X on Y" note is visible to
+// everyone who can open the appointment; only the edit control itself is permission-gated.
+function BillingOverrideRow({ item, appointmentId, seriesId, canEdit, onUpdated }) {
+  const [editing, setEditing] = useState(false);
+  const [qty, setQty] = useState('');
+  const [rate, setRate] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [seriesPrompt, setSeriesPrompt] = useState(false);
+
+  const hasOverride = item.billed_quantity != null || item.billed_unit_rate != null;
+
+  const startEdit = () => {
+    setQty(item.billed_quantity ?? item.quantity);
+    setRate(item.billed_unit_rate ?? item.unit_rate);
+    setSeriesPrompt(false);
+    setEditing(true);
+  };
+
+  const doSave = async (applyToFuture) => {
+    setSaving(true);
+    try {
+      const { data } = await api.patch(`/appointments/${appointmentId}/items/${item.id}/billing`, {
+        billed_quantity: qty === '' ? null : Number(qty),
+        billed_unit_rate: rate === '' ? null : Number(rate),
+        apply_to_future: !!applyToFuture,
+      });
+      setEditing(false);
+      setSeriesPrompt(false);
+      onUpdated(data);
+    } finally { setSaving(false); }
+  };
+
+  const clearOverride = async () => {
+    setSaving(true);
+    try {
+      const { data } = await api.patch(`/appointments/${appointmentId}/items/${item.id}/billing`, {
+        billed_quantity: null, billed_unit_rate: null, apply_to_future: false,
+      });
+      setEditing(false);
+      onUpdated(data);
+    } finally { setSaving(false); }
+  };
+
+  const requestSave = () => {
+    if (seriesId) setSeriesPrompt(true);
+    else doSave(false);
+  };
+
+  return (
+    <div className="mt-2 pt-2 border-t border-gray-100 space-y-1">
+      {hasOverride && !editing && (
+        <p className="text-xs text-amber-700">
+          Billed as {item.billed_quantity ?? item.quantity} × ${Number(item.billed_unit_rate ?? item.unit_rate).toFixed(2)}
+          {item.billed_by_name && ` — adjusted by ${item.billed_by_name}${item.billed_at ? ` on ${fmtAdjustedDate(item.billed_at)}` : ''}`}
+        </p>
+      )}
+      {canEdit && !editing && (
+        <button onClick={startEdit} className="text-xs text-indigo-600 hover:text-indigo-800">
+          {hasOverride ? 'Edit billing override' : 'Override billed hours/rate'}
+        </button>
+      )}
+      {canEdit && editing && !seriesPrompt && (
+        <div className="flex items-end gap-2 flex-wrap">
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">Billed qty</label>
+            <input type="number" step="0.25" className="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
+              value={qty} onChange={e => setQty(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-gray-500">Billed rate ($)</label>
+            <input type="number" step="0.01" className="w-24 rounded border border-gray-300 px-2 py-1 text-sm"
+              value={rate} onChange={e => setRate(e.target.value)} />
+          </div>
+          <Button size="sm" onClick={requestSave} disabled={saving}>Save</Button>
+          <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
+          {hasOverride && <Button size="sm" variant="secondary" onClick={clearOverride} disabled={saving}>Clear</Button>}
+        </div>
+      )}
+      {canEdit && editing && seriesPrompt && (
+        <div className="space-y-1.5">
+          <p className="text-xs text-gray-600">Apply to this appointment only, or this and all future appointments in the series?</p>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => doSave(false)} disabled={saving}>This appointment only</Button>
+            <Button size="sm" variant="secondary" onClick={() => doSave(true)} disabled={saving}>This and future</Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function NotifyBtn({ label, target, status, onClick }) {
   const sending = status === 'sending';
   const sent    = status === 'sent';
@@ -563,6 +660,10 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
   const [convertingRecurring, setConvertingRecurring] = useState(false);
   const [seriesEndPrompt, setSeriesEndPrompt] = useState(null);
   const [seriesEditPrompt, setSeriesEditPrompt] = useState(null); // null | payload // null | { daysUntil, tier }
+  // Mirrors appointment.items but stays in local state so a billing-override save (which hits
+  // its own PATCH .../items/:itemId/billing route, separate from the main appointment save) can
+  // refresh the "Adjusted by X on Y" indicator immediately without closing/reloading the modal.
+  const [billingItems, setBillingItems] = useState(editing ? (appointment.items || []) : []);
 
   // The initial `useState` above only runs once at mount, so if this modal is opened on the
   // main Calendar page — the default landing route right after login — before the async
@@ -1255,6 +1356,15 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
                     </button>
                   )}
                 </div>
+                {editing && billingItems[idx]?.id && (
+                  <BillingOverrideRow
+                    item={billingItems[idx]}
+                    appointmentId={appointment.id}
+                    seriesId={appointment.series_id}
+                    canEdit={!!user?.permissions?.invoices}
+                    onUpdated={updated => { setBillingItems(updated.items || []); if (onRefresh) onRefresh(); }}
+                  />
+                )}
               </div>
             ))}
           </div>

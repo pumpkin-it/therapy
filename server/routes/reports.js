@@ -37,7 +37,7 @@ function queryBooked({ from, to, practitionerIds, clientIds, serviceIds }) {
   where += inClause('ai.service_id', serviceIds, params);
 
   return db.prepare(`
-    SELECT ai.quantity, ai.unit_rate, ai.travel_time_to, ai.travel_time_from, ai.travel_km, ai.notes_min,
+    SELECT ai.quantity, ai.unit_rate, ai.billed_quantity, ai.billed_unit_rate, ai.travel_time_to, ai.travel_time_from, ai.travel_km, ai.notes_min,
       a.practitioner_id, a.client_id, a.status, a.late_cancel_billable, a.late_cancel_pct,
       ai.service_id, s.name AS service_name,
       sr.travel_rate_per_hour, sr.km_rate, sr.notes_rate
@@ -94,7 +94,7 @@ function buildReport({ from, to, practitionerIds, clientIds, serviceIds, groupBy
       continue; // no hours/travel/km/notes for a fee-only cancellation line
     }
     bucket.hours += r.quantity;
-    bucket.booked += r.quantity * r.unit_rate;
+    bucket.booked += (r.billed_quantity ?? r.quantity) * (r.billed_unit_rate ?? r.unit_rate);
     const travelMin = (r.travel_time_to || 0) + (r.travel_time_from || 0);
     if (travelMin) {
       bucket.travelMin += travelMin;
