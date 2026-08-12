@@ -10,7 +10,7 @@ import Button from '../components/ui/Button';
 const FREQ_LABEL = { weekly: 'Weekly', fortnightly: 'Fortnightly', every3weeks: 'Every 3 weeks', monthly: 'Monthly' };
 const DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
 const STATUS_STYLE = {
-  pending:   'bg-purple-50 text-purple-700',
+  pending:   'bg-gray-300 text-gray-800',
   scheduled: 'bg-blue-50 text-blue-700',
   confirmed: 'bg-green-50 text-green-700',
   completed: 'bg-gray-100 text-gray-600',
@@ -70,7 +70,7 @@ export default function RecurringSeriesDetail() {
         <div className="flex-1">
           <h1 className="text-2xl font-semibold flex items-center gap-2">
             <span className="font-mono text-base text-indigo-500 mr-2">SER-{String(series.id).padStart(5,'0')}</span>{series.client_name}
-            {!!series.pending && <span className="text-xs font-medium rounded-full px-2 py-0.5 bg-purple-50 text-purple-700">Pending confirmation</span>}
+            {!!series.pending && <span className="text-xs font-medium rounded-full px-2 py-0.5 bg-gray-200 text-gray-700">Pending confirmation</span>}
           </h1>
           <p className="text-sm text-gray-500">{series.practitioner_name} · {FREQ_LABEL[series.freq]} on {DAY_NAMES[new Date(series.start_time).getDay()]}s starting {series.start_time?.slice(0,10)}</p>
         </div>

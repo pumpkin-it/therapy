@@ -63,7 +63,7 @@ export default function RecurringSeries() {
                     <p className="text-sm text-gray-600">{s.start_time?.slice(11,16)} – {s.end_time?.slice(11,16)}</p>
                     <p className="text-xs text-gray-400">{s.appointment_count} appointments · {s.end_type === 'never' ? 'Never ends' : s.end_type === 'date' ? `Until ${s.end_date}` : `${s.end_occurrences} occurrences`}</p>
                   </div>
-                  {!!s.pending && <span className="text-xs bg-purple-50 text-purple-700 rounded-full px-2 py-0.5">Pending confirmation</span>}
+                  {!!s.pending && <span className="text-xs bg-gray-200 text-gray-700 rounded-full px-2 py-0.5">Pending confirmation</span>}
                   {!s.active && <span className="text-xs bg-gray-100 text-gray-500 rounded-full px-2 py-0.5">Paused</span>}
                   <ChevronRight className="h-4 w-4 text-gray-400" />
                 </div>
