@@ -16,7 +16,7 @@ function computeSpend(clientId, startDate, endDate) {
   `).get(clientId, from, to);
 
   const { projected } = db.prepare(`
-    SELECT COALESCE(SUM(ai.quantity * ai.unit_rate), 0) AS projected
+    SELECT COALESCE(SUM(COALESCE(ai.billed_quantity, ai.quantity) * COALESCE(ai.billed_unit_rate, ai.unit_rate)), 0) AS projected
     FROM appointment_items ai
     JOIN appointments a ON a.id = ai.appointment_id
     WHERE a.client_id = ? AND a.is_invoiced = 0 AND a.status != 'cancelled'
