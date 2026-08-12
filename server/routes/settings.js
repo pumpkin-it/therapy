@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const db = require('../database');
 const auth = require('../middleware/auth');
+const perm = require('../middleware/requirePermission');
 const { sendTestEmail } = require('../services/mailer');
 const multer = require('multer');
 const path = require('path');
@@ -21,7 +22,7 @@ router.get('/', auth, (req, res) => {
   res.json(settings);
 });
 
-router.patch('/', auth, (req, res) => {
+router.patch('/', auth, perm('settings'), (req, res) => {
   const update = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
   const tx = db.transaction((data) => {
     for (const [key, value] of Object.entries(data)) {
@@ -38,21 +39,21 @@ router.get('/logo', (req, res) => {
   res.sendFile(logoPath);
 });
 
-router.post('/logo', auth, logoUpload.single('logo'), (req, res) => {
+router.post('/logo', auth, perm('settings'), logoUpload.single('logo'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   const update = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
   update.run('logo_filename', req.file.filename);
   res.json({ ok: true, filename: req.file.filename });
 });
 
-router.delete('/logo', auth, (_req, res) => {
+router.delete('/logo', auth, perm('settings'), (_req, res) => {
   const logoPath = path.join(uploadsDir, 'logo');
   if (fs.existsSync(logoPath)) fs.unlinkSync(logoPath);
   db.prepare("DELETE FROM settings WHERE key = 'logo_filename'").run();
   res.json({ ok: true });
 });
 
-router.post('/test-email', auth, async (req, res) => {
+router.post('/test-email', auth, perm('settings'), async (req, res) => {
   const rows = db.prepare("SELECT key,value FROM settings WHERE key LIKE 'graph_%'").all();
   const cfg = Object.fromEntries(rows.map(r => [r.key, r.value]));
   const to = cfg.graph_mailbox;

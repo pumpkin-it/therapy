@@ -30,7 +30,7 @@ app.use('/api', (req, res, next) => {
   auth(req, res, next);
 });
 
-app.use('/api/settings',        perm('settings'), require('./routes/settings'));
+app.use('/api/settings',        require('./routes/settings')); // perm applied per-route inside
 app.use('/api/practitioners',   require('./routes/practitioners')); // perm applied per-route inside
 app.use('/api/clients',         perm('clients'), require('./routes/clients'));
 app.use('/api/services',        perm('services'), require('./routes/services'));
