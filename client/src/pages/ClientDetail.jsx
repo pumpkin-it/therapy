@@ -1355,6 +1355,8 @@ export default function ClientDetail() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [createdClient, setCreatedClient] = useState(null);
+  const [duplicates, setDuplicates] = useState([]);
+  const dupTimer = useRef(null);
   const load = () => {
     if (isNew) return;
     api.get(`/clients/${id}`).then(r => {
@@ -1382,6 +1384,20 @@ export default function ClientDetail() {
   };
 
   useEffect(() => { load(); }, [id]);
+
+  useEffect(() => {
+    clearTimeout(dupTimer.current);
+    if (!form.first_name || !form.last_name) { setDuplicates([]); return; }
+    dupTimer.current = setTimeout(() => {
+      const params = new URLSearchParams({ first_name: form.first_name, last_name: form.last_name });
+      if (form.date_of_birth) params.set('date_of_birth', form.date_of_birth);
+      if (form.phone) params.set('phone', form.phone);
+      if (form.email) params.set('email', form.email);
+      if (!isNew) params.set('exclude_id', id);
+      api.get(`/clients/check-duplicates?${params}`).then(r => setDuplicates(r.data)).catch(() => {});
+    }, 500);
+    return () => clearTimeout(dupTimer.current);
+  }, [form.first_name, form.last_name, form.date_of_birth, form.phone, form.email]);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -1483,6 +1499,18 @@ export default function ClientDetail() {
                 <AddressAutocomplete label="Address" value={form.address} onChange={v => set('address', v)} />
               </div>
             </div>
+
+            {duplicates.length > 0 && (
+              <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-800">
+                <p className="font-medium">Possible duplicate{duplicates.length > 1 ? 's' : ''}:</p>
+                {duplicates.map(d => (
+                  <p key={d.id} className="text-xs mt-0.5">
+                    {d.first_name} {d.last_name} — {d.date_of_birth || 'no DOB'}, {d.phone || 'no phone'}, {d.email || 'no email'}
+                    {' '}(matched on {d.match_reason})
+                  </p>
+                ))}
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Alert <span className="text-gray-400 font-normal">(shown prominently on client profile)</span></label>

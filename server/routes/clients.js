@@ -41,26 +41,46 @@ router.get('/', auth, (req, res) => {
   res.json(rows);
 });
 
+// A name match alone is deliberately NOT enough to flag a duplicate — real clients can share a
+// name (e.g. siblings). This only fires when the name matches AND at least one of date_of_birth/
+// phone/email also matches, or when email matches regardless of name (still worth a look — could
+// be the same person entered under a misspelled name). See feedback_therapy / process_therapy_
+// invoice_migration memory: this was added after a real duplicate (same name, same DOB/phone,
+// entered ~7 weeks apart) went undetected and had to be found and merged manually.
 router.get('/check-duplicates', auth, (req, res) => {
-  const { first_name, last_name, email, exclude_id } = req.query;
+  const { first_name, last_name, date_of_birth, phone, email, exclude_id } = req.query;
+  const normPhone = p => (p || '').replace(/[^0-9]/g, '');
   const matches = [];
   const seen = new Set();
+  const add = (r, reasons) => {
+    if (seen.has(r.id)) return;
+    matches.push({ ...r, match_reason: reasons.join(' & ') });
+    seen.add(r.id);
+  };
+
   if (first_name && last_name) {
-    const conditions = ['LOWER(first_name) = LOWER(?) AND LOWER(last_name) = LOWER(?)'];
+    const conditions = ['LOWER(TRIM(first_name)) = LOWER(TRIM(?)) AND LOWER(TRIM(last_name)) = LOWER(TRIM(?))'];
     const params = [first_name, last_name];
     if (exclude_id) { conditions.push('id != ?'); params.push(exclude_id); }
-    for (const r of db.prepare(`SELECT id, first_name, last_name, email FROM clients WHERE ${conditions.join(' AND ')}`).all(...params)) {
-      matches.push({ ...r, match_type: 'name' }); seen.add(r.id);
+    const rows = db.prepare(`SELECT id, first_name, last_name, date_of_birth, phone, email FROM clients WHERE ${conditions.join(' AND ')}`).all(...params);
+    for (const r of rows) {
+      const reasons = [];
+      if (date_of_birth && r.date_of_birth && r.date_of_birth === date_of_birth) reasons.push('date of birth');
+      if (phone && r.phone && normPhone(phone).length >= 6 && normPhone(r.phone) === normPhone(phone)) reasons.push('phone');
+      if (email && r.email && r.email.toLowerCase() === email.toLowerCase()) reasons.push('email');
+      if (reasons.length) add(r, reasons);
     }
   }
+
   if (email) {
-    const conditions = ["LOWER(email) = LOWER(?)"];
+    const conditions = ['LOWER(email) = LOWER(?)'];
     const params = [email];
     if (exclude_id) { conditions.push('id != ?'); params.push(exclude_id); }
-    for (const r of db.prepare(`SELECT id, first_name, last_name, email FROM clients WHERE ${conditions.join(' AND ')}`).all(...params)) {
-      if (!seen.has(r.id)) matches.push({ ...r, match_type: 'email' });
+    for (const r of db.prepare(`SELECT id, first_name, last_name, date_of_birth, phone, email FROM clients WHERE ${conditions.join(' AND ')}`).all(...params)) {
+      add(r, ['email']);
     }
   }
+
   res.json(matches);
 });
 
