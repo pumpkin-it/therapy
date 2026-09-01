@@ -288,6 +288,23 @@ router.patch('/:id/items/:itemId/billing', auth, perm('invoices'), (req, res) =>
   res.json({ ...updated, propagated });
 });
 
+router.patch('/:id/items/:itemId/notes', auth, perm('invoices'), (req, res) => {
+  const { item_notes } = req.body;
+  const item = db.prepare('SELECT * FROM appointment_items WHERE id = ? AND appointment_id = ?').get(req.params.itemId, req.params.id);
+  if (!item) return res.status(404).json({ error: 'Not found' });
+  const appt = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id);
+
+  db.prepare('UPDATE appointment_items SET item_notes=? WHERE id=?').run(item_notes || null, item.id);
+
+  const apptRef = `APT-${String(appt.id).padStart(5, '0')}`;
+  audit.log('appointment', appt.id, 'invoice_notes_updated',
+    item_notes ? `Invoice note set on ${apptRef}: "${item_notes}"` : `Invoice note cleared on ${apptRef}`,
+    { ref: apptRef });
+
+  const updated = withItems(db.prepare(`${APPT_SELECT} WHERE a.id=?`).get(req.params.id));
+  res.json(updated);
+});
+
 router.patch('/:id/status', auth, perm('calendar'), (req, res) => {
   const { status, late_cancel_pct, late_cancel_billable } = req.body;
   const before = db.prepare('SELECT status FROM appointments WHERE id=?').get(req.params.id);

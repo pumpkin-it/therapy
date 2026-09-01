@@ -583,6 +583,47 @@ function BillingOverrideRow({ item, appointmentId, seriesId, canEdit, onUpdated 
   );
 }
 
+function ItemNotesRow({ item, appointmentId, canEdit, onUpdated }) {
+  const [editing, setEditing] = useState(false);
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = () => { setNotes(item.item_notes || ''); setEditing(true); };
+
+  const doSave = async () => {
+    setSaving(true);
+    try {
+      const { data } = await api.patch(`/appointments/${appointmentId}/items/${item.id}/notes`, { item_notes: notes || null });
+      setEditing(false);
+      onUpdated(data);
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="mt-2 pt-2 border-t border-gray-100 space-y-1">
+      {item.item_notes && !editing && (
+        <p className="text-xs text-gray-600">Invoice note: <span className="text-gray-800">{item.item_notes}</span></p>
+      )}
+      {canEdit && !editing && (
+        <button onClick={startEdit} className="text-xs text-indigo-600 hover:text-indigo-800">
+          {item.item_notes ? 'Edit invoice note' : 'Add invoice note'}
+        </button>
+      )}
+      {canEdit && editing && (
+        <div className="flex items-end gap-2 flex-wrap">
+          <div className="flex-1 min-w-[180px] space-y-1">
+            <label className="text-xs text-gray-500">Invoice notes</label>
+            <input type="text" className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+              value={notes} onChange={e => setNotes(e.target.value)} placeholder="Appended to the MYOB export note" />
+          </div>
+          <Button size="sm" onClick={doSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+          <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function NotifyBtn({ label, target, status, onClick }) {
   const sending = status === 'sending';
   const sent    = status === 'sent';
@@ -1347,12 +1388,14 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
                     <input type="number" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
                       value={item.notes_min} onChange={e => setItem(idx, 'notes_min', e.target.value)} placeholder="—" />
                   </div>
-                  <div className="flex-1 space-y-1">
-                    <label className="text-xs text-gray-500">Invoice notes</label>
-                    <input type="text" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
-                      value={item.item_notes} onChange={e => setItem(idx, 'item_notes', e.target.value)}
-                      placeholder="Appended to the MYOB export note" />
-                  </div>
+                  {!(editing && billingItems[idx]?.id) && (
+                    <div className="flex-1 space-y-1">
+                      <label className="text-xs text-gray-500">Invoice notes</label>
+                      <input type="text" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                        value={item.item_notes} onChange={e => setItem(idx, 'item_notes', e.target.value)}
+                        placeholder="Appended to the MYOB export note" />
+                    </div>
+                  )}
                   <span className="text-sm text-gray-500 pb-1 shrink-0">
                     ${calcItemTotal(item).toFixed(2)}
                   </span>
@@ -1368,6 +1411,14 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
                     item={billingItems[idx]}
                     appointmentId={appointment.id}
                     seriesId={appointment.series_id}
+                    canEdit={!!user?.permissions?.invoices}
+                    onUpdated={updated => { setBillingItems(updated.items || []); if (onRefresh) onRefresh(); }}
+                  />
+                )}
+                {editing && billingItems[idx]?.id && (
+                  <ItemNotesRow
+                    item={billingItems[idx]}
+                    appointmentId={appointment.id}
                     canEdit={!!user?.permissions?.invoices}
                     onUpdated={updated => { setBillingItems(updated.items || []); if (onRefresh) onRefresh(); }}
                   />
