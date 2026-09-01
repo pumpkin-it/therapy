@@ -8,7 +8,7 @@ import { localToday, fmtDate, fmtDateTime, downloadFile } from '../lib/utils';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
 
-const EMPTY_ITEM = { service_id: '', description: '', quantity: 1, unit_rate: 0, travel_time_to: '', travel_time_from: '', travel_km: '', notes_min: '' };
+const EMPTY_ITEM = { service_id: '', description: '', quantity: 1, unit_rate: 0, travel_time_to: '', travel_time_from: '', travel_km: '', notes_min: '', item_notes: '' };
 
 // Split ISO datetime string into { date, time }
 const splitDT = iso => {
@@ -711,6 +711,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
           travel_time_from: i.travel_time_from || '',
           travel_km:      i.travel_km || '',
           notes_min:      i.notes_min || '',
+          item_notes:     i.item_notes || '',
         })) : [{ ...EMPTY_ITEM }],
       });
     }
@@ -1340,13 +1341,19 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
                     )}
                   </div>
                 )}
-                <div className="flex items-end justify-between">
-                  <div className="w-28 space-y-1">
+                <div className="flex items-end justify-between gap-2">
+                  <div className="w-24 space-y-1 shrink-0">
                     <label className="text-xs text-gray-500">Notes (min)</label>
                     <input type="number" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
                       value={item.notes_min} onChange={e => setItem(idx, 'notes_min', e.target.value)} placeholder="—" />
                   </div>
-                  <span className="text-sm text-gray-500 pb-1">
+                  <div className="flex-1 space-y-1">
+                    <label className="text-xs text-gray-500">Invoice notes</label>
+                    <input type="text" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+                      value={item.item_notes} onChange={e => setItem(idx, 'item_notes', e.target.value)}
+                      placeholder="Appended to the MYOB export note" />
+                  </div>
+                  <span className="text-sm text-gray-500 pb-1 shrink-0">
                     ${calcItemTotal(item).toFixed(2)}
                   </span>
                   {form.items.length > 1 && (

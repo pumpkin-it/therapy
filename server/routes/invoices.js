@@ -299,14 +299,14 @@ router.get('/export-myob-appointments', auth, (req, res) => {
     const clientRef = fmtClientRef(appt.cid);
     const cardId = ftRef ? `${clientRef}-${ftRef}` : clientRef;
 
-    const addRow = (code, desc, qty, rate, gstType) => {
+    const addRow = (code, desc, qty, rate, gstType, invoiceNote) => {
       const amount = qty * rate;
       rows.push([
         fmtDateDMY(invDate),
         fmtDateDMY(serviceDate),
         ftRef,
         Number(qty).toFixed(2),
-        csvEscape([code, desc].filter(Boolean).join(' - ')),
+        csvEscape([code, desc, invoiceNote].filter(Boolean).join(' - ')),
         rate.toFixed(2),
         amount.toFixed(2),
         csvEscape(appt.client_name),
@@ -323,7 +323,7 @@ router.get('/export-myob-appointments', auth, (req, res) => {
         const cancelRate = item.unit_rate * (appt.late_cancel_pct / 100);
         addRow(item.cancel_code || '', `Cancellation fee (${appt.late_cancel_pct}% — ${item.service_name || item.description})`, item.quantity, cancelRate, gstType);
       } else {
-        addRow(item.service_code || '', item.service_name || item.description, item.billed_quantity ?? item.quantity, item.billed_unit_rate ?? item.unit_rate, gstType);
+        addRow(item.service_code || '', item.service_name || item.description, item.billed_quantity ?? item.quantity, item.billed_unit_rate ?? item.unit_rate, gstType, item.item_notes);
         const travelMin = (item.travel_time_to || 0) + (item.travel_time_from || 0);
         if (travelMin) addRow(item.travel_code || '', `Travel time (${travelMin} min)`, travelMin / 60, item.travel_rate_per_hour || item.unit_rate, gstType);
         if (item.travel_km && item.km_rate) addRow(item.km_code || '', `Travel distance (${item.travel_km} km)`, item.travel_km, item.km_rate, gstType);
