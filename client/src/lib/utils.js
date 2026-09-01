@@ -1,6 +1,11 @@
 export const currency = v =>
   new Intl.NumberFormat('en-AU', { style: 'currency', currency: 'AUD' }).format(v);
 
+// Standard rounding convention for $ = qty * rate: round qty to 2dp first, then
+// multiply — keeps every displayed total reconstructable as shown-qty * rate.
+// Mirrors server/lib/billing.js's roundQty.
+export const roundQty = qty => Number(Number(qty || 0).toFixed(2));
+
 export const fmtDate = d =>
   new Date(d).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
 

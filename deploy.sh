@@ -42,6 +42,7 @@ CMD_ID=$($AWS ssm send-command \
     \"echo '--- Verifying database intact ---'\",
     \"sqlite3 /opt/therapy/server/pm.db 'SELECT count(*) || \\\" clients\\\" FROM clients;'\",
     \"cd /opt/therapy && npm install --production\",
+    \"node /opt/therapy/server/scripts/verify-deps.js || (cd /opt/therapy/server && npm install --production --force && node /opt/therapy/server/scripts/verify-deps.js)\",
     \"rm -rf /opt/therapy/frontend/assets && cp -r /opt/therapy/client/dist/. /opt/therapy/frontend/\",
     \"systemctl restart therapy\",
     \"echo '--- Done ---'\"

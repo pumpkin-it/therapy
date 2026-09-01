@@ -982,4 +982,15 @@ try { db.exec(`ALTER TABLE appointment_items ADD COLUMN billed_unit_rate REAL`);
 try { db.exec(`ALTER TABLE appointment_items ADD COLUMN billed_by INTEGER REFERENCES practitioners(id)`); } catch {}
 try { db.exec(`ALTER TABLE appointment_items ADD COLUMN billed_at DATETIME`); } catch {}
 
+// MYOB reconciliation (manual CSV/Excel import until an API integration exists — see
+// server/routes/myobSync.js). myob_invoice_number is set once by importing MYOB's TBSALE.csv
+// (matched back to this appointment by client + service date + line-amount total); it's the
+// join key for later, recurring imports of MYOB's invoice-status export, which set the rest.
+// One invoice number can cover multiple appointments (e.g. several visits batched onto one
+// invoice) — in that case every covered appointment carries the same invoice number and status.
+try { db.exec(`ALTER TABLE appointments ADD COLUMN myob_invoice_number TEXT`); } catch {}
+try { db.exec(`ALTER TABLE appointments ADD COLUMN myob_status TEXT`); } catch {}
+try { db.exec(`ALTER TABLE appointments ADD COLUMN myob_amount_due REAL`); } catch {}
+try { db.exec(`ALTER TABLE appointments ADD COLUMN myob_status_synced_at DATETIME`); } catch {}
+
 module.exports = db;

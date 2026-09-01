@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Stethoscope } from 'lucide-react';
 import api from '../lib/api';
+import { isUAT } from '../lib/env';
 
 export default function Login() {
   const { login } = useAuth();
@@ -44,13 +45,18 @@ export default function Login() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
+    <div className={`flex min-h-screen items-center justify-center ${isUAT ? 'bg-purple-50' : 'bg-gray-50'}`}>
       <div className="w-full max-w-sm space-y-6 px-4">
         <div className="text-center">
-          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600">
+          <div className={`mx-auto flex h-12 w-12 items-center justify-center rounded-xl ${isUAT ? 'bg-purple-600' : 'bg-indigo-600'}`}>
             <Stethoscope className="h-6 w-6 text-white" />
           </div>
           <h1 className="mt-4 text-2xl font-bold text-gray-900">Therapy</h1>
+          {isUAT && (
+            <span className="mt-2 inline-block rounded-full bg-purple-600 px-2.5 py-0.5 text-[10px] font-bold tracking-wide text-white">
+              UAT TEST ENVIRONMENT
+            </span>
+          )}
         </div>
 
         {!forgotMode ? (

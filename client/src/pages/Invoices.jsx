@@ -5,9 +5,10 @@ import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import AppointmentModal from '../components/AppointmentModal';
+import InvoiceSync from './InvoiceSync';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
-import { currency, fmtDate, localToday, downloadFile } from '../lib/utils';
+import { currency, fmtDate, localToday, downloadFile, roundQty } from '../lib/utils';
 
 const STATUS_COLOR = { draft:'gray', sent:'blue', paid:'green', void:'gray' };
 
@@ -148,12 +149,12 @@ function ToSendTab({ mode }) {
                 {appointments.map(a => {
                   const isBillableCancellation = a.status === 'cancelled' && a.late_cancel_billable && a.late_cancel_pct;
                   const total = (a.items || []).reduce((s, i) => {
-                    if (isBillableCancellation) return s + i.unit_rate * (a.late_cancel_pct / 100);
-                    let t = (i.billed_quantity ?? i.quantity) * (i.billed_unit_rate ?? i.unit_rate);
+                    if (isBillableCancellation) return s + roundQty(i.quantity) * i.unit_rate * (a.late_cancel_pct / 100);
+                    let t = roundQty(i.billed_quantity ?? i.quantity) * (i.billed_unit_rate ?? i.unit_rate);
                     const travelMin = (i.travel_time_to || 0) + (i.travel_time_from || 0);
-                    if (travelMin) t += (travelMin / 60) * (i.travel_rate_per_hour || i.unit_rate);
-                    if (i.travel_km && i.km_rate) t += i.travel_km * i.km_rate;
-                    if (i.notes_min) t += (i.notes_min / 60) * (i.notes_rate || i.unit_rate);
+                    if (travelMin) t += roundQty(travelMin / 60) * (i.travel_rate_per_hour || i.unit_rate);
+                    if (i.travel_km && i.km_rate) t += roundQty(i.travel_km) * i.km_rate;
+                    if (i.notes_min) t += roundQty(i.notes_min / 60) * (i.notes_rate || i.unit_rate);
                     return s + t;
                   }, 0);
                   const dur = a.start_time && a.end_time
@@ -191,8 +192,19 @@ function ToSendTab({ mode }) {
                       <td className="px-4 py-3 text-sm text-gray-500">{a.funds_manager_name || <span className="text-gray-300">—</span>}</td>
                       {exportOnlyMode && (
                         <td className="px-4 py-3">
-                          {a.myob_exported_at ? (
-                            <Badge color="green" title={new Date(a.myob_exported_at).toLocaleString('en-AU', { timeZone: 'Australia/Sydney' })}>
+                          {a.myob_invoice_number ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono text-xs text-gray-500">INV {a.myob_invoice_number}</span>
+                              {a.myob_status === 'closed' ? (
+                                <Badge color="green">Closed</Badge>
+                              ) : a.myob_status === 'open' ? (
+                                <Badge color="blue">Open{a.myob_amount_due ? ` · ${currency(a.myob_amount_due)} due` : ''}</Badge>
+                              ) : (
+                                <Badge color="purple">Linked</Badge>
+                              )}
+                            </div>
+                          ) : a.myob_exported_at ? (
+                            <Badge color="purple" title={new Date(a.myob_exported_at).toLocaleString('en-AU', { timeZone: 'Australia/Sydney' })}>
                               Exported {fmtDate(a.myob_exported_at)}
                             </Badge>
                           ) : (
@@ -423,37 +435,37 @@ export default function Invoices() {
   const [tab, setTab] = useState('to_send');
 
   const TABS = exportOnlyMode
-    ? [['to_send', 'To Export']]
+    ? [['to_send', 'To Export'], ['sync', 'MYOB Sync']]
     : [
         ['to_send',    'To Send'],
         ['to_receive', 'To Receive'],
         ['paid',       'Paid'],
         ['void',       'Void'],
+        ['sync',       'MYOB Sync'],
       ];
 
   return (
     <div className="space-y-5">
       <h1 className="text-2xl font-semibold">Invoices</h1>
 
-      {!exportOnlyMode && (
-        <div className="border-b border-gray-200">
-          <div className="flex gap-0">
-            {TABS.map(([id, label]) => (
-              <button key={id} onClick={() => setTab(id)}
-                className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                  tab === id ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}>
-                {label}
-              </button>
-            ))}
-          </div>
+      <div className="border-b border-gray-200">
+        <div className="flex gap-0">
+          {TABS.map(([id, label]) => (
+            <button key={id} onClick={() => setTab(id)}
+              className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                tab === id ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}>
+              {label}
+            </button>
+          ))}
         </div>
-      )}
+      </div>
 
       {tab === 'to_send' && <ToSendTab mode={invoicingMode} />}
       {!exportOnlyMode && tab === 'to_receive' && <InvoiceListTab status="draft,sent" emptyMsg="No invoices awaiting payment." />}
       {!exportOnlyMode && tab === 'paid' && <InvoiceListTab status="paid" emptyMsg="No paid invoices." />}
       {!exportOnlyMode && tab === 'void' && <InvoiceListTab status="void" emptyMsg="No voided invoices." />}
+      {tab === 'sync' && <InvoiceSync />}
     </div>
   );
 }

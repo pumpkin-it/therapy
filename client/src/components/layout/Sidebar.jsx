@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { CalendarDays, Users, UserCog, Layers, FileText, Settings, Stethoscope, Wallet, MapPin, RefreshCw, ScrollText, LogOut, ClipboardList, BarChart3 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
+import { isUAT } from '../../lib/env';
 
 const nav = [
   { to: '/calendar',        label: 'Calendar',   icon: CalendarDays, perm: 'calendar' },
@@ -25,12 +26,20 @@ export default function Sidebar() {
   const visibleNav = nav.filter(n => !n.perm || perms[n.perm]);
 
   return (
-    <aside className="flex h-screen w-56 flex-col border-r border-gray-200 bg-white">
-      <div className="flex items-center gap-2.5 border-b border-gray-100 px-5 py-4">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600">
+    <aside className={cn(
+      'flex h-screen w-56 flex-col border-r',
+      isUAT ? 'border-purple-200 bg-purple-50' : 'border-gray-200 bg-white'
+    )}>
+      <div className={cn('flex items-center gap-2.5 border-b px-5 py-4', isUAT ? 'border-purple-100' : 'border-gray-100')}>
+        <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg', isUAT ? 'bg-purple-600' : 'bg-indigo-600')}>
           <Stethoscope className="h-4 w-4 text-white" />
         </div>
         <span className="font-semibold text-gray-900 text-sm">Therapy</span>
+        {isUAT && (
+          <span className="ml-auto rounded-full bg-purple-600 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white">
+            UAT
+          </span>
+        )}
       </div>
 
       <nav className="flex-1 space-y-0.5 px-2 py-3">
@@ -41,8 +50,8 @@ export default function Sidebar() {
             className={({ isActive }) => cn(
               'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
               isActive
-                ? 'bg-indigo-50 text-indigo-700'
-                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                ? isUAT ? 'bg-purple-100 text-purple-700' : 'bg-indigo-50 text-indigo-700'
+                : isUAT ? 'text-gray-600 hover:bg-purple-100/60 hover:text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
             )}
           >
             <Icon className="h-4 w-4 shrink-0" />

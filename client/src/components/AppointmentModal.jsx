@@ -4,7 +4,7 @@ import Modal from './ui/Modal';
 import Button from './ui/Button';
 import AddressAutocomplete from './AddressAutocomplete';
 import { Trash2, Plus, FileText, Pencil, RefreshCw, Mail, AlertCircle, CheckCircle, TriangleAlert, Paperclip, Upload, Download, File as FileIcon, X } from 'lucide-react';
-import { localToday, fmtDate, fmtDateTime, downloadFile } from '../lib/utils';
+import { localToday, fmtDate, fmtDateTime, downloadFile, roundQty } from '../lib/utils';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -1096,13 +1096,13 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
   };
 
   const calcItemTotal = (item) => {
-    const base = Number(item.quantity || 0) * Number(item.unit_rate || 0);
+    const base = roundQty(item.quantity || 0) * Number(item.unit_rate || 0);
     const svc = item.service_id ? scopedServices.find(s => s.service_id === Number(item.service_id)) : null;
     const travelTimeHrs = (Number(item.travel_time_to || 0) + Number(item.travel_time_from || 0)) / 60;
-    const travelTimeCost = travelTimeHrs * Number(svc?.travel_rate_per_hour || item.unit_rate || 0);
-    const kmCost = Number(item.travel_km || 0) * Number(svc?.km_rate || 0);
+    const travelTimeCost = roundQty(travelTimeHrs) * Number(svc?.travel_rate_per_hour || item.unit_rate || 0);
+    const kmCost = roundQty(item.travel_km || 0) * Number(svc?.km_rate || 0);
     const notesHrs = Number(item.notes_min || 0) / 60;
-    const notesCost = notesHrs * Number(svc?.notes_rate || item.unit_rate || 0);
+    const notesCost = roundQty(notesHrs) * Number(svc?.notes_rate || item.unit_rate || 0);
     return base + travelTimeCost + kmCost + notesCost;
   };
 

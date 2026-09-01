@@ -4,6 +4,7 @@ const auth = require('../middleware/auth');
 const { generateInvoicePdf } = require('../services/pdf');
 const { sendInvoiceEmail } = require('../services/mailer');
 const audit = require('../services/audit');
+const { roundQty } = require('../lib/billing');
 
 const fmtClientRef = id => `C${String(id).padStart(4, '0')}`;
 const fmtFundingTypeRef = id => `F${String(id).padStart(4, '0')}`;
@@ -89,6 +90,7 @@ router.get('/to-send', auth, (req, res) => {
   const rows = db.prepare(`
     SELECT a.id, a.start_time, a.end_time, a.client_id, a.practitioner_id, a.location, a.notes, a.series_id, a.funding_period_id,
       a.status, a.late_cancel_pct, a.late_cancel_billable, a.myob_exported_at,
+      a.myob_invoice_number, a.myob_status, a.myob_amount_due,
       c.first_name || ' ' || c.last_name AS client_name,
       p.first_name || ' ' || p.last_name AS practitioner_name, p.provider_number, p.color AS practitioner_color,
       COALESCE(fp_direct.funds_manager_id, fp_date.funds_manager_id) AS funds_manager_id,
@@ -300,12 +302,13 @@ router.get('/export-myob-appointments', auth, (req, res) => {
     const cardId = ftRef ? `${clientRef}-${ftRef}` : clientRef;
 
     const addRow = (code, desc, qty, rate, gstType, invoiceNote) => {
-      const amount = qty * rate;
+      const qtyRounded = roundQty(qty);
+      const amount = qtyRounded * rate;
       rows.push([
         fmtDateDMY(invDate),
         fmtDateDMY(serviceDate),
         ftRef,
-        Number(qty).toFixed(2),
+        qtyRounded.toFixed(2),
         csvEscape([code, desc, invoiceNote].filter(Boolean).join(' - ')),
         rate.toFixed(2),
         amount.toFixed(2),
@@ -409,8 +412,9 @@ router.post('/generate', auth, (req, res) => {
       const gst = gstType === 'GST' ? globalGstRate : 0;
       const serviceDate = appt.start_time ? appt.start_time.slice(0, 10) : null;
       const addLine = (code, desc, qty, rate, lineType = 'service') => {
-        const lt = qty * rate;
-        lineItems.push({ appointment_item_id: item.id, service_date: serviceDate, code, description: desc, quantity: qty, unit_rate: rate, line_total: lt, gst_rate: gst, gst_amount: lt * gst, gst_type: gstType, line_type: lineType });
+        const qtyRounded = roundQty(qty);
+        const lt = qtyRounded * rate;
+        lineItems.push({ appointment_item_id: item.id, service_date: serviceDate, code, description: desc, quantity: qtyRounded, unit_rate: rate, line_total: lt, gst_rate: gst, gst_amount: lt * gst, gst_type: gstType, line_type: lineType });
       };
       if (appt.status === 'cancelled' && appt.late_cancel_billable && appt.late_cancel_pct) {
         // Billable cancellation: only the cancellation fee is charged, not the normal session/travel/km/notes lines.

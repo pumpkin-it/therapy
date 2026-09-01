@@ -36,6 +36,7 @@ app.use('/api/clients',         perm('clients'), require('./routes/clients'));
 app.use('/api/services',        perm('services'), require('./routes/services'));
 app.use('/api/appointments',    require('./routes/appointments')); // perm applied per-route inside
 app.use('/api/invoices',        perm('invoices'), require('./routes/invoices'));
+app.use('/api/myob-sync',       perm('invoices'), require('./routes/myobSync'));
 app.use('/api/funds-managers',  require('./routes/fundsManagers')); // perm applied per-route inside
 app.use('/api/locations',       require('./routes/locations')); // perm applied per-route inside
 app.use('/api/session-notes',   perm('clients'), require('./routes/sessionNotes'));

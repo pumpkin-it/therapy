@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SettingsProvider } from './context/SettingsContext';
 import Sidebar from './components/layout/Sidebar';
+import UatWatermark from './components/layout/UatWatermark';
+import { isUAT } from './lib/env';
 import Login from './pages/Login';
 import ResetPassword from './pages/ResetPassword';
 import Calendar from './pages/Calendar';
@@ -57,7 +59,7 @@ function AuthenticatedApp() {
   const p = user.permissions || {};
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50">
+    <div className={`flex h-screen overflow-hidden ${isUAT ? 'bg-purple-50/50' : 'bg-gray-50'}`}>
       <Sidebar />
       <main className="flex-1 overflow-y-auto p-6">
         <Routes>
@@ -88,6 +90,7 @@ function AuthenticatedApp() {
 export default function App() {
   return (
     <BrowserRouter>
+      <UatWatermark />
       <AuthProvider>
         <SettingsProvider>
           <AuthenticatedApp />

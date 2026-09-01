@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const db = require('../database');
 const auth = require('../middleware/auth');
+const { roundQty } = require('../lib/billing');
 
 const PERIOD_DAYS = { weekly: 7, fortnightly: 14, monthly: 30.44 };
 
@@ -90,23 +91,23 @@ function buildReport({ from, to, practitionerIds, clientIds, serviceIds, groupBy
   for (const r of bookedRows) {
     const bucket = get(bucketKey(groupBy, r));
     if (r.status === 'cancelled' && r.late_cancel_billable && r.late_cancel_pct) {
-      bucket.booked += r.quantity * r.unit_rate * (r.late_cancel_pct / 100);
+      bucket.booked += roundQty(r.quantity) * r.unit_rate * (r.late_cancel_pct / 100);
       continue; // no hours/travel/km/notes for a fee-only cancellation line
     }
     bucket.hours += r.quantity;
-    bucket.booked += (r.billed_quantity ?? r.quantity) * (r.billed_unit_rate ?? r.unit_rate);
+    bucket.booked += roundQty(r.billed_quantity ?? r.quantity) * (r.billed_unit_rate ?? r.unit_rate);
     const travelMin = (r.travel_time_to || 0) + (r.travel_time_from || 0);
     if (travelMin) {
       bucket.travelMin += travelMin;
-      bucket.booked += (travelMin / 60) * (r.travel_rate_per_hour || r.unit_rate);
+      bucket.booked += roundQty(travelMin / 60) * (r.travel_rate_per_hour || r.unit_rate);
     }
     if (r.travel_km && r.km_rate) {
       bucket.km += r.travel_km;
-      bucket.booked += r.travel_km * r.km_rate;
+      bucket.booked += roundQty(r.travel_km) * r.km_rate;
     }
     if (r.notes_min) {
       bucket.notesMin += r.notes_min;
-      bucket.booked += (r.notes_min / 60) * (r.notes_rate || r.unit_rate);
+      bucket.booked += roundQty(r.notes_min / 60) * (r.notes_rate || r.unit_rate);
     }
   }
 
