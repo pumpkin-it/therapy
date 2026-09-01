@@ -41,7 +41,7 @@ CMD_ID=$($AWS ssm send-command \
     \"tar -xzf /tmp/therapy-deploy.tar.gz -C /opt/therapy --exclude='server/pm.db' --exclude='server/pm.db-shm' --exclude='server/pm.db-wal' --exclude='server/._pm*' --exclude='uploads' 2>/dev/null || true\",
     \"echo '--- Verifying database intact ---'\",
     \"sqlite3 /opt/therapy/server/pm.db 'SELECT count(*) || \\\" clients\\\" FROM clients;'\",
-    \"cd /opt/therapy && npm install --production\",
+    \"cd /opt/therapy/server && npm install --production\",
     \"node /opt/therapy/server/scripts/verify-deps.js || (cd /opt/therapy/server && npm install --production --force && node /opt/therapy/server/scripts/verify-deps.js)\",
     \"rm -rf /opt/therapy/frontend/assets && cp -r /opt/therapy/client/dist/. /opt/therapy/frontend/\",
     \"systemctl restart therapy\",
