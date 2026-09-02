@@ -38,7 +38,7 @@ function queryBooked({ from, to, practitionerIds, clientIds, serviceIds }) {
   where += inClause('ai.service_id', serviceIds, params);
 
   return db.prepare(`
-    SELECT ai.quantity, ai.unit_rate, ai.billed_quantity, ai.billed_unit_rate, ai.travel_time_to, ai.travel_time_from, ai.travel_km, ai.notes_min,
+    SELECT ai.quantity, ai.unit_rate, ai.billed_quantity, ai.billed_unit_rate, ai.billed_travel_rate, ai.billed_notes_rate, ai.billed_km_rate, ai.travel_time_to, ai.travel_time_from, ai.travel_km, ai.notes_min,
       a.practitioner_id, a.client_id, a.status, a.late_cancel_billable, a.late_cancel_pct,
       ai.service_id, s.name AS service_name,
       sr.travel_rate_per_hour, sr.km_rate, sr.notes_rate
@@ -102,15 +102,15 @@ function buildReport({ from, to, practitionerIds, clientIds, serviceIds, groupBy
     const travelMin = (r.travel_time_to || 0) + (r.travel_time_from || 0);
     if (travelMin) {
       bucket.travelMin += travelMin;
-      bucket.booked += roundQty(travelMin / 60) * (r.travel_rate_per_hour || r.unit_rate);
+      bucket.booked += roundQty(travelMin / 60) * (r.billed_travel_rate ?? r.travel_rate_per_hour ?? r.unit_rate);
     }
     if (r.travel_km && r.km_rate) {
       bucket.km += r.travel_km;
-      bucket.booked += roundQty(r.travel_km) * r.km_rate;
+      bucket.booked += roundQty(r.travel_km) * (r.billed_km_rate ?? r.km_rate);
     }
     if (r.notes_min) {
       bucket.notesMin += r.notes_min;
-      bucket.booked += roundQty(r.notes_min / 60) * (r.notes_rate || r.unit_rate);
+      bucket.booked += roundQty(r.notes_min / 60) * (r.billed_notes_rate ?? r.notes_rate ?? r.unit_rate);
     }
   }
 

@@ -153,9 +153,9 @@ function ToSendTab({ mode }) {
                       ? roundQty(i.quantity) * i.unit_rate * (a.late_cancel_pct / 100)
                       : roundQty(i.billed_quantity ?? i.quantity) * (i.billed_unit_rate ?? i.unit_rate);
                     const travelMin = (i.travel_time_to || 0) + (i.travel_time_from || 0);
-                    if (travelMin) t += roundQty(travelMin / 60) * (i.travel_rate_per_hour || i.unit_rate);
-                    if (i.travel_km && i.km_rate) t += roundQty(i.travel_km) * i.km_rate;
-                    if (i.notes_min) t += roundQty(i.notes_min / 60) * (i.notes_rate || i.unit_rate);
+                    if (travelMin) t += roundQty(travelMin / 60) * (i.billed_travel_rate ?? i.travel_rate_per_hour ?? i.unit_rate);
+                    if (i.travel_km && i.km_rate) t += roundQty(i.travel_km) * (i.billed_km_rate ?? i.km_rate);
+                    if (i.notes_min) t += roundQty(i.notes_min / 60) * (i.billed_notes_rate ?? i.notes_rate ?? i.unit_rate);
                     return s + t;
                   }, 0);
                   const dur = a.start_time && a.end_time

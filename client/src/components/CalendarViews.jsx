@@ -437,6 +437,13 @@ export function EmbeddedCalendar({ clientId, practitionerId }) {
     api.get(`/appointments?${params}`).then(r => setAppointments(r.data));
   };
 
+  // Fetch fresh rather than reusing the clicked list object directly — see Calendar.jsx's
+  // identical openAppt for why (stale data right after a save, while load() is still in flight).
+  const openAppt = async appt => {
+    const { data } = await api.get(`/appointments/${appt.id}`);
+    setModal(data);
+  };
+
   const visibleAppointments = showCancelled
     ? appointments.filter(a => a.status === 'cancelled')
     : appointments.filter(a => a.status !== 'cancelled' || a.late_cancel_billable);
@@ -491,18 +498,18 @@ export function EmbeddedCalendar({ clientId, practitionerId }) {
       {view === 'day' && (
         <DayView date={date} appointments={visibleAppointments} practitioners={practitioners}
           filteredPractitionerId={practitionerId || ''} dateStr={defaultDate}
-          onClickAppt={setModal} onClickSlot={slot => setModal({ _new: true, ...slot })} />
+          onClickAppt={openAppt} onClickSlot={slot => setModal({ _new: true, ...slot })} />
       )}
       {view === 'week' && (
         <WeekView date={date} appointments={visibleAppointments} practitioners={practitioners}
           filteredPractitionerId={practitionerId || ''}
-          onClickAppt={setModal} onClickDay={goToDay}
+          onClickAppt={openAppt} onClickDay={goToDay}
           onClickSlot={slot => setModal({ _new: true, ...slot })} />
       )}
       {view === 'month' && (
         <MonthView date={date} appointments={visibleAppointments} practitioners={practitioners}
           filteredPractitionerId={practitionerId || ''}
-          onClickAppt={setModal} onClickDay={goToDay} />
+          onClickAppt={openAppt} onClickDay={goToDay} />
       )}
 
       {modal !== null && (

@@ -993,4 +993,15 @@ try { db.exec(`ALTER TABLE appointments ADD COLUMN myob_status TEXT`); } catch {
 try { db.exec(`ALTER TABLE appointments ADD COLUMN myob_amount_due REAL`); } catch {}
 try { db.exec(`ALTER TABLE appointments ADD COLUMN myob_status_synced_at DATETIME`); } catch {}
 
+// Separate travel/notes rate overrides — distinct from billed_quantity/billed_unit_rate above,
+// which only ever affects the session line. A finance override to the session rate must NOT
+// silently change what travel/km/notes bill at (they already never did, since those lines read
+// travel_rate_per_hour/notes_rate with a fallback to the item's own raw unit_rate — never
+// billed_unit_rate — but there was previously no way to deliberately override travel/notes
+// pricing independently of the session). NULL means "use the normal rate resolution", same
+// convention as billed_quantity/billed_unit_rate.
+try { db.exec(`ALTER TABLE appointment_items ADD COLUMN billed_travel_rate REAL`); } catch {}
+try { db.exec(`ALTER TABLE appointment_items ADD COLUMN billed_notes_rate REAL`); } catch {}
+try { db.exec(`ALTER TABLE appointment_items ADD COLUMN billed_km_rate REAL`); } catch {}
+
 module.exports = db;

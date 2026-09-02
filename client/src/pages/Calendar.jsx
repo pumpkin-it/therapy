@@ -44,6 +44,15 @@ export default function Calendar() {
   useEffect(() => { api.get('/practitioners?role=practitioner').then(r => setPractitioners(r.data)); }, []);
   useEffect(() => { load(); }, [dateStr, view]);
 
+  // Fetch fresh rather than reusing the clicked list object directly — that object is a
+  // snapshot from the last load() call, which is async and can still be in flight right after
+  // a save (close modal -> load() kicked off -> reopen same appt before it resolves shows the
+  // pre-save data). A per-open fetch matches the pattern already used in Invoices.jsx.
+  const openAppt = async appt => {
+    const { data } = await api.get(`/appointments/${appt.id}`);
+    setModal(data);
+  };
+
   // Practitioners default to seeing only their own appointments — the dropdown still lets
   // them switch to "All" or another practitioner. Owners/admins default to "All" as before.
   useEffect(() => {
@@ -114,17 +123,17 @@ export default function Calendar() {
 
       {view === 'day' && (
         <DayView date={date} appointments={visibleAppointments} practitioners={practitioners}
-          filteredPractitionerId={practitionerFilter} onClickAppt={setModal} dateStr={dateStr}
+          filteredPractitionerId={practitionerFilter} onClickAppt={openAppt} dateStr={dateStr}
           onClickSlot={slot => setModal({ _new: true, ...slot })} />
       )}
       {view === 'week' && (
         <WeekView date={date} appointments={visibleAppointments} practitioners={practitioners}
-          filteredPractitionerId={practitionerFilter} onClickAppt={setModal} onClickDay={goToDay}
+          filteredPractitionerId={practitionerFilter} onClickAppt={openAppt} onClickDay={goToDay}
           onClickSlot={slot => setModal({ _new: true, ...slot })} />
       )}
       {view === 'month' && (
         <MonthView date={date} appointments={visibleAppointments} practitioners={practitioners}
-          filteredPractitionerId={practitionerFilter} onClickAppt={setModal} onClickDay={goToDay} />
+          filteredPractitionerId={practitionerFilter} onClickAppt={openAppt} onClickDay={goToDay} />
       )}
 
       {modal !== null && (

@@ -208,8 +208,9 @@ router.patch('/:id', auth, perm('calendar'), (req, res) => {
       // but only when a service_id appears exactly once on both sides, so an ambiguous match
       // (duplicate services, or the service removed) drops the override instead of guessing.
       const existingOverrides = db.prepare(`
-        SELECT service_id, billed_quantity, billed_unit_rate, billed_by, billed_at
-        FROM appointment_items WHERE appointment_id = ? AND (billed_quantity IS NOT NULL OR billed_unit_rate IS NOT NULL)
+        SELECT service_id, billed_quantity, billed_unit_rate, billed_travel_rate, billed_notes_rate, billed_km_rate, billed_by, billed_at
+        FROM appointment_items WHERE appointment_id = ?
+          AND (billed_quantity IS NOT NULL OR billed_unit_rate IS NOT NULL OR billed_travel_rate IS NOT NULL OR billed_notes_rate IS NOT NULL OR billed_km_rate IS NOT NULL)
       `).all(req.params.id);
 
       db.prepare('UPDATE invoice_items SET appointment_item_id = NULL WHERE appointment_item_id IN (SELECT id FROM appointment_items WHERE appointment_id = ?)').run(req.params.id);
@@ -223,12 +224,12 @@ router.patch('/:id', auth, perm('calendar'), (req, res) => {
         const newCounts = {};
         for (const n of newRows) newCounts[n.service_id] = (newCounts[n.service_id] || 0) + 1;
 
-        const applyOverride = db.prepare('UPDATE appointment_items SET billed_quantity=?, billed_unit_rate=?, billed_by=?, billed_at=? WHERE id=?');
+        const applyOverride = db.prepare('UPDATE appointment_items SET billed_quantity=?, billed_unit_rate=?, billed_travel_rate=?, billed_notes_rate=?, billed_km_rate=?, billed_by=?, billed_at=? WHERE id=?');
         for (const ov of existingOverrides) {
           if (ov.service_id == null) continue;
           if (oldCounts[ov.service_id] === 1 && newCounts[ov.service_id] === 1) {
             const target = newRows.find(n => n.service_id === ov.service_id);
-            applyOverride.run(ov.billed_quantity, ov.billed_unit_rate, ov.billed_by, ov.billed_at, target.id);
+            applyOverride.run(ov.billed_quantity, ov.billed_unit_rate, ov.billed_travel_rate, ov.billed_notes_rate, ov.billed_km_rate, ov.billed_by, ov.billed_at, target.id);
           }
         }
       }
@@ -249,22 +250,30 @@ router.patch('/:id', auth, perm('calendar'), (req, res) => {
 // Billing override — bills a line item as different hours/rate than what was actually booked
 // (e.g. folding travel into a single billable unit for funders requiring whole-unit billing).
 // Gated to the invoices permission, distinct from the calendar permission every other appointment
-// edit uses — this is a finance action, not a scheduling one. Only the session line is affected;
-// travel/km/notes always bill at the raw booked values (see invoices.js's /generate route).
+// edit uses — this is a finance action, not a scheduling one. billed_quantity/billed_unit_rate
+// affect only the session line; billed_travel_rate/billed_notes_rate independently override the
+// travel and clinical-notes per-hour rates (each falls back to its normal rate resolution — the
+// service's own travel_rate_per_hour/notes_rate, then the item's raw unit_rate — when left null).
+// These are deliberately separate: changing the session rate must never silently change what
+// travel/notes bill at, and vice versa.
 router.patch('/:id/items/:itemId/billing', auth, perm('invoices'), (req, res) => {
-  const { billed_quantity, billed_unit_rate, apply_to_future } = req.body;
+  const { billed_quantity, billed_unit_rate, billed_travel_rate, billed_notes_rate, billed_km_rate, apply_to_future } = req.body;
   const item = db.prepare('SELECT * FROM appointment_items WHERE id = ? AND appointment_id = ?').get(req.params.itemId, req.params.id);
   if (!item) return res.status(404).json({ error: 'Not found' });
   const appt = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id);
 
   const now = new Date().toISOString();
-  const apply = db.prepare('UPDATE appointment_items SET billed_quantity=?, billed_unit_rate=?, billed_by=?, billed_at=? WHERE id=?');
-  apply.run(billed_quantity ?? null, billed_unit_rate ?? null, req.user.id, now, item.id);
+  const apply = db.prepare('UPDATE appointment_items SET billed_quantity=?, billed_unit_rate=?, billed_travel_rate=?, billed_notes_rate=?, billed_km_rate=?, billed_by=?, billed_at=? WHERE id=?');
+  apply.run(billed_quantity ?? null, billed_unit_rate ?? null, billed_travel_rate ?? null, billed_notes_rate ?? null, billed_km_rate ?? null, req.user.id, now, item.id);
 
   const apptRef = `APT-${String(appt.id).padStart(5, '0')}`;
-  const desc = billed_quantity == null && billed_unit_rate == null
-    ? `Billing override cleared on ${apptRef}`
-    : `Billing override on ${apptRef}: ${billed_quantity ?? item.quantity} × $${billed_unit_rate ?? item.unit_rate}`;
+  const noOverrides = billed_quantity == null && billed_unit_rate == null && billed_travel_rate == null && billed_notes_rate == null && billed_km_rate == null;
+  const parts = [];
+  if (billed_quantity != null || billed_unit_rate != null) parts.push(`session ${billed_quantity ?? item.quantity} × $${billed_unit_rate ?? item.unit_rate}`);
+  if (billed_travel_rate != null) parts.push(`travel $${billed_travel_rate}/hr`);
+  if (billed_km_rate != null) parts.push(`km $${billed_km_rate}`);
+  if (billed_notes_rate != null) parts.push(`notes $${billed_notes_rate}/hr`);
+  const desc = noOverrides ? `Billing override cleared on ${apptRef}` : `Billing override on ${apptRef}: ${parts.join(', ')}`;
   audit.log('appointment', appt.id, 'billing_adjusted', desc, { ref: apptRef });
 
   let propagated = 0;
@@ -277,7 +286,7 @@ router.patch('/:id/items/:itemId/billing', auth, perm('invoices'), (req, res) =>
       const matches = db.prepare('SELECT id FROM appointment_items WHERE appointment_id = ? AND service_id = ?').all(fa.id, item.service_id);
       // Same ambiguity guard as the item-replace path — only propagate onto an unambiguous match.
       if (matches.length === 1) {
-        apply.run(billed_quantity ?? null, billed_unit_rate ?? null, req.user.id, now, matches[0].id);
+        apply.run(billed_quantity ?? null, billed_unit_rate ?? null, billed_travel_rate ?? null, billed_notes_rate ?? null, billed_km_rate ?? null, req.user.id, now, matches[0].id);
         propagated++;
       }
     }

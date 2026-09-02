@@ -4,7 +4,7 @@ import Modal from './ui/Modal';
 import Button from './ui/Button';
 import AddressAutocomplete from './AddressAutocomplete';
 import { Trash2, Plus, FileText, Pencil, RefreshCw, Mail, AlertCircle, CheckCircle, TriangleAlert, Paperclip, Upload, Download, File as FileIcon, X } from 'lucide-react';
-import { localToday, fmtDate, fmtDateTime, downloadFile, roundQty } from '../lib/utils';
+import { localToday, fmtDate, fmtDateTime, downloadFile, roundQty, cn } from '../lib/utils';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -491,102 +491,264 @@ function fmtAdjustedDate(iso) {
   return new Date(iso).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-// Lets a finance/owner/admin user (the `invoices` permission) bill a session line as different
-// hours/rate than what was actually booked. The read-only "Adjusted by X on Y" note is visible to
-// everyone who can open the appointment; only the edit control itself is permission-gated.
-function BillingOverrideRow({ item, appointmentId, seriesId, canEdit, onUpdated }) {
-  const [editing, setEditing] = useState(false);
-  const [qty, setQty] = useState('');
-  const [rate, setRate] = useState('');
+// Resolves the normal (override-free) rate for each line of an appointment item — shared by the
+// read-only inline summary and the Billing Adjustment tab, so "what's the original rate" is
+// computed exactly once.
+function resolveOriginalRates(item, scopedServices) {
+  const svc = item.service_id ? scopedServices.find(s => s.service_id === Number(item.service_id)) : null;
+  return {
+    svc,
+    sessionRate: Number(item.unit_rate || 0),
+    travelRate: Number(svc?.travel_rate_per_hour || item.unit_rate || 0),
+    notesRate: Number(svc?.notes_rate || item.unit_rate || 0),
+    kmRate: Number(svc?.km_rate || 0),
+  };
+}
+
+// Read-only summary shown inline in the Details tab — actual editing happens in the Billing
+// Adjustment tab (see BillingAdjustmentTab below), so this never accepts input itself.
+function BillingOverrideSummary({ item }) {
+  const hasOverride = item.billed_quantity != null || item.billed_unit_rate != null
+    || item.billed_travel_rate != null || item.billed_notes_rate != null || item.billed_km_rate != null;
+  if (!hasOverride) return null;
+  return (
+    <p className="mt-2 pt-2 border-t border-gray-100 text-xs text-amber-700">
+      {(item.billed_quantity != null || item.billed_unit_rate != null) && (
+        <>Billed as {item.billed_quantity ?? item.quantity} × ${Number(item.billed_unit_rate ?? item.unit_rate).toFixed(2)}</>
+      )}
+      {item.billed_travel_rate != null && <>{(item.billed_quantity != null || item.billed_unit_rate != null) && '; '}Travel at ${Number(item.billed_travel_rate).toFixed(2)}/hr</>}
+      {item.billed_km_rate != null && <>{(item.billed_quantity != null || item.billed_unit_rate != null || item.billed_travel_rate != null) && '; '}KM at ${Number(item.billed_km_rate).toFixed(2)}</>}
+      {item.billed_notes_rate != null && <>{(item.billed_quantity != null || item.billed_unit_rate != null || item.billed_travel_rate != null || item.billed_km_rate != null) && '; '}Notes at ${Number(item.billed_notes_rate).toFixed(2)}/hr</>}
+      {item.billed_by_name && ` — adjusted by ${item.billed_by_name}${item.billed_at ? ` on ${fmtAdjustedDate(item.billed_at)}` : ''}`}
+    </p>
+  );
+}
+
+// Dedicated tab for reviewing and editing billing overrides — one Original/Current block per
+// line item, side by side, with live-recalculating subtotals as you type. Session qty+rate,
+// travel rate, KM rate and notes rate are each independently overridable; unedited fields fall
+// back to the item's normal rate resolution (see resolveOriginalRates).
+function BillingAdjustmentTab({ items, appointmentId, seriesId, scopedServices, canEdit, onUpdated }) {
+  const [drafts, setDrafts] = useState({});
   const [saving, setSaving] = useState(false);
   const [seriesPrompt, setSeriesPrompt] = useState(false);
   const [error, setError] = useState('');
 
-  const hasOverride = item.billed_quantity != null || item.billed_unit_rate != null;
+  const draftFor = item => {
+    if (drafts[item.id]) return drafts[item.id];
+    const orig = resolveOriginalRates(item, scopedServices);
+    return {
+      qty: item.billed_quantity ?? item.quantity,
+      rate: item.billed_unit_rate ?? item.unit_rate,
+      travelRate: item.billed_travel_rate ?? orig.travelRate,
+      kmRate: item.billed_km_rate ?? orig.kmRate,
+      notesRate: item.billed_notes_rate ?? orig.notesRate,
+    };
+  };
+  const setDraftField = (itemId, field, value) => setDrafts(d => ({ ...d, [itemId]: { ...draftFor({ id: itemId, ...items.find(i => i.id === itemId) }), ...d[itemId], [field]: value } }));
 
-  const startEdit = () => {
-    setQty(item.billed_quantity ?? item.quantity);
-    setRate(item.billed_unit_rate ?? item.unit_rate);
-    setSeriesPrompt(false);
-    setError('');
-    setEditing(true);
+  const hasTravel = item => !!(item.travel_time_to || item.travel_time_from);
+  const hasNotes = item => !!item.notes_min;
+  const hasKm = item => !!item.travel_km;
+
+  const dirtyItemIds = Object.keys(drafts).map(Number).filter(id => {
+    const item = items.find(i => i.id === id);
+    if (!item) return false;
+    const d = drafts[id];
+    const orig = resolveOriginalRates(item, scopedServices);
+    return Number(d.qty) !== Number(item.quantity) || Number(d.rate) !== orig.sessionRate
+      || Number(d.travelRate) !== orig.travelRate || Number(d.kmRate) !== orig.kmRate || Number(d.notesRate) !== orig.notesRate;
+  });
+
+  const buildPayload = (item, applyToFuture) => {
+    const d = draftFor(item);
+    const orig = resolveOriginalRates(item, scopedServices);
+    const sessionChanged = Number(d.qty) !== Number(item.quantity) || Number(d.rate) !== orig.sessionRate;
+    return {
+      billed_quantity: sessionChanged ? Number(d.qty) : null,
+      billed_unit_rate: sessionChanged ? Number(d.rate) : null,
+      billed_travel_rate: Number(d.travelRate) === orig.travelRate ? null : Number(d.travelRate),
+      billed_km_rate: Number(d.kmRate) === orig.kmRate ? null : Number(d.kmRate),
+      billed_notes_rate: Number(d.notesRate) === orig.notesRate ? null : Number(d.notesRate),
+      apply_to_future: !!applyToFuture,
+    };
   };
 
-  const doSave = async (applyToFuture) => {
+  const doSave = async applyToFuture => {
     setSaving(true); setError('');
     try {
-      const { data } = await api.patch(`/appointments/${appointmentId}/items/${item.id}/billing`, {
-        billed_quantity: qty === '' ? null : Number(qty),
-        billed_unit_rate: rate === '' ? null : Number(rate),
-        apply_to_future: !!applyToFuture,
-      });
-      setEditing(false);
+      let last = null;
+      for (const id of dirtyItemIds) {
+        const item = items.find(i => i.id === id);
+        last = (await api.patch(`/appointments/${appointmentId}/items/${id}/billing`, buildPayload(item, applyToFuture))).data;
+      }
+      setDrafts({});
       setSeriesPrompt(false);
-      onUpdated(data);
+      if (last) onUpdated(last);
     } catch (e) {
-      setError(e.response?.data?.error || 'Failed to save billing override');
+      setError(e.response?.data?.error || 'Failed to save billing adjustments');
       setSeriesPrompt(false);
-    } finally { setSaving(false); }
-  };
-
-  const clearOverride = async () => {
-    setSaving(true); setError('');
-    try {
-      const { data } = await api.patch(`/appointments/${appointmentId}/items/${item.id}/billing`, {
-        billed_quantity: null, billed_unit_rate: null, apply_to_future: false,
-      });
-      setEditing(false);
-      onUpdated(data);
-    } catch (e) {
-      setError(e.response?.data?.error || 'Failed to clear billing override');
     } finally { setSaving(false); }
   };
 
   const requestSave = () => {
+    if (!dirtyItemIds.length) return;
     if (seriesId) setSeriesPrompt(true);
     else doSave(false);
   };
 
+  const revertAll = async () => {
+    if (!confirm('Revert all billing adjustments on this appointment back to the original rates?')) return;
+    setSaving(true); setError('');
+    try {
+      let last = null;
+      for (const item of items) {
+        last = (await api.patch(`/appointments/${appointmentId}/items/${item.id}/billing`, {
+          billed_quantity: null, billed_unit_rate: null, billed_travel_rate: null, billed_km_rate: null, billed_notes_rate: null, apply_to_future: false,
+        })).data;
+      }
+      setDrafts({});
+      if (last) onUpdated(last);
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to revert billing adjustments');
+    } finally { setSaving(false); }
+  };
+
+  if (!items.length) {
+    return <p className="text-sm text-gray-400 py-8 text-center">No billable line items on this appointment.</p>;
+  }
+
   return (
-    <div className="mt-2 pt-2 border-t border-gray-100 space-y-1">
-      {hasOverride && !editing && (
-        <p className="text-xs text-amber-700">
-          Billed as {item.billed_quantity ?? item.quantity} × ${Number(item.billed_unit_rate ?? item.unit_rate).toFixed(2)}
-          {item.billed_by_name && ` — adjusted by ${item.billed_by_name}${item.billed_at ? ` on ${fmtAdjustedDate(item.billed_at)}` : ''}`}
-        </p>
-      )}
-      {canEdit && !editing && (
-        <button onClick={startEdit} className="text-xs text-indigo-600 hover:text-indigo-800">
-          {hasOverride ? 'Edit billing override' : 'Override billed hours/rate'}
-        </button>
-      )}
-      {canEdit && editing && !seriesPrompt && (
-        <div className="space-y-1.5">
-          <div className="flex items-end gap-2 flex-wrap">
-            <div className="space-y-1">
-              <label className="text-xs text-gray-500">Billed qty</label>
-              <input type="number" step="0.25" className="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
-                value={qty} onChange={e => setQty(e.target.value)} />
+    <div className="space-y-6">
+      {items.map(item => {
+        const orig = resolveOriginalRates(item, scopedServices);
+        const d = draftFor(item);
+        const travelHrs = (Number(item.travel_time_to || 0) + Number(item.travel_time_from || 0)) / 60;
+        const notesHrs = Number(item.notes_min || 0) / 60;
+
+        const origSessionSub = roundQty(item.quantity || 0) * orig.sessionRate;
+        const origTravelSub = roundQty(travelHrs) * orig.travelRate;
+        const origKmSub = roundQty(item.travel_km || 0) * orig.kmRate;
+        const origNotesSub = roundQty(notesHrs) * orig.notesRate;
+        const origSubtotal = origSessionSub + origTravelSub + origKmSub + origNotesSub;
+
+        const curSessionSub = roundQty(d.qty || 0) * Number(d.rate || 0);
+        const curTravelSub = roundQty(travelHrs) * Number(d.travelRate || 0);
+        const curKmSub = roundQty(item.travel_km || 0) * Number(d.kmRate || 0);
+        const curNotesSub = roundQty(notesHrs) * Number(d.notesRate || 0);
+        const curSubtotal = curSessionSub + curTravelSub + curKmSub + curNotesSub;
+
+        return (
+          <div key={item.id}>
+            <p className="text-sm font-medium text-gray-700 mb-2">{item.service_name || item.description}</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-1.5">Original</p>
+                <div className="rounded-lg border border-gray-200 overflow-hidden text-sm">
+                  <div className="grid grid-cols-[1fr_.6fr_.7fr_.8fr] gap-1.5 px-2.5 py-1.5 bg-gray-50 text-[11px] text-gray-400">
+                    <span>Line</span><span className="text-right">Qty</span><span className="text-right">Rate</span><span className="text-right">Subtotal</span>
+                  </div>
+                  <div className="grid grid-cols-[1fr_.6fr_.7fr_.8fr] gap-1.5 px-2.5 py-2 border-t border-gray-100 text-gray-700">
+                    <span>Session</span><span className="text-right">{item.quantity}</span><span className="text-right">${orig.sessionRate.toFixed(2)}</span><span className="text-right">${origSessionSub.toFixed(2)}</span>
+                  </div>
+                  {hasTravel(item) && (
+                    <div className="grid grid-cols-[1fr_.6fr_.7fr_.8fr] gap-1.5 px-2.5 py-2 border-t border-gray-100 text-gray-700">
+                      <span>Travel</span><span className="text-right">{travelHrs.toFixed(2)}h</span><span className="text-right">${orig.travelRate.toFixed(2)}</span><span className="text-right">${origTravelSub.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {hasKm(item) && (
+                    <div className="grid grid-cols-[1fr_.6fr_.7fr_.8fr] gap-1.5 px-2.5 py-2 border-t border-gray-100 text-gray-700">
+                      <span>KM</span><span className="text-right">{item.travel_km}</span><span className="text-right">${orig.kmRate.toFixed(2)}</span><span className="text-right">${origKmSub.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {hasNotes(item) && (
+                    <div className="grid grid-cols-[1fr_.6fr_.7fr_.8fr] gap-1.5 px-2.5 py-2 border-t border-gray-100 text-gray-700">
+                      <span>Notes</span><span className="text-right">{notesHrs.toFixed(2)}h</span><span className="text-right">${orig.notesRate.toFixed(2)}</span><span className="text-right">${origNotesSub.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-[1fr_.6fr_.7fr_.8fr] gap-1.5 px-2.5 py-2 border-t border-gray-200 bg-gray-50 font-semibold text-gray-900">
+                    <span>Subtotal</span><span /><span /><span className="text-right">${origSubtotal.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-[11px] font-medium text-indigo-400 uppercase tracking-wide mb-1.5">Current</p>
+                <div className="rounded-lg border border-indigo-200 overflow-hidden text-sm">
+                  <div className="grid grid-cols-[1fr_.6fr_.7fr_.8fr] gap-1.5 px-2.5 py-1.5 bg-indigo-50 text-[11px] text-indigo-500">
+                    <span>Line</span><span className="text-right">Qty</span><span className="text-right">Rate</span><span className="text-right">Subtotal</span>
+                  </div>
+                  <div className="grid grid-cols-[1fr_.6fr_.7fr_.8fr] gap-1.5 items-center px-2.5 py-1.5 border-t border-gray-100 text-gray-700">
+                    <span>Session</span>
+                    <input type="number" step="0.25" disabled={!canEdit} value={d.qty}
+                      onChange={e => setDraftField(item.id, 'qty', e.target.value)}
+                      className="w-full text-right text-xs rounded border border-gray-300 px-1.5 py-1 disabled:bg-gray-50" />
+                    <input type="number" step="0.01" disabled={!canEdit} value={d.rate}
+                      onChange={e => setDraftField(item.id, 'rate', e.target.value)}
+                      className="w-full text-right text-xs rounded border border-gray-300 px-1.5 py-1 disabled:bg-gray-50" />
+                    <span className="text-right font-medium">${curSessionSub.toFixed(2)}</span>
+                  </div>
+                  {hasTravel(item) && (
+                    <div className="grid grid-cols-[1fr_.6fr_.7fr_.8fr] gap-1.5 items-center px-2.5 py-1.5 border-t border-gray-100 text-gray-700">
+                      <span>Travel</span><span className="text-right text-xs text-gray-400">{travelHrs.toFixed(2)}h</span>
+                      <input type="number" step="0.01" disabled={!canEdit} value={d.travelRate}
+                        onChange={e => setDraftField(item.id, 'travelRate', e.target.value)}
+                        className="w-full text-right text-xs rounded border border-gray-300 px-1.5 py-1 disabled:bg-gray-50" />
+                      <span className="text-right font-medium">${curTravelSub.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {hasKm(item) && (
+                    <div className="grid grid-cols-[1fr_.6fr_.7fr_.8fr] gap-1.5 items-center px-2.5 py-1.5 border-t border-gray-100 text-gray-700">
+                      <span>KM</span><span className="text-right text-xs text-gray-400">{item.travel_km}</span>
+                      <input type="number" step="0.01" disabled={!canEdit} value={d.kmRate}
+                        onChange={e => setDraftField(item.id, 'kmRate', e.target.value)}
+                        className="w-full text-right text-xs rounded border border-gray-300 px-1.5 py-1 disabled:bg-gray-50" />
+                      <span className="text-right font-medium">${curKmSub.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {hasNotes(item) && (
+                    <div className="grid grid-cols-[1fr_.6fr_.7fr_.8fr] gap-1.5 items-center px-2.5 py-1.5 border-t border-gray-100 text-gray-700">
+                      <span>Notes</span><span className="text-right text-xs text-gray-400">{notesHrs.toFixed(2)}h</span>
+                      <input type="number" step="0.01" disabled={!canEdit} value={d.notesRate}
+                        onChange={e => setDraftField(item.id, 'notesRate', e.target.value)}
+                        className="w-full text-right text-xs rounded border border-gray-300 px-1.5 py-1 disabled:bg-gray-50" />
+                      <span className="text-right font-medium">${curNotesSub.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-[1fr_.6fr_.7fr_.8fr] gap-1.5 px-2.5 py-2 border-t border-indigo-200 bg-indigo-50 font-semibold text-gray-900">
+                    <span>Subtotal</span><span /><span /><span className="text-right">${curSubtotal.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs text-gray-500">Billed rate ($)</label>
-              <input type="number" step="0.01" className="w-24 rounded border border-gray-300 px-2 py-1 text-sm"
-                value={rate} onChange={e => setRate(e.target.value)} />
-            </div>
-            <Button size="sm" onClick={requestSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
-            <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
-            {hasOverride && <Button size="sm" variant="secondary" onClick={clearOverride} disabled={saving}>Clear</Button>}
+            {item.billed_by_name && (
+              <p className="mt-1.5 text-xs text-gray-400">Last adjusted by {item.billed_by_name}{item.billed_at ? ` on ${fmtAdjustedDate(item.billed_at)}` : ''}</p>
+            )}
           </div>
+        );
+      })}
+
+      {canEdit && (
+        <div className="pt-2 border-t border-gray-100 space-y-2">
+          {!seriesPrompt ? (
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" onClick={revertAll} disabled={saving} className="!border-red-200 !text-red-700 hover:!bg-red-50">
+                Revert to original
+              </Button>
+              <div className="ml-auto">
+                <Button onClick={requestSave} disabled={saving || !dirtyItemIds.length}>{saving ? 'Saving…' : 'Save'}</Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <p className="text-xs text-gray-600">Apply to this appointment only, or this and all future appointments in the series?</p>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={() => doSave(false)} disabled={saving}>This appointment only</Button>
+                <Button size="sm" variant="secondary" onClick={() => doSave(true)} disabled={saving}>This and future</Button>
+              </div>
+            </div>
+          )}
           {error && <p className="text-xs text-red-600">{error}</p>}
-        </div>
-      )}
-      {canEdit && editing && seriesPrompt && (
-        <div className="space-y-1.5">
-          <p className="text-xs text-gray-600">Apply to this appointment only, or this and all future appointments in the series?</p>
-          <div className="flex gap-2">
-            <Button size="sm" onClick={() => doSave(false)} disabled={saving}>This appointment only</Button>
-            <Button size="sm" variant="secondary" onClick={() => doSave(true)} disabled={saving}>This and future</Button>
-          </div>
         </div>
       )}
     </div>
@@ -721,6 +883,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
   // its own PATCH .../items/:itemId/billing route, separate from the main appointment save) can
   // refresh the "Adjusted by X on Y" indicator immediately without closing/reloading the modal.
   const [billingItems, setBillingItems] = useState(editing ? (appointment.items || []) : []);
+  const [modalTab, setModalTab] = useState('details');
 
   // The initial `useState` above only runs once at mount, so if this modal is opened on the
   // main Calendar page — the default landing route right after login — before the async
@@ -1111,21 +1274,40 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     setTimeout(() => setNotifyStatus(s => { const n = { ...s }; delete n[target]; return n; }), 5000);
   };
 
-  // billingItem carries the persisted billed_quantity/billed_unit_rate override (if any) —
-  // only the session line is ever overridden, travel/km/notes always bill at the raw booked
-  // values (see BillingOverrideRow / server/routes/appointments.js's billing route).
+  // billingItem carries any persisted overrides: billed_quantity/billed_unit_rate affect only
+  // the session line; billed_travel_rate/billed_notes_rate independently override the travel
+  // and clinical-notes per-hour rates. Each falls back to its own normal resolution when unset,
+  // completely independent of the others (see server/routes/appointments.js's billing route).
+  // Returns both the actual (possibly-overridden) total and the original, override-free total,
+  // so the UI can show "adjusted ($original)" when they differ.
   const calcItemTotal = (item, billingItem) => {
-    const hasOverride = billingItem && (billingItem.billed_quantity != null || billingItem.billed_unit_rate != null);
-    const qty = hasOverride ? (billingItem.billed_quantity ?? item.quantity) : item.quantity;
-    const rate = hasOverride ? (billingItem.billed_unit_rate ?? item.unit_rate) : item.unit_rate;
-    const base = roundQty(qty || 0) * Number(rate || 0);
+    const hasSessionOverride = billingItem && (billingItem.billed_quantity != null || billingItem.billed_unit_rate != null);
+    const hasTravelOverride = billingItem?.billed_travel_rate != null;
+    const hasNotesOverride = billingItem?.billed_notes_rate != null;
+    const hasKmOverride = billingItem?.billed_km_rate != null;
+    const hasOverride = hasSessionOverride || hasTravelOverride || hasNotesOverride || hasKmOverride;
+
     const svc = item.service_id ? scopedServices.find(s => s.service_id === Number(item.service_id)) : null;
     const travelTimeHrs = (Number(item.travel_time_to || 0) + Number(item.travel_time_from || 0)) / 60;
-    const travelTimeCost = roundQty(travelTimeHrs) * Number(svc?.travel_rate_per_hour || item.unit_rate || 0);
-    const kmCost = roundQty(item.travel_km || 0) * Number(svc?.km_rate || 0);
     const notesHrs = Number(item.notes_min || 0) / 60;
-    const notesCost = roundQty(notesHrs) * Number(svc?.notes_rate || item.unit_rate || 0);
-    return base + travelTimeCost + kmCost + notesCost;
+    const originalKmRate = Number(svc?.km_rate || 0);
+
+    const originalBase = roundQty(item.quantity || 0) * Number(item.unit_rate || 0);
+    const originalTravelRate = Number(svc?.travel_rate_per_hour || item.unit_rate || 0);
+    const originalNotesRate = Number(svc?.notes_rate || item.unit_rate || 0);
+    const originalKmCost = roundQty(item.travel_km || 0) * originalKmRate;
+    const originalTotal = originalBase + roundQty(travelTimeHrs) * originalTravelRate + originalKmCost + roundQty(notesHrs) * originalNotesRate;
+
+    const qty = hasSessionOverride ? (billingItem.billed_quantity ?? item.quantity) : item.quantity;
+    const rate = hasSessionOverride ? (billingItem.billed_unit_rate ?? item.unit_rate) : item.unit_rate;
+    const base = roundQty(qty || 0) * Number(rate || 0);
+    const travelRate = hasTravelOverride ? Number(billingItem.billed_travel_rate) : originalTravelRate;
+    const notesRate = hasNotesOverride ? Number(billingItem.billed_notes_rate) : originalNotesRate;
+    const kmRate = hasKmOverride ? Number(billingItem.billed_km_rate) : originalKmRate;
+    const kmCost = roundQty(item.travel_km || 0) * kmRate;
+    const total = base + roundQty(travelTimeHrs) * travelRate + kmCost + roundQty(notesHrs) * notesRate;
+
+    return { total, originalTotal, hasOverride };
   };
 
   const selectedPractitioner = practitioners.find(p => p.id === Number(form.practitioner_id));
@@ -1139,6 +1321,29 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
 
   return (
     <Modal title={editing ? `Edit Appointment — APT-${String(appointment.id).padStart(5,'0')}` : 'New Appointment'} onClose={onClose} wide>
+      {editing && billingItems.some(i => i?.id) && !!user?.permissions?.invoices && (
+        <div className="flex gap-4 border-b border-gray-100 mb-3 -mt-1">
+          {[['details', 'Details'], ['billing', 'Billing adjustment']].map(([id, label]) => (
+            <button key={id} onClick={() => setModalTab(id)}
+              className={cn('pb-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                modalTab === id ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700')}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {modalTab === 'billing' ? (
+        <div className="max-h-[70vh] overflow-y-auto pr-1">
+          <BillingAdjustmentTab
+            items={billingItems.filter(i => i?.id)}
+            appointmentId={appointment.id}
+            seriesId={appointment.series_id}
+            scopedServices={scopedServices}
+            canEdit={!!user?.permissions?.invoices}
+            onUpdated={updated => { setBillingItems(updated.items || []); if (onRefresh) onRefresh(); }}
+          />
+        </div>
+      ) : (
       <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
 
         {/* Practitioner + Client */}
@@ -1418,9 +1623,15 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
                         placeholder="Appended to the MYOB export note" />
                     </div>
                   )}
-                  <span className="text-sm text-gray-500 pb-1 shrink-0">
-                    ${calcItemTotal(item, billingItems[idx]).toFixed(2)}
-                  </span>
+                  {(() => {
+                    const { total, originalTotal, hasOverride } = calcItemTotal(item, billingItems[idx]);
+                    return (
+                      <span className="text-sm text-gray-500 pb-1 shrink-0">
+                        ${total.toFixed(2)}
+                        {hasOverride && <span className="text-xs text-gray-400"> (${originalTotal.toFixed(2)} — original)</span>}
+                      </span>
+                    );
+                  })()}
                   {form.items.length > 1 && (
                     <button onClick={() => setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))}
                       className="pb-1 text-red-400 hover:text-red-600">
@@ -1428,15 +1639,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
                     </button>
                   )}
                 </div>
-                {editing && billingItems[idx]?.id && (
-                  <BillingOverrideRow
-                    item={billingItems[idx]}
-                    appointmentId={appointment.id}
-                    seriesId={appointment.series_id}
-                    canEdit={!!user?.permissions?.invoices}
-                    onUpdated={updated => { setBillingItems(updated.items || []); if (onRefresh) onRefresh(); }}
-                  />
-                )}
+                {editing && billingItems[idx]?.id && <BillingOverrideSummary item={billingItems[idx]} />}
                 {editing && billingItems[idx]?.id && (
                   <ItemNotesRow
                     item={billingItems[idx]}
@@ -1449,9 +1652,21 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
             ))}
           </div>
           <div className="flex justify-end pt-2 border-t border-gray-100 mt-2">
-            <span className="text-sm font-semibold text-gray-900">
-              Session total: ${form.items.reduce((sum, i, idx) => sum + calcItemTotal(i, billingItems[idx]), 0).toFixed(2)}
-            </span>
+            {(() => {
+              const sums = form.items.reduce((acc, i, idx) => {
+                const r = calcItemTotal(i, billingItems[idx]);
+                acc.total += r.total;
+                acc.original += r.originalTotal;
+                acc.hasOverride = acc.hasOverride || r.hasOverride;
+                return acc;
+              }, { total: 0, original: 0, hasOverride: false });
+              return (
+                <span className="text-sm font-semibold text-gray-900">
+                  Session total: ${sums.total.toFixed(2)}
+                  {sums.hasOverride && <span className="text-xs font-normal text-gray-400"> (${sums.original.toFixed(2)} — original)</span>}
+                </span>
+              );
+            })()}
           </div>
         </div>
 
@@ -1562,6 +1777,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
         )}
 
       </div>
+      )}
 
       {/* Error popup — validation failures and save/API errors alike, always front-and-center
           rather than an easy-to-miss inline message at the bottom of a scrollable form. */}
@@ -1730,6 +1946,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
         </div>
       )}
 
+      {modalTab === 'details' && (
       <div className="flex items-center gap-2 pt-4 border-t border-gray-100 mt-4 flex-wrap">
         {editing && form.status !== 'cancelled' && <Button variant="danger" size="sm" onClick={del}>Cancel appointment</Button>}
         {editing && form.status === 'pending' && (
@@ -1762,6 +1979,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
           }
         </div>
       </div>
+      )}
     </Modal>
   );
 }

@@ -334,9 +334,9 @@ router.get('/export-myob-appointments', auth, (req, res) => {
       // before the cancellation); if travel never occurred, they're expected to already be
       // cleared on the appointment_item rather than zeroed out here.
       const travelMin = (item.travel_time_to || 0) + (item.travel_time_from || 0);
-      if (travelMin) addRow(item.travel_code || '', `Travel time (${travelMin} min)`, travelMin / 60, item.travel_rate_per_hour || item.unit_rate, gstType);
-      if (item.travel_km && item.km_rate) addRow(item.km_code || '', `Travel distance (${item.travel_km} km)`, item.travel_km, item.km_rate, gstType);
-      if (item.notes_min) addRow(item.notes_code || '', `Clinical notes (${item.notes_min} min)`, item.notes_min / 60, item.notes_rate || item.unit_rate, gstType);
+      if (travelMin) addRow(item.travel_code || '', `Travel time (${travelMin} min)`, travelMin / 60, item.billed_travel_rate ?? item.travel_rate_per_hour ?? item.unit_rate, gstType);
+      if (item.travel_km && item.km_rate) addRow(item.km_code || '', `Travel distance (${item.travel_km} km)`, item.travel_km, item.billed_km_rate ?? item.km_rate, gstType);
+      if (item.notes_min) addRow(item.notes_code || '', `Clinical notes (${item.notes_min} min)`, item.notes_min / 60, item.billed_notes_rate ?? item.notes_rate ?? item.unit_rate, gstType);
     }
   }
 
@@ -431,9 +431,9 @@ router.post('/generate', auth, (req, res) => {
         addLine(item.service_code || '', item.service_name || item.description, item.billed_quantity ?? item.quantity, item.billed_unit_rate ?? item.unit_rate, 'service');
       }
       const travelMin = (item.travel_time_to || 0) + (item.travel_time_from || 0);
-      if (travelMin) addLine(item.travel_code || '', `Travel time (${travelMin} min)`, travelMin / 60, item.travel_rate_per_hour || item.unit_rate, 'travel');
-      if (item.travel_km && item.km_rate) addLine(item.km_code || '', `Travel distance (${item.travel_km} km)`, item.travel_km, item.km_rate, 'km');
-      if (item.notes_min) addLine(item.notes_code || '', `Clinical notes (${item.notes_min} min)`, item.notes_min / 60, item.notes_rate || item.unit_rate, 'notes');
+      if (travelMin) addLine(item.travel_code || '', `Travel time (${travelMin} min)`, travelMin / 60, item.billed_travel_rate ?? item.travel_rate_per_hour ?? item.unit_rate, 'travel');
+      if (item.travel_km && item.km_rate) addLine(item.km_code || '', `Travel distance (${item.travel_km} km)`, item.travel_km, item.billed_km_rate ?? item.km_rate, 'km');
+      if (item.notes_min) addLine(item.notes_code || '', `Clinical notes (${item.notes_min} min)`, item.notes_min / 60, item.billed_notes_rate ?? item.notes_rate ?? item.unit_rate, 'notes');
     }
 
     const subtotal = lineItems.reduce((s, i) => s + i.line_total, 0);
