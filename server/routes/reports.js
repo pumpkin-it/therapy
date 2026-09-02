@@ -91,11 +91,14 @@ function buildReport({ from, to, practitionerIds, clientIds, serviceIds, groupBy
   for (const r of bookedRows) {
     const bucket = get(bucketKey(groupBy, r));
     if (r.status === 'cancelled' && r.late_cancel_billable && r.late_cancel_pct) {
+      // Session bills as a percentage fee (no real session happened); travel/km/notes below
+      // still count and bill in full — they reflect real activity already incurred (e.g. the
+      // practitioner already drove to the client's home before the cancellation).
       bucket.booked += roundQty(r.quantity) * r.unit_rate * (r.late_cancel_pct / 100);
-      continue; // no hours/travel/km/notes for a fee-only cancellation line
+    } else {
+      bucket.hours += r.quantity;
+      bucket.booked += roundQty(r.billed_quantity ?? r.quantity) * (r.billed_unit_rate ?? r.unit_rate);
     }
-    bucket.hours += r.quantity;
-    bucket.booked += roundQty(r.billed_quantity ?? r.quantity) * (r.billed_unit_rate ?? r.unit_rate);
     const travelMin = (r.travel_time_to || 0) + (r.travel_time_from || 0);
     if (travelMin) {
       bucket.travelMin += travelMin;

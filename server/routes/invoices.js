@@ -327,11 +327,16 @@ router.get('/export-myob-appointments', auth, (req, res) => {
         addRow(item.cancel_code || '', `Cancellation fee (${appt.late_cancel_pct}% — ${item.service_name || item.description})`, item.quantity, cancelRate, gstType);
       } else {
         addRow(item.service_code || '', item.service_name || item.description, item.billed_quantity ?? item.quantity, item.billed_unit_rate ?? item.unit_rate, gstType, item.item_notes);
-        const travelMin = (item.travel_time_to || 0) + (item.travel_time_from || 0);
-        if (travelMin) addRow(item.travel_code || '', `Travel time (${travelMin} min)`, travelMin / 60, item.travel_rate_per_hour || item.unit_rate, gstType);
-        if (item.travel_km && item.km_rate) addRow(item.km_code || '', `Travel distance (${item.travel_km} km)`, item.travel_km, item.km_rate, gstType);
-        if (item.notes_min) addRow(item.notes_code || '', `Clinical notes (${item.notes_min} min)`, item.notes_min / 60, item.notes_rate || item.unit_rate, gstType);
       }
+      // Travel/km/notes bill at their real, un-discounted rate regardless of a late
+      // cancellation — only the session itself is a percentage fee. These fields reflect
+      // what actually happened (e.g. the practitioner already drove to the client's home
+      // before the cancellation); if travel never occurred, they're expected to already be
+      // cleared on the appointment_item rather than zeroed out here.
+      const travelMin = (item.travel_time_to || 0) + (item.travel_time_from || 0);
+      if (travelMin) addRow(item.travel_code || '', `Travel time (${travelMin} min)`, travelMin / 60, item.travel_rate_per_hour || item.unit_rate, gstType);
+      if (item.travel_km && item.km_rate) addRow(item.km_code || '', `Travel distance (${item.travel_km} km)`, item.travel_km, item.km_rate, gstType);
+      if (item.notes_min) addRow(item.notes_code || '', `Clinical notes (${item.notes_min} min)`, item.notes_min / 60, item.notes_rate || item.unit_rate, gstType);
     }
   }
 
@@ -417,16 +422,18 @@ router.post('/generate', auth, (req, res) => {
         lineItems.push({ appointment_item_id: item.id, service_date: serviceDate, code, description: desc, quantity: qtyRounded, unit_rate: rate, line_total: lt, gst_rate: gst, gst_amount: lt * gst, gst_type: gstType, line_type: lineType });
       };
       if (appt.status === 'cancelled' && appt.late_cancel_billable && appt.late_cancel_pct) {
-        // Billable cancellation: only the cancellation fee is charged, not the normal session/travel/km/notes lines.
+        // Billable cancellation: the session bills as a percentage fee, but travel/km/notes
+        // below still bill in full — those reflect real costs already incurred (e.g. the
+        // practitioner already drove to the client's home before the cancellation).
         const cancelRate = item.unit_rate * (appt.late_cancel_pct / 100);
         addLine(item.cancel_code || '', `Cancellation fee (${appt.late_cancel_pct}% — ${item.service_name || item.description})`, item.quantity, cancelRate, 'cancellation');
       } else {
         addLine(item.service_code || '', item.service_name || item.description, item.billed_quantity ?? item.quantity, item.billed_unit_rate ?? item.unit_rate, 'service');
-        const travelMin = (item.travel_time_to || 0) + (item.travel_time_from || 0);
-        if (travelMin) addLine(item.travel_code || '', `Travel time (${travelMin} min)`, travelMin / 60, item.travel_rate_per_hour || item.unit_rate, 'travel');
-        if (item.travel_km && item.km_rate) addLine(item.km_code || '', `Travel distance (${item.travel_km} km)`, item.travel_km, item.km_rate, 'km');
-        if (item.notes_min) addLine(item.notes_code || '', `Clinical notes (${item.notes_min} min)`, item.notes_min / 60, item.notes_rate || item.unit_rate, 'notes');
       }
+      const travelMin = (item.travel_time_to || 0) + (item.travel_time_from || 0);
+      if (travelMin) addLine(item.travel_code || '', `Travel time (${travelMin} min)`, travelMin / 60, item.travel_rate_per_hour || item.unit_rate, 'travel');
+      if (item.travel_km && item.km_rate) addLine(item.km_code || '', `Travel distance (${item.travel_km} km)`, item.travel_km, item.km_rate, 'km');
+      if (item.notes_min) addLine(item.notes_code || '', `Clinical notes (${item.notes_min} min)`, item.notes_min / 60, item.notes_rate || item.unit_rate, 'notes');
     }
 
     const subtotal = lineItems.reduce((s, i) => s + i.line_total, 0);

@@ -68,9 +68,12 @@ export default function Calendar() {
 
   const goToDay = day => { setDate(startOfDay(day)); setView('day'); };
 
+  // A billable late cancellation still represents real, billable time — it stays visible in
+  // the normal view (marked LC) alongside active appointments, not just in the cancelled-only
+  // toggle, since finance/practitioners need to see it in their everyday calendar.
   const visibleAppointments = showCancelled
     ? appointments.filter(a => a.status === 'cancelled')
-    : appointments.filter(a => a.status !== 'cancelled');
+    : appointments.filter(a => a.status !== 'cancelled' || a.late_cancel_billable);
 
   return (
     <div className="flex flex-col h-full space-y-4">

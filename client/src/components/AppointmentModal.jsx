@@ -500,6 +500,7 @@ function BillingOverrideRow({ item, appointmentId, seriesId, canEdit, onUpdated 
   const [rate, setRate] = useState('');
   const [saving, setSaving] = useState(false);
   const [seriesPrompt, setSeriesPrompt] = useState(false);
+  const [error, setError] = useState('');
 
   const hasOverride = item.billed_quantity != null || item.billed_unit_rate != null;
 
@@ -507,11 +508,12 @@ function BillingOverrideRow({ item, appointmentId, seriesId, canEdit, onUpdated 
     setQty(item.billed_quantity ?? item.quantity);
     setRate(item.billed_unit_rate ?? item.unit_rate);
     setSeriesPrompt(false);
+    setError('');
     setEditing(true);
   };
 
   const doSave = async (applyToFuture) => {
-    setSaving(true);
+    setSaving(true); setError('');
     try {
       const { data } = await api.patch(`/appointments/${appointmentId}/items/${item.id}/billing`, {
         billed_quantity: qty === '' ? null : Number(qty),
@@ -521,17 +523,22 @@ function BillingOverrideRow({ item, appointmentId, seriesId, canEdit, onUpdated 
       setEditing(false);
       setSeriesPrompt(false);
       onUpdated(data);
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to save billing override');
+      setSeriesPrompt(false);
     } finally { setSaving(false); }
   };
 
   const clearOverride = async () => {
-    setSaving(true);
+    setSaving(true); setError('');
     try {
       const { data } = await api.patch(`/appointments/${appointmentId}/items/${item.id}/billing`, {
         billed_quantity: null, billed_unit_rate: null, apply_to_future: false,
       });
       setEditing(false);
       onUpdated(data);
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to clear billing override');
     } finally { setSaving(false); }
   };
 
@@ -554,20 +561,23 @@ function BillingOverrideRow({ item, appointmentId, seriesId, canEdit, onUpdated 
         </button>
       )}
       {canEdit && editing && !seriesPrompt && (
-        <div className="flex items-end gap-2 flex-wrap">
-          <div className="space-y-1">
-            <label className="text-xs text-gray-500">Billed qty</label>
-            <input type="number" step="0.25" className="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
-              value={qty} onChange={e => setQty(e.target.value)} />
+        <div className="space-y-1.5">
+          <div className="flex items-end gap-2 flex-wrap">
+            <div className="space-y-1">
+              <label className="text-xs text-gray-500">Billed qty</label>
+              <input type="number" step="0.25" className="w-20 rounded border border-gray-300 px-2 py-1 text-sm"
+                value={qty} onChange={e => setQty(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-gray-500">Billed rate ($)</label>
+              <input type="number" step="0.01" className="w-24 rounded border border-gray-300 px-2 py-1 text-sm"
+                value={rate} onChange={e => setRate(e.target.value)} />
+            </div>
+            <Button size="sm" onClick={requestSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+            <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
+            {hasOverride && <Button size="sm" variant="secondary" onClick={clearOverride} disabled={saving}>Clear</Button>}
           </div>
-          <div className="space-y-1">
-            <label className="text-xs text-gray-500">Billed rate ($)</label>
-            <input type="number" step="0.01" className="w-24 rounded border border-gray-300 px-2 py-1 text-sm"
-              value={rate} onChange={e => setRate(e.target.value)} />
-          </div>
-          <Button size="sm" onClick={requestSave} disabled={saving}>Save</Button>
-          <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
-          {hasOverride && <Button size="sm" variant="secondary" onClick={clearOverride} disabled={saving}>Clear</Button>}
+          {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
       )}
       {canEdit && editing && seriesPrompt && (
@@ -587,15 +597,18 @@ function ItemNotesRow({ item, appointmentId, canEdit, onUpdated }) {
   const [editing, setEditing] = useState(false);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
-  const startEdit = () => { setNotes(item.item_notes || ''); setEditing(true); };
+  const startEdit = () => { setNotes(item.item_notes || ''); setError(''); setEditing(true); };
 
   const doSave = async () => {
-    setSaving(true);
+    setSaving(true); setError('');
     try {
       const { data } = await api.patch(`/appointments/${appointmentId}/items/${item.id}/notes`, { item_notes: notes || null });
       setEditing(false);
       onUpdated(data);
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to save invoice note');
     } finally { setSaving(false); }
   };
 
@@ -610,14 +623,17 @@ function ItemNotesRow({ item, appointmentId, canEdit, onUpdated }) {
         </button>
       )}
       {canEdit && editing && (
-        <div className="flex items-end gap-2 flex-wrap">
-          <div className="flex-1 min-w-[180px] space-y-1">
-            <label className="text-xs text-gray-500">Invoice notes</label>
-            <input type="text" className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
-              value={notes} onChange={e => setNotes(e.target.value)} placeholder="Appended to the MYOB export note" />
+        <div className="space-y-1.5">
+          <div className="flex items-end gap-2 flex-wrap">
+            <div className="flex-1 min-w-[180px] space-y-1">
+              <label className="text-xs text-gray-500">Invoice notes</label>
+              <input type="text" className="w-full rounded border border-gray-300 px-2 py-1 text-sm"
+                value={notes} onChange={e => setNotes(e.target.value)} placeholder="Appended to the MYOB export note" />
+            </div>
+            <Button size="sm" onClick={doSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+            <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
           </div>
-          <Button size="sm" onClick={doSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
-          <Button size="sm" variant="secondary" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
+          {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
       )}
     </div>

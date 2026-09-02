@@ -213,7 +213,9 @@ export function DayView({ date, appointments, practitioners, filteredPractitione
                   >
                     <div className="absolute bottom-0.5 right-0.5 flex gap-0.5">
                       {appt.status === 'pending' && <span className="h-3.5 w-3.5 rounded-full bg-gray-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">P</span>}
-                      {appt.status === 'cancelled' && <span className="h-3.5 w-3.5 rounded-full bg-red-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">C</span>}
+                      {appt.status === 'cancelled' && (appt.late_cancel_billable
+                        ? <span className="h-3.5 px-1 rounded-full bg-red-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">LC</span>
+                        : <span className="h-3.5 w-3.5 rounded-full bg-red-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">C</span>)}
                       {appt.series_id && <span className="h-3.5 w-3.5 rounded-full bg-indigo-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">R</span>}
                     </div>
                     <div className="font-medium truncate">{appt.client_name}</div>
@@ -311,7 +313,9 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
                   >
                     <div className="absolute bottom-0.5 right-0.5 flex gap-0.5">
                       {appt.status === 'pending' && <span className="h-3.5 w-3.5 rounded-full bg-gray-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">P</span>}
-                      {appt.status === 'cancelled' && <span className="h-3.5 w-3.5 rounded-full bg-red-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">C</span>}
+                      {appt.status === 'cancelled' && (appt.late_cancel_billable
+                        ? <span className="h-3.5 px-1 rounded-full bg-red-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">LC</span>
+                        : <span className="h-3.5 w-3.5 rounded-full bg-red-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">C</span>)}
                       {appt.series_id && <span className="h-3.5 w-3.5 rounded-full bg-indigo-600 text-white text-[8px] font-bold flex items-center justify-center leading-none">R</span>}
                     </div>
                     <div className="font-medium truncate">{appt.client_name}</div>
@@ -383,7 +387,9 @@ export function MonthView({ date, appointments, practitioners, filteredPractitio
                   >
                     <div className="truncate">
                       {appt.status === 'pending' && <span className="inline-flex items-center justify-center h-3 w-3 rounded-full bg-gray-600 text-white text-[7px] font-bold mr-0.5 leading-none">P</span>}
-                      {appt.status === 'cancelled' && <span className="inline-flex items-center justify-center h-3 w-3 rounded-full bg-red-600 text-white text-[7px] font-bold mr-0.5 leading-none">C</span>}
+                      {appt.status === 'cancelled' && (appt.late_cancel_billable
+                        ? <span className="inline-flex items-center justify-center h-3 px-0.5 rounded-full bg-red-600 text-white text-[7px] font-bold mr-0.5 leading-none">LC</span>
+                        : <span className="inline-flex items-center justify-center h-3 w-3 rounded-full bg-red-600 text-white text-[7px] font-bold mr-0.5 leading-none">C</span>)}
                       {appt.series_id && <span className="inline-flex items-center justify-center h-3 w-3 rounded-full bg-indigo-600 text-white text-[7px] font-bold mr-0.5 leading-none">R</span>}{fmtTime(appt.start_time)}–{fmtTime(appt.end_time)} {appt.client_name}
                     </div>
                     {apptSuburb(appt) && <div className="truncate font-normal opacity-70">{apptSuburb(appt)}</div>}
@@ -433,7 +439,7 @@ export function EmbeddedCalendar({ clientId, practitionerId }) {
 
   const visibleAppointments = showCancelled
     ? appointments.filter(a => a.status === 'cancelled')
-    : appointments.filter(a => a.status !== 'cancelled');
+    : appointments.filter(a => a.status !== 'cancelled' || a.late_cancel_billable);
 
   useEffect(() => { api.get('/practitioners').then(r => setPractitioners(r.data)); }, []);
   useEffect(() => { load(); }, [dateStr, view]);

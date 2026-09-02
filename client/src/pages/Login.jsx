@@ -24,8 +24,14 @@ export default function Login() {
     try {
       await login(email, password);
       navigate('/calendar');
-    } catch {
-      setError('Invalid email or password.');
+    } catch (err) {
+      if (err.response?.status === 401) {
+        setError('Invalid email or password.');
+      } else if (err.response) {
+        setError('Server error — please try again in a moment.');
+      } else {
+        setError('Could not reach the server. Check your connection and try again.');
+      }
     } finally {
       setLoading(false);
     }
