@@ -1111,8 +1111,14 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     setTimeout(() => setNotifyStatus(s => { const n = { ...s }; delete n[target]; return n; }), 5000);
   };
 
-  const calcItemTotal = (item) => {
-    const base = roundQty(item.quantity || 0) * Number(item.unit_rate || 0);
+  // billingItem carries the persisted billed_quantity/billed_unit_rate override (if any) —
+  // only the session line is ever overridden, travel/km/notes always bill at the raw booked
+  // values (see BillingOverrideRow / server/routes/appointments.js's billing route).
+  const calcItemTotal = (item, billingItem) => {
+    const hasOverride = billingItem && (billingItem.billed_quantity != null || billingItem.billed_unit_rate != null);
+    const qty = hasOverride ? (billingItem.billed_quantity ?? item.quantity) : item.quantity;
+    const rate = hasOverride ? (billingItem.billed_unit_rate ?? item.unit_rate) : item.unit_rate;
+    const base = roundQty(qty || 0) * Number(rate || 0);
     const svc = item.service_id ? scopedServices.find(s => s.service_id === Number(item.service_id)) : null;
     const travelTimeHrs = (Number(item.travel_time_to || 0) + Number(item.travel_time_from || 0)) / 60;
     const travelTimeCost = roundQty(travelTimeHrs) * Number(svc?.travel_rate_per_hour || item.unit_rate || 0);
@@ -1413,7 +1419,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
                     </div>
                   )}
                   <span className="text-sm text-gray-500 pb-1 shrink-0">
-                    ${calcItemTotal(item).toFixed(2)}
+                    ${calcItemTotal(item, billingItems[idx]).toFixed(2)}
                   </span>
                   {form.items.length > 1 && (
                     <button onClick={() => setForm(f => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))}
@@ -1444,7 +1450,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
           </div>
           <div className="flex justify-end pt-2 border-t border-gray-100 mt-2">
             <span className="text-sm font-semibold text-gray-900">
-              Session total: ${form.items.reduce((sum, i) => sum + calcItemTotal(i), 0).toFixed(2)}
+              Session total: ${form.items.reduce((sum, i, idx) => sum + calcItemTotal(i, billingItems[idx]), 0).toFixed(2)}
             </span>
           </div>
         </div>
