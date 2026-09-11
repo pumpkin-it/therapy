@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Plus, Pencil, Trash2, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, ChevronDown, ChevronRight, Folder } from 'lucide-react';
 import Quill from 'quill';
 import 'quill/dist/quill.snow.css';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
+import { buildFolderTree, sortedChildren, sortedItems, countItems } from '../lib/formFolders';
 
 // Variables available per template type/code
 const EMAIL_VARS = {
@@ -385,20 +386,79 @@ function AgreementTemplates() {
 }
 
 // ─── Forms tab ────────────────────────────────────────────────────────────────
+function FormCard({ f, onEdit, onRemove }) {
+  const fieldCount = (f.schema?.sections || []).reduce((n, s) => n + s.fields.length, 0);
+  const sectionCount = (f.schema?.sections || []).length;
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-4 flex items-start gap-3">
+      <div className="flex-1 min-w-0">
+        <p className="font-medium text-gray-900 text-sm">{f.name}</p>
+        <p className="text-xs text-gray-400 mt-0.5">
+          {sectionCount} section{sectionCount === 1 ? '' : 's'} &middot; {fieldCount} field{fieldCount === 1 ? '' : 's'}
+        </p>
+      </div>
+      <div className="flex gap-1 shrink-0">
+        <button onClick={onEdit} className="p-1.5 text-gray-400 hover:text-indigo-600"><Pencil className="h-4 w-4" /></button>
+        <button onClick={onRemove} className="p-1.5 text-gray-400 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
+      </div>
+    </div>
+  );
+}
+
+// Recursive folder tree — subfolders (sorted, collapsible) rendered before this level's own
+// forms (also sorted), same ordering convention as a file explorer.
+function FormFolderNode({ node, path, openFolders, toggleFolder, onEdit, onRemove }) {
+  return (
+    <div className="space-y-2">
+      {sortedChildren(node).map(name => {
+        const fullPath = path ? `${path}/${name}` : name;
+        const isOpen = openFolders.has(fullPath);
+        const child = node.children[name];
+        return (
+          <div key={fullPath} className="space-y-2">
+            <button type="button" onClick={() => toggleFolder(fullPath)}
+              className="w-full flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100">
+              {isOpen ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+              <Folder className="h-4 w-4 shrink-0 text-indigo-400" />
+              <span className="truncate">{name}</span>
+              <span className="ml-auto text-xs text-gray-400 font-normal shrink-0">{countItems(child)}</span>
+            </button>
+            {isOpen && (
+              <div className="pl-4 ml-2.5 border-l border-gray-100 space-y-2">
+                <FormFolderNode node={child} path={fullPath} openFolders={openFolders} toggleFolder={toggleFolder} onEdit={onEdit} onRemove={onRemove} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {sortedItems(node).map(f => (
+        <FormCard key={f.id} f={f} onEdit={() => onEdit(f)} onRemove={() => onRemove(f)} />
+      ))}
+    </div>
+  );
+}
+
 function FormTemplates() {
   const [forms, setForms] = useState([]);
+  const [openFolders, setOpenFolders] = useState(() => new Set());
   const navigate = useNavigate();
 
   const load = () => api.get('/form-templates').then(r => setForms(r.data));
   useEffect(() => { load(); }, []);
 
-  const remove = async id => {
+  const remove = async f => {
     if (!confirm('Delete this form?')) return;
-    await api.delete(`/form-templates/${id}`);
+    await api.delete(`/form-templates/${f.id}`);
     load();
   };
 
-  const fieldCount = f => (f.schema?.sections || []).reduce((n, s) => n + s.fields.length, 0);
+  const toggleFolder = path => setOpenFolders(prev => {
+    const next = new Set(prev);
+    next.has(path) ? next.delete(path) : next.add(path);
+    return next;
+  });
+
+  const tree = buildFolderTree(forms);
 
   return (
     <div className="space-y-3">
@@ -410,20 +470,14 @@ function FormTemplates() {
         <p className="text-sm text-gray-400 py-8 text-center">No forms yet — build one to gather client info in-session or send it ahead via a link.</p>
       )}
 
-      {forms.map(f => (
-        <div key={f.id} className="rounded-xl border border-gray-200 bg-white shadow-sm p-4 flex items-start gap-3">
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-gray-900 text-sm">{f.name}</p>
-            <p className="text-xs text-gray-400 mt-0.5">
-              {(f.schema?.sections || []).length} section{(f.schema?.sections || []).length === 1 ? '' : 's'} &middot; {fieldCount(f)} field{fieldCount(f) === 1 ? '' : 's'}
-            </p>
-          </div>
-          <div className="flex gap-1 shrink-0">
-            <button onClick={() => navigate(`/templates/forms/${f.id}`)} className="p-1.5 text-gray-400 hover:text-indigo-600"><Pencil className="h-4 w-4" /></button>
-            <button onClick={() => remove(f.id)} className="p-1.5 text-gray-400 hover:text-red-500"><Trash2 className="h-4 w-4" /></button>
-          </div>
-        </div>
-      ))}
+      <FormFolderNode
+        node={tree}
+        path=""
+        openFolders={openFolders}
+        toggleFolder={toggleFolder}
+        onEdit={f => navigate(`/templates/forms/${f.id}`)}
+        onRemove={remove}
+      />
     </div>
   );
 }
@@ -435,7 +489,7 @@ export default function Templates() {
   const TABS = [['email', 'Email Templates'], ['session_note', 'Session Note Templates'], ['agreement', 'Agreement Templates'], ['forms', 'Forms']];
 
   return (
-    <div className={tab === 'forms' ? 'space-y-6' : 'max-w-3xl mx-auto space-y-6'}>
+    <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-gray-900">Templates</h1>
         <p className="text-sm text-gray-500 mt-0.5">Edit system email templates and create session note templates</p>

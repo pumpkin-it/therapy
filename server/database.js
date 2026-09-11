@@ -894,6 +894,12 @@ try {
 //      nullable and status already has 'accepted'/'declined' so it can be added later without
 //      a schema change.
 //
+// form_templates.folder is an optional "/"-separated path (e.g. "OT Forms/Assessment Forms")
+// used purely to group the template list into collapsible folders in the UI — a flat string on
+// the row, not a separate table, matching this app's general "flat field over new abstraction
+// table" preference. NULL/empty means ungrouped (shown at the top level). Depth is unlimited but
+// the UI is only ever exercised with 1-2 levels in practice.
+//
 // schema_json on form_templates shapes as { sections: [{ id, title, fields: [...] }] }.
 // Each field is { id, kind: 'smart'|'custom', type, label, required, options?, binding? }.
 //   - kind:'custom' fields (statement, short_answer, paragraph, checkboxes, dropdown,
@@ -920,6 +926,7 @@ try { db.exec(`
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `); } catch {}
+try { db.exec(`ALTER TABLE form_templates ADD COLUMN folder TEXT`); } catch {}
 
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS form_responses (
@@ -1003,5 +1010,65 @@ try { db.exec(`ALTER TABLE appointments ADD COLUMN myob_status_synced_at DATETIM
 try { db.exec(`ALTER TABLE appointment_items ADD COLUMN billed_travel_rate REAL`); } catch {}
 try { db.exec(`ALTER TABLE appointment_items ADD COLUMN billed_notes_rate REAL`); } catch {}
 try { db.exec(`ALTER TABLE appointment_items ADD COLUMN billed_km_rate REAL`); } catch {}
+
+// Client file reports — reports (finished clinical/assessment PDFs, authored externally in
+// Word, uploaded as-is) live as ordinary client_files rows rather than a separate upload flow,
+// so a document is never in two places at once. This side table adds only the report-specific
+// fields onto an existing client_files row, 1:1. A blurred/watermarked preview_filename is
+// rendered server-side when a file is "shared as a draft report" — see
+// server/services/reportRedact.js. status stays 'pending' until finance manually flips it to
+// 'released' (no in-app payment tracking — MYOB reconciliation is external) — the public
+// view_token link automatically starts serving the real client_files original once released,
+// same link throughout. visible_pages: how many leading pages the pending preview shows in
+// full (still watermarked) rather than blurred, so a client can confirm the report is genuinely
+// theirs before it's blurred from there on — set per report since only the practitioner knows
+// which pages of their own template are identifying vs substantive.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS client_file_reports (
+    client_file_id INTEGER PRIMARY KEY REFERENCES client_files(id) ON DELETE CASCADE,
+    status TEXT NOT NULL DEFAULT 'pending',
+    view_token TEXT UNIQUE NOT NULL,
+    preview_filename TEXT NOT NULL,
+    visible_pages INTEGER NOT NULL DEFAULT 1,
+    released_at TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec(`CREATE UNIQUE INDEX idx_client_file_reports_token ON client_file_reports(view_token)`); } catch {}
+
+// One-time migration off the short-lived standalone report_documents table (folded into
+// client_files/client_file_reports above) — copies each row into a real client_files entry
+// plus its report side-row, then drops the old table. Guarded on report_documents still
+// existing, so this is a no-op — safe to leave in place — on every run after the first.
+try {
+  const oldTableExists = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='report_documents'").get();
+  if (oldTableExists) {
+    const fs = require('fs');
+    const uploadsDir = path.join(__dirname, '../uploads');
+    const oldReports = db.prepare('SELECT * FROM report_documents').all();
+    for (const r of oldReports) {
+      let size = null;
+      try { size = fs.statSync(path.join(uploadsDir, r.original_filename)).size; } catch {}
+      const file = db.prepare(`
+        INSERT INTO client_files (client_id, filename, original_name, size, mime_type, label, created_at)
+        VALUES (?, ?, ?, ?, 'application/pdf', ?, ?)
+      `).run(r.client_id, r.original_filename, `${r.title}.pdf`, size, r.title, r.created_at);
+      db.prepare(`
+        INSERT INTO client_file_reports (client_file_id, status, view_token, preview_filename, visible_pages, released_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(file.lastInsertRowid, r.status, r.view_token, r.preview_filename, r.visible_pages, r.released_at, r.created_at);
+    }
+    db.exec('DROP TABLE report_documents');
+    if (oldReports.length) console.log(`Migrated ${oldReports.length} report_documents row(s) into client_files`);
+  }
+} catch (e) { console.error('report_documents migration failed:', e); }
+
+// Client portal — a single durable per-client link (same bearer-token model as
+// agreements.signing_token / practitioners.cal_token) showing every client_files row that has
+// a client_file_reports entry, i.e. everything explicitly marked shareable for that client —
+// see server/routes/clientPortal.js. Lazily generated on first request
+// (clients.js's reset-portal-token), not backfilled for every client.
+try { db.exec(`ALTER TABLE clients ADD COLUMN portal_token TEXT`); } catch {}
+try { db.exec(`CREATE UNIQUE INDEX idx_clients_portal_token ON clients(portal_token) WHERE portal_token IS NOT NULL`); } catch {}
 
 module.exports = db;

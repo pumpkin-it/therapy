@@ -1,9 +1,21 @@
 import { useState, useEffect } from 'react';
+import { TriangleAlert } from 'lucide-react';
 import api from '../lib/api';
 import Modal from './ui/Modal';
 import Button from './ui/Button';
-import FormRenderer from './FormRenderer';
+import FormRenderer, { isFieldEmpty } from './FormRenderer';
 import { localToday } from '../lib/utils';
+
+function findMissingRequired(schema, answers) {
+  const missing = [];
+  for (const section of schema?.sections || []) {
+    for (const field of section.fields) {
+      if (!field.required) continue;
+      if (isFieldEmpty(field, answers[field.id])) missing.push(field);
+    }
+  }
+  return missing;
+}
 
 const isActivePeriod = p => (!p.start_date || p.start_date === '1111-01-01' || p.start_date <= localToday())
   && (!p.end_date || p.end_date === '9999-09-09' || p.end_date >= localToday());
@@ -52,6 +64,8 @@ export default function FormFillModal({ clientId, client, formTemplate, response
   const [fundsManagerOptions, setFundsManagerOptions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [missingFieldIds, setMissingFieldIds] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -79,6 +93,13 @@ export default function FormFillModal({ clientId, client, formTemplate, response
   const setAnswer = (fieldId, value) => setAnswers(a => ({ ...a, [fieldId]: value }));
 
   const save = async () => {
+    const missing = findMissingRequired(schema, answers);
+    if (missing.length) {
+      setMissingFieldIds(new Set(missing.map(f => f.id)));
+      setError(`${missing.length === 1 ? 'A required field is' : `${missing.length} required fields are`} still empty — they're highlighted in red below.`);
+      return;
+    }
+    setMissingFieldIds(null);
     setSaving(true);
     try {
       if (responseId) {
@@ -96,10 +117,24 @@ export default function FormFillModal({ clientId, client, formTemplate, response
         <p className="text-sm text-gray-400 py-8 text-center">Loading…</p>
       ) : (
         <div className="space-y-6">
-          <FormRenderer schema={schema} values={answers} onChange={setAnswer} funderOptions={funderOptions} fundsManagerOptions={fundsManagerOptions} />
+          <FormRenderer schema={schema} values={answers} onChange={setAnswer} funderOptions={funderOptions} fundsManagerOptions={fundsManagerOptions} invalidFieldIds={missingFieldIds} />
           <div className="flex justify-end gap-2 pt-4 border-t border-gray-100">
             <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
             <Button size="sm" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+            <div className="flex items-start gap-3">
+              <TriangleAlert className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
+              <p className="text-sm text-gray-700">{error}</p>
+            </div>
+            <div className="flex justify-end">
+              <Button size="sm" onClick={() => setError('')}>OK</Button>
+            </div>
           </div>
         </div>
       )}

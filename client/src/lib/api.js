@@ -11,7 +11,7 @@ api.interceptors.request.use(config => {
 api.interceptors.response.use(
   res => res,
   err => {
-    const onAuthPage = window.location.pathname === '/login' || window.location.pathname === '/reset-password' || window.location.pathname.startsWith('/sign/');
+    const onAuthPage = window.location.pathname === '/login' || window.location.pathname === '/reset-password' || window.location.pathname.startsWith('/sign/') || window.location.pathname.startsWith('/report/') || window.location.pathname.startsWith('/portal/');
     if (err.response?.status === 401 && !onAuthPage) {
       localStorage.removeItem('pm_token');
       localStorage.removeItem('pm_login_at');

@@ -23,10 +23,12 @@ const perm = require('./middleware/requirePermission');
 app.use('/api/cal',             require('./routes/calendarFeed'));
 app.use('/api/auth',            require('./routes/auth'));
 app.use('/api/sign',            require('./routes/signAgreement'));
+app.use('/api/report-view',     require('./routes/reportView'));
+app.use('/api/portal',          require('./routes/clientPortal'));
 
 // All routes below require authentication
 app.use('/api', (req, res, next) => {
-  if (req.path.startsWith('/auth') || req.path.startsWith('/cal') || req.path.startsWith('/sign') || req.path === '/health') return next();
+  if (req.path.startsWith('/auth') || req.path.startsWith('/cal') || req.path.startsWith('/sign') || req.path.startsWith('/report-view') || req.path.startsWith('/portal') || req.path === '/health') return next();
   auth(req, res, next);
 });
 

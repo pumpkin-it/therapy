@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
-import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, Folder, FolderPlus, Paperclip, X, UserX, UserCheck, Search } from 'lucide-react';
+import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, Folder, FolderPlus, Paperclip, X, UserX, UserCheck, Search, ChevronDown, ChevronRight } from 'lucide-react';
 import api from '../lib/api';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 import Button from '../components/ui/Button';
@@ -17,6 +17,7 @@ import AgreementPricingTable from '../components/AgreementPricingTable';
 import SessionNoteEmailModal from '../components/SessionNoteEmailModal';
 import FormFillModal from '../components/FormFillModal';
 import EntityAuditLog from '../components/EntityAuditLog';
+import { buildFolderTree, sortedChildren, sortedItems, countItems } from '../lib/formFolders';
 
 const AGREEMENT_STATUS_COLOR = {
   draft: 'bg-gray-100 text-gray-600', sent: 'bg-blue-100 text-blue-700', viewed: 'bg-amber-100 text-amber-700',
@@ -637,12 +638,21 @@ function BillingSummaryTab({ clientId }) {
   );
 }
 
+// Reports are authored externally in Word and shared here as a finished PDF already in Files —
+// never a separate upload. A blurred/watermarked preview is rendered server-side when a file is
+// shared, so a client can be sent proof the report is done without reading/extracting it before
+// release. Release is a manual finance/admin toggle (this practice has no in-app payment
+// tracking). See FilesTab below — reports live as ordinary files, not a separate tab.
+const REPORT_STATUS_COLOR = { pending: 'bg-amber-100 text-amber-700', released: 'bg-green-100 text-green-700' };
+
 // ─── Files tab ────────────────────────────────────────────────────────────────
 function FilesTab({ clientId }) {
   const { timezone } = useSettings();
+  const [view, setView] = useState('folder'); // 'folder' | 'shared' — shared flattens every shared file across all folders
   const [folders, setFolders] = useState([]);
   const [currentFolder, setCurrentFolder] = useState(null); // folder object, or null = root
   const [files, setFiles] = useState([]);
+  const [sharedFiles, setSharedFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [pendingFile, setPendingFile] = useState(null); // File awaiting a label before upload
@@ -652,13 +662,21 @@ function FilesTab({ clientId }) {
   const [editingLabelId, setEditingLabelId] = useState(null);
   const [editLabelDraft, setEditLabelDraft] = useState('');
   const [blockedFolder, setBlockedFolder] = useState(null); // { name, usage }
+  const [copiedId, setCopiedId] = useState(null);
+  const [editingPagesId, setEditingPagesId] = useState(null);
+  const [editVisiblePages, setEditVisiblePages] = useState(1);
+  const [savingPages, setSavingPages] = useState(false);
+  const [reportError, setReportError] = useState('');
   const inputRef = useRef();
 
   const loadFolders = () => api.get(`/client-file-folders?client_id=${clientId}`).then(r => setFolders(r.data));
   const loadFiles = () => api.get(`/client-files?client_id=${clientId}&folder_id=${currentFolder ? currentFolder.id : 'root'}`).then(r => setFiles(r.data));
+  const loadShared = () => api.get(`/client-files?client_id=${clientId}&shared=1`).then(r => setSharedFiles(r.data));
+  const refreshCurrentView = () => view === 'shared' ? loadShared() : loadFiles();
 
   useEffect(() => { loadFolders(); }, []);
   useEffect(() => { loadFiles(); }, [currentFolder]);
+  useEffect(() => { if (view === 'shared') loadShared(); }, [view]);
 
   const pickFile = e => {
     const file = e.target.files[0];
@@ -696,24 +714,24 @@ function FilesTab({ clientId }) {
   const remove = async id => {
     if (!confirm('Delete this file?')) return;
     await api.delete(`/client-files/${id}`);
-    loadFiles();
-    if (currentFolder) loadFolders();
+    refreshCurrentView();
+    loadFolders();
   };
 
   const download = id => {
-    const file = files.find(f => f.id === id);
+    const file = (view === 'shared' ? sharedFiles : files).find(f => f.id === id);
     downloadFile(api, `/client-files/${id}/download`, file?.original_name || 'download');
   };
 
   const saveLabel = async id => {
     await api.patch(`/client-files/${id}`, { label: editLabelDraft.trim() || null });
     setEditingLabelId(null);
-    loadFiles();
+    refreshCurrentView();
   };
 
   const moveFile = async (id, folderId) => {
     await api.patch(`/client-files/${id}`, { folder_id: folderId || null });
-    loadFiles();
+    refreshCurrentView();
     loadFolders();
   };
 
@@ -737,42 +755,99 @@ function FilesTab({ clientId }) {
 
   const fmt = bytes => bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
+  const shareReport = async f => {
+    setReportError('');
+    try {
+      await api.post(`/client-files/${f.id}/share-report`, { visible_pages: 1 });
+      refreshCurrentView();
+    } catch (e) {
+      setReportError(e.response?.data?.error || 'Failed to share as a report');
+    }
+  };
+
+  const stopSharing = async f => {
+    if (!confirm(`Stop sharing "${f.label || f.original_name}"? Its link will no longer work.`)) return;
+    await api.delete(`/client-files/${f.id}/share-report`);
+    refreshCurrentView();
+  };
+
+  const toggleReportStatus = async f => {
+    const next = f.report_status === 'released' ? 'pending' : 'released';
+    if (next === 'pending' && !confirm('Revert this report to draft? The client\'s link will show the blurred preview again.')) return;
+    await api.patch(`/client-files/${f.id}/report-status`, { status: next });
+    refreshCurrentView();
+  };
+
+  const startEditPages = f => {
+    setEditingPagesId(f.id);
+    setEditVisiblePages(f.report_visible_pages ?? 1);
+  };
+
+  const saveVisiblePages = async f => {
+    setSavingPages(true);
+    setReportError('');
+    try {
+      await api.patch(`/client-files/${f.id}/report-visible-pages`, { visible_pages: editVisiblePages });
+      setEditingPagesId(null);
+      refreshCurrentView();
+    } catch (e) {
+      setReportError(e.response?.data?.error || 'Failed to update visible pages');
+    } finally {
+      setSavingPages(false);
+    }
+  };
+
+  const copyReportLink = f => {
+    navigator.clipboard.writeText(`${window.location.origin}/report/${f.report_view_token}`);
+    setCopiedId(f.id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   return (
     <div className="space-y-3">
       {uploadError && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{uploadError}</div>
       )}
+      {reportError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{reportError}</div>
+      )}
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-sm min-w-0">
-          {currentFolder ? (
-            <button onClick={() => setCurrentFolder(null)} className="flex items-center gap-1 text-gray-500 hover:text-indigo-600 shrink-0">
-              <ArrowLeft className="h-3.5 w-3.5" /> Files
-            </button>
-          ) : (
-            <span className="text-gray-500">Files</span>
-          )}
-          {currentFolder && (
+          <button onClick={() => setView('folder')}
+            className={`px-2.5 py-1 rounded-md font-medium shrink-0 ${view === 'folder' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:text-gray-700'}`}>
+            Files
+          </button>
+          <button onClick={() => setView('shared')}
+            className={`px-2.5 py-1 rounded-md font-medium shrink-0 ${view === 'shared' ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:text-gray-700'}`}>
+            Shared
+          </button>
+          {view === 'folder' && currentFolder && (
             <>
               <span className="text-gray-300">/</span>
               <span className="font-medium text-gray-700 truncate">{currentFolder.name}</span>
+              <button onClick={() => setCurrentFolder(null)} className="text-gray-400 hover:text-indigo-600 shrink-0 ml-1" title="Back to all files">
+                <ArrowLeft className="h-3.5 w-3.5" />
+              </button>
             </>
           )}
         </div>
-        <div className="flex gap-2 shrink-0">
-          {!currentFolder && (
-            <Button size="sm" variant="secondary" onClick={() => setNewFolderOpen(o => !o)}>
-              <FolderPlus className="h-3.5 w-3.5" /> New folder
+        {view === 'folder' && (
+          <div className="flex gap-2 shrink-0">
+            {!currentFolder && (
+              <Button size="sm" variant="secondary" onClick={() => setNewFolderOpen(o => !o)}>
+                <FolderPlus className="h-3.5 w-3.5" /> New folder
+              </Button>
+            )}
+            <input ref={inputRef} type="file" className="hidden" onChange={pickFile} />
+            <Button size="sm" onClick={() => inputRef.current.click()} disabled={uploading}>
+              <Upload className="h-3.5 w-3.5" /> {uploading ? 'Uploading…' : 'Upload file'}
             </Button>
-          )}
-          <input ref={inputRef} type="file" className="hidden" onChange={pickFile} />
-          <Button size="sm" onClick={() => inputRef.current.click()} disabled={uploading}>
-            <Upload className="h-3.5 w-3.5" /> {uploading ? 'Uploading…' : 'Upload file'}
-          </Button>
-        </div>
+          </div>
+        )}
       </div>
 
-      {newFolderOpen && !currentFolder && (
+      {view === 'folder' && newFolderOpen && !currentFolder && (
         <div className="flex gap-2">
           <input autoFocus className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             placeholder="Folder name" value={newFolderName} onChange={e => setNewFolderName(e.target.value)}
@@ -781,7 +856,7 @@ function FilesTab({ clientId }) {
         </div>
       )}
 
-      {!currentFolder && folders.map(f => (
+      {view === 'folder' && !currentFolder && folders.map(f => (
         <div key={f.id} onClick={() => setCurrentFolder(f)}
           className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 cursor-pointer hover:border-indigo-300">
           <Folder className="h-4 w-4 text-indigo-400 shrink-0" />
@@ -795,45 +870,82 @@ function FilesTab({ clientId }) {
         </div>
       ))}
 
-      {!currentFolder && folders.length === 0 && files.length === 0 && (
+      {view === 'folder' && !currentFolder && folders.length === 0 && files.length === 0 && (
         <p className="text-sm text-gray-400 py-6 text-center">No files uploaded yet.</p>
       )}
-      {currentFolder && files.length === 0 && (
+      {view === 'folder' && currentFolder && files.length === 0 && (
         <p className="text-sm text-gray-400 py-6 text-center">No files in this folder yet.</p>
       )}
+      {view === 'shared' && sharedFiles.length === 0 && (
+        <p className="text-sm text-gray-400 py-6 text-center">Nothing has been shared yet.</p>
+      )}
 
-      {files.map(f => (
-        <div key={f.id} className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5">
-          <File className="h-4 w-4 text-gray-400 shrink-0" />
-          <div className="flex-1 min-w-0">
-            {editingLabelId === f.id ? (
-              <div className="flex gap-1.5">
-                <input autoFocus className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none"
-                  value={editLabelDraft} onChange={e => setEditLabelDraft(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && saveLabel(f.id)} placeholder="Label" />
-                <button onClick={() => saveLabel(f.id)} className="text-xs font-medium text-indigo-500 hover:text-indigo-700">Save</button>
-                <button onClick={() => setEditingLabelId(null)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
-              </div>
-            ) : (
-              <p className="text-sm font-medium text-gray-800 truncate flex items-center gap-1.5 group">
-                <span className="truncate">{f.label || f.original_name}</span>
-                <Pencil className="h-3 w-3 text-gray-300 opacity-0 group-hover:opacity-100 cursor-pointer shrink-0"
-                  onClick={() => { setEditingLabelId(f.id); setEditLabelDraft(f.label || ''); }} />
+      {(view === 'shared' ? sharedFiles : files).map(f => (
+        <div key={f.id} className="rounded-lg border border-gray-200 bg-white px-3 py-2.5 space-y-2">
+          <div className="flex items-center gap-3">
+            <File className="h-4 w-4 text-gray-400 shrink-0" />
+            <div className="flex-1 min-w-0">
+              {editingLabelId === f.id ? (
+                <div className="flex gap-1.5">
+                  <input autoFocus className="flex-1 rounded border border-gray-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none"
+                    value={editLabelDraft} onChange={e => setEditLabelDraft(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && saveLabel(f.id)} placeholder="Label" />
+                  <button onClick={() => saveLabel(f.id)} className="text-xs font-medium text-indigo-500 hover:text-indigo-700">Save</button>
+                  <button onClick={() => setEditingLabelId(null)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+                </div>
+              ) : (
+                <p className="text-sm font-medium text-gray-800 truncate flex items-center gap-1.5 group">
+                  <span className="truncate">{f.label || f.original_name}</span>
+                  <Pencil className="h-3 w-3 text-gray-300 opacity-0 group-hover:opacity-100 cursor-pointer shrink-0"
+                    onClick={() => { setEditingLabelId(f.id); setEditLabelDraft(f.label || ''); }} />
+                </p>
+              )}
+              <p className="text-xs text-gray-400 truncate">
+                {view === 'shared' && `in ${f.folder_name || 'Files (root)'} · `}
+                {f.label ? `${f.original_name} · ` : ''}{fmt(f.size)} · {fmtDateOnly(f.created_at, timezone)}
+                {f.report_status && ` · ${f.report_visible_pages || 0} page${f.report_visible_pages === 1 ? '' : 's'} shown in full`}
               </p>
+            </div>
+            {f.report_status && (
+              <span className={`px-2 py-0.5 rounded-full text-xs font-medium shrink-0 ${REPORT_STATUS_COLOR[f.report_status]}`}>
+                {f.report_status === 'released' ? 'Released' : 'Draft shared'}
+              </span>
             )}
-            <p className="text-xs text-gray-400 truncate">
-              {f.label ? `${f.original_name} · ` : ''}{fmt(f.size)} · {fmtDateOnly(f.created_at, timezone)}
-            </p>
+            {folders.length > 0 && (
+              <select value={f.folder_id || ''} onChange={e => moveFile(f.id, e.target.value)} title="Move to folder"
+                className="text-xs border border-gray-200 rounded px-1.5 py-1 text-gray-500 max-w-[8rem] shrink-0">
+                <option value="">Root</option>
+                {folders.map(fo => <option key={fo.id} value={fo.id}>{fo.name}</option>)}
+              </select>
+            )}
+            {f.mime_type === 'application/pdf' && !f.report_status && (
+              <Button size="sm" variant="ghost" onClick={() => shareReport(f)}>Share as draft report</Button>
+            )}
+            <button onClick={() => download(f.id)} className="text-indigo-500 hover:text-indigo-700 p-1"><Download className="h-4 w-4" /></button>
+            <button onClick={() => remove(f.id)} className="text-red-300 hover:text-red-500 p-1"><Trash2 className="h-4 w-4" /></button>
           </div>
-          {folders.length > 0 && (
-            <select value={f.folder_id || ''} onChange={e => moveFile(f.id, e.target.value)} title="Move to folder"
-              className="text-xs border border-gray-200 rounded px-1.5 py-1 text-gray-500 max-w-[8rem] shrink-0">
-              <option value="">Root</option>
-              {folders.map(fo => <option key={fo.id} value={fo.id}>{fo.name}</option>)}
-            </select>
+
+          {f.report_status && (
+            <div className="flex items-center gap-1.5 pt-2 border-t border-gray-100">
+              <Button size="sm" variant="ghost" onClick={() => copyReportLink(f)}>{copiedId === f.id ? 'Copied!' : 'Copy link'}</Button>
+              <Button size="sm" variant="ghost" onClick={() => startEditPages(f)}>Edit pages shown</Button>
+              <Button size="sm" variant={f.report_status === 'released' ? 'ghost' : 'secondary'} onClick={() => toggleReportStatus(f)}>
+                {f.report_status === 'released' ? 'Revert to draft' : 'Mark as released'}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => stopSharing(f)} className="ml-auto text-gray-400">Stop sharing</Button>
+            </div>
           )}
-          <button onClick={() => download(f.id)} className="text-indigo-500 hover:text-indigo-700 p-1"><Download className="h-4 w-4" /></button>
-          <button onClick={() => remove(f.id)} className="text-red-300 hover:text-red-500 p-1"><Trash2 className="h-4 w-4" /></button>
+
+          {editingPagesId === f.id && (
+            <div className="flex items-center gap-2 rounded-lg bg-gray-50 border border-gray-200 p-2">
+              <label className="text-xs font-medium text-gray-600">Pages to show in full</label>
+              <input type="number" min={0} max={10} value={editVisiblePages}
+                onChange={e => setEditVisiblePages(Math.max(0, Math.min(10, parseInt(e.target.value, 10) || 0)))}
+                className="w-20 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+              <Button size="sm" variant="ghost" onClick={() => setEditingPagesId(null)}>Cancel</Button>
+              <Button size="sm" onClick={() => saveVisiblePages(f)} disabled={savingPages}>{savingPages ? 'Saving…' : 'Save'}</Button>
+            </div>
+          )}
         </div>
       ))}
 
@@ -873,10 +985,44 @@ function FilesTab({ clientId }) {
 // ─── Forms tab ────────────────────────────────────────────────────────────────
 const RESPONSE_STATUS_COLOR = { draft: 'gray', sent: 'blue', viewed: 'blue', submitted: 'green', accepted: 'indigo', declined: 'red' };
 
+// Recursive folder tree for the "Fill in a form" picker — subfolders (collapsible, sorted)
+// before this level's own forms (sorted), same convention as the admin Templates → Forms list.
+function FormPickerNode({ node, path, openFolders, toggleFolder, onPick }) {
+  return (
+    <>
+      {sortedChildren(node).map(name => {
+        const fullPath = path ? `${path}/${name}` : name;
+        const isOpen = openFolders.has(fullPath);
+        const child = node.children[name];
+        return (
+          <div key={fullPath}>
+            <button type="button" onClick={() => toggleFolder(fullPath)}
+              className="w-full flex items-center gap-1.5 text-left px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+              {isOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0 text-gray-400" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0 text-gray-400" />}
+              <Folder className="h-3.5 w-3.5 shrink-0 text-indigo-400" />
+              <span className="truncate">{name}</span>
+              <span className="ml-auto text-xs text-gray-400 font-normal shrink-0">{countItems(child)}</span>
+            </button>
+            {isOpen && (
+              <div className="pl-4 border-l border-gray-100 ml-4">
+                <FormPickerNode node={child} path={fullPath} openFolders={openFolders} toggleFolder={toggleFolder} onPick={onPick} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {sortedItems(node).map(t => (
+        <button key={t.id} onClick={() => onPick(t)} className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">{t.name}</button>
+      ))}
+    </>
+  );
+}
+
 function FormsTab({ clientId, client }) {
   const [templates, setTemplates] = useState([]);
   const [responses, setResponses] = useState([]);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [openFolders, setOpenFolders] = useState(() => new Set());
   const [fillTarget, setFillTarget] = useState(null); // { formTemplate } or { responseId }
 
   const load = () => {
@@ -890,16 +1036,22 @@ function FormsTab({ clientId, client }) {
     setFillTarget({ formTemplate: template });
   };
 
+  const toggleFolder = path => setOpenFolders(prev => {
+    const next = new Set(prev);
+    next.has(path) ? next.delete(path) : next.add(path);
+    return next;
+  });
+
+  const tree = buildFolderTree(templates);
+
   return (
     <div className="space-y-3">
       <div className="flex justify-end relative">
         <Button size="sm" onClick={() => setPickerOpen(o => !o)}><Plus className="h-3.5 w-3.5" /> Fill in a form</Button>
         {pickerOpen && (
-          <div className="absolute right-0 top-10 z-10 w-64 rounded-lg border border-gray-200 bg-white shadow-lg py-1">
+          <div className="absolute right-0 top-10 z-10 w-72 max-h-80 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg py-1">
             {templates.length === 0 && <p className="px-3 py-2 text-sm text-gray-400">No form templates yet — build one under Templates → Forms.</p>}
-            {templates.map(t => (
-              <button key={t.id} onClick={() => startNew(t)} className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50">{t.name}</button>
-            ))}
+            <FormPickerNode node={tree} path="" openFolders={openFolders} toggleFolder={toggleFolder} onPick={startNew} />
           </div>
         )}
       </div>
@@ -1356,6 +1508,7 @@ export default function ClientDetail() {
   const [saved, setSaved] = useState(false);
   const [createdClient, setCreatedClient] = useState(null);
   const [duplicates, setDuplicates] = useState([]);
+  const [portalLinkCopied, setPortalLinkCopied] = useState(false);
   const dupTimer = useRef(null);
   const load = () => {
     if (isNew) return;
@@ -1416,6 +1569,21 @@ export default function ClientDetail() {
     } finally { setSaving(false); }
   };
 
+  // Durable per-client link (see server/routes/clientPortal.js) showing everything explicitly
+  // shared for this client — lazily generated on first copy, same pattern as practitioners'
+  // cal_token, so most clients that never need one never get an unused token.
+  const copyPortalLink = async () => {
+    let token = client.portal_token;
+    if (!token) {
+      const res = await api.post(`/clients/${id}/reset-portal-token`);
+      token = res.data.portal_token;
+      setClient(c => ({ ...c, portal_token: token }));
+    }
+    navigator.clipboard.writeText(`${window.location.origin}/portal/${token}`);
+    setPortalLinkCopied(true);
+    setTimeout(() => setPortalLinkCopied(false), 2000);
+  };
+
   if (!client) return <div className="p-6 text-gray-400">Loading…</div>;
 
   const TABS = [
@@ -1441,6 +1609,12 @@ export default function ClientDetail() {
             <Badge color={FUNDING_COLOR_FALLBACK[client.active_funding_type] || 'gray'} className="mt-0.5">{client.active_funding_type}</Badge>
           )}
         </div>
+        {!isNew && (
+          <button onClick={copyPortalLink}
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors">
+            {portalLinkCopied ? 'Copied!' : 'Copy portal link'}
+          </button>
+        )}
         {!isNew && (
           <button
             onClick={async () => { await api.patch(`/clients/${id}/active`, { active: client.active === 0 ? 1 : 0 }); load(); }}

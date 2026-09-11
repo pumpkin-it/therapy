@@ -7,6 +7,7 @@ import { Trash2, Plus, FileText, Pencil, RefreshCw, Mail, AlertCircle, CheckCirc
 import { localToday, fmtDate, fmtDateTime, downloadFile, roundQty, cn } from '../lib/utils';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
+import SessionNoteEmailModal from './SessionNoteEmailModal';
 
 const EMPTY_ITEM = { service_id: '', description: '', quantity: 1, unit_rate: 0, travel_time_to: '', travel_time_from: '', travel_km: '', notes_min: '', item_notes: '' };
 
@@ -64,6 +65,23 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Send/download, same feature as the client profile's Session Notes tab — kept here too since
+  // it's much faster to reach from the appointment itself than navigating to the client record.
+  const [client, setClient] = useState(null);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const toggleSelect = id => setSelectedIds(ids => ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]);
+  const downloadSelected = async () => {
+    setActionError('');
+    try {
+      const clientName = `${client?.first_name || ''}_${client?.last_name || ''}`.replace(/\s+/g, '');
+      await downloadFile(api, '/session-notes/pdf', `SessionNotes_${clientName}.pdf`, { method: 'post', data: { note_ids: selectedIds } });
+    } catch (e) {
+      setActionError(e.response?.data?.error || 'Failed to download PDF');
+    }
+  };
 
   const [filesByNote, setFilesByNote] = useState({});
   const [pendingFile, setPendingFile] = useState(null); // { file, noteId }
@@ -155,6 +173,9 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
           if (future.length > 0) setNextAppt(fmtNextAppt(future[0].start_time));
         })
         .catch(() => {});
+      // Needed for the send/download actions below (recipient email, filename) — this component
+      // otherwise only has the appointment's flattened client_name/client_address, not a full record.
+      api.get(`/clients/${clientId}`).then(r => setClient(r.data)).catch(() => {});
     }
   }, [appointmentId, clientId]);
 
@@ -198,11 +219,26 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
       <div className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
         <FileText className="h-4 w-4 text-indigo-400" /> Session Notes
       </div>
+
+      {actionError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</div>
+      )}
+      {selectedIds.length > 0 && (
+        <div className="flex items-center justify-between rounded-lg border border-indigo-100 bg-indigo-50/40 px-3 py-2">
+          <span className="text-sm text-indigo-700">{selectedIds.length} note{selectedIds.length > 1 ? 's' : ''} selected</span>
+          <div className="flex gap-2">
+            <Button variant="secondary" size="sm" onClick={downloadSelected}><Download className="h-3.5 w-3.5" /> Download PDF</Button>
+            <Button size="sm" onClick={() => setShowEmailModal(true)}><Mail className="h-3.5 w-3.5" /> Email</Button>
+            <Button variant="ghost" size="sm" onClick={() => setSelectedIds([])}>Clear</Button>
+          </div>
+        </div>
+      )}
+
       {notes.map(n => (
         <div key={n.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
           {editingId === n.id ? (
             <div className="space-y-2">
-              <textarea rows={3} className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm resize-none"
+              <textarea rows={3} className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm resize-y"
                 value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
               <div className="flex gap-2 justify-end">
                 <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
@@ -212,6 +248,8 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
           ) : (
             <div className="group">
               <div className="flex gap-2">
+                <input type="checkbox" className="mt-1 accent-indigo-600 shrink-0"
+                  checked={selectedIds.includes(n.id)} onChange={() => toggleSelect(n.id)} />
                 <div className="flex-1">
                   <p className="text-sm text-gray-800 whitespace-pre-wrap">{n.note}</p>
                   <p className="text-xs text-gray-400 mt-1">{n.practitioner_name && <span>{n.practitioner_name} · </span>}{fmtDateTime(n.created_at, timezone)}</p>
@@ -287,7 +325,7 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
             ))}
           </div>
         )}
-        <textarea rows={3} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        <textarea rows={3} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-y focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
           placeholder="Add a session note…" value={draft} onChange={e => setDraft(e.target.value)} />
         {stagedFiles.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
@@ -321,6 +359,17 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
             <Button onClick={confirmStageFile}>Attach</Button>
           </div>
         </Modal>
+      )}
+
+      {showEmailModal && (
+        <SessionNoteEmailModal
+          clientId={clientId}
+          client={client}
+          noteIds={selectedIds}
+          notes={notes.filter(n => selectedIds.includes(n.id))}
+          onClose={() => setShowEmailModal(false)}
+          onSent={() => { setShowEmailModal(false); setSelectedIds([]); }}
+        />
       )}
     </div>
   );

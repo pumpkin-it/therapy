@@ -167,4 +167,15 @@ router.delete('/:id', auth, (req, res) => {
   res.status(204).send();
 });
 
+// Durable per-client link (same bearer-token model as agreements.signing_token /
+// practitioners.cal_token) showing everything currently marked shareable for this client —
+// see server/routes/clientPortal.js. Lazily generated on first request, regenerable if leaked.
+router.post('/:id/reset-portal-token', auth, (req, res) => {
+  const crypto = require('crypto');
+  const token = crypto.randomBytes(20).toString('hex');
+  db.prepare('UPDATE clients SET portal_token = ? WHERE id = ?').run(token, req.params.id);
+  audit.log('client', Number(req.params.id), 'updated', 'Portal link generated/reset');
+  res.json({ portal_token: token });
+});
+
 module.exports = router;

@@ -38,6 +38,9 @@ export const CUSTOM_FIELD_CATEGORIES = [
   { category: 'Attachments', fields: [
     { type: 'file_upload', label: 'File upload' },
   ]},
+  { category: 'Calculated', fields: [
+    { type: 'calculated_sum', label: 'Calculated sum' },
+  ]},
 ];
 
 const ALL_CUSTOM = CUSTOM_FIELD_CATEGORIES.flatMap(c => c.fields);
@@ -59,6 +62,7 @@ export function makeField(type) {
   if (['short_answer', 'paragraph'].includes(type)) base.placeholder = '';
   if (type === 'statement') { base.content = ''; delete base.required; }
   if (type === 'page_break') delete base.required;
+  if (type === 'calculated_sum') { base.sourceFieldIds = []; delete base.required; }
   return base;
 }
 

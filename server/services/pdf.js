@@ -333,11 +333,18 @@ function generateSessionNotePdf({ client_name, notes }) {
     doc.moveDown(1.5);
 
     for (const note of notes || []) {
-      // created_at is a naive UTC string — parse as UTC and convert to Australia/Sydney explicitly,
-      // otherwise a note created before ~10am Sydney time (still "yesterday" in UTC) shows a day early.
-      const dateLabel = note.created_at
-        ? new Date(note.created_at.endsWith('Z') ? note.created_at : note.created_at + 'Z')
-            .toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Australia/Sydney' })
+      // Show the actual SESSION date (the linked appointment's start_time), not created_at (when
+      // the note was typed) — a note entered days after the session must still show the session
+      // date. appointment_time is naive LOCAL Sydney time, parsed with no 'Z'; created_at is naive
+      // UTC and needs one appended — see sessionNotes.js's sessionDateOf for the full rationale.
+      // A standalone note with no linked appointment falls back to created_at, its only real date.
+      const sessionDate = note.appointment_time
+        ? new Date(note.appointment_time)
+        : note.created_at
+          ? new Date(note.created_at.endsWith('Z') ? note.created_at : note.created_at + 'Z')
+          : null;
+      const dateLabel = sessionDate
+        ? sessionDate.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Australia/Sydney' })
         : '';
       doc.font('Helvetica-Bold').fontSize(10).fillColor('#111').text(dateLabel, 50, doc.y);
       if (note.practitioner_name) {

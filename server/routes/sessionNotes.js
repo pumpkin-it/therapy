@@ -8,9 +8,10 @@ function loadNotesWithClient(noteIds) {
   if (!Array.isArray(noteIds) || !noteIds.length) return { client: null, notes: [] };
   const placeholders = noteIds.map(() => '?').join(',');
   const notes = db.prepare(`
-    SELECT cn.*, p.first_name || ' ' || p.last_name AS practitioner_name
+    SELECT cn.*, p.first_name || ' ' || p.last_name AS practitioner_name, a.start_time AS appointment_time
     FROM session_notes cn
     LEFT JOIN practitioners p ON p.id = cn.practitioner_id
+    LEFT JOIN appointments a ON a.id = cn.appointment_id
     WHERE cn.id IN (${placeholders})
     ORDER BY cn.created_at ASC
   `).all(...noteIds);
@@ -18,13 +19,25 @@ function loadNotesWithClient(noteIds) {
   return { client, notes };
 }
 
-// created_at is stored as a naive UTC string (SQLite CURRENT_TIMESTAMP, no 'Z') — must be parsed
-// as UTC and explicitly converted to Australia/Sydney, or a note created before ~10am Sydney time
-// (still "yesterday" in UTC) displays a day early. Mirrors client/src/lib/utils.js's fmtDateOnly.
+// The date a note's PDF/email should show is the actual SESSION date (the linked appointment's
+// start_time), never created_at (when the note text was typed) — a note entered days after the
+// session must still say it covers the session date, not today. appointment_time is naive LOCAL
+// Sydney time (same convention as every other appointments.start_time read in this codebase, see
+// mailer.js's fmt/fmtDateOnly), so it's parsed with no 'Z' suffix — unlike created_at, which is
+// naive UTC and needs one appended before parsing (see client/src/lib/utils.js's fmtDateOnly for
+// the same distinction). A standalone note with no linked appointment (e.g. a phone-call/
+// communication note) has no session date at all, so created_at is the only meaningful fallback
+// for those — this deliberately leaves created_at itself, and any note-added log/audit timestamp
+// that reads it, showing the real entry date.
+function sessionDateOf(note) {
+  if (note.appointment_time) return new Date(note.appointment_time);
+  if (!note.created_at) return null;
+  return new Date(note.created_at.endsWith('Z') ? note.created_at : note.created_at + 'Z');
+}
+
 function dateRangeLabel(notes) {
-  if (!notes.length) return '';
-  const toUtcDate = s => new Date(s.endsWith('Z') ? s : s + 'Z');
-  const dates = notes.map(n => toUtcDate(n.created_at));
+  const dates = notes.map(sessionDateOf).filter(Boolean);
+  if (!dates.length) return '';
   const fmt = d => d.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Australia/Sydney' });
   const min = new Date(Math.min(...dates));
   const max = new Date(Math.max(...dates));

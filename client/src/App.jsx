@@ -24,16 +24,32 @@ import RecurringSeriesDetail from './pages/RecurringSeriesDetail';
 import Templates from './pages/Templates';
 import FormBuilder from './pages/FormBuilder';
 import SignAgreement from './pages/SignAgreement';
+import ReportView from './pages/ReportView';
+import ClientPortal from './pages/ClientPortal';
 
 function AuthenticatedApp() {
   const { user, loading } = useAuth();
 
-  // Public signing page — never wrapped in the app sidebar/nav, regardless of login state,
-  // since it's meant for clients (and works the same if a practitioner opens it too).
+  // Public signing/report pages — never wrapped in the app sidebar/nav, regardless of login
+  // state, since they're meant for clients (and work the same if a practitioner opens them too).
   if (window.location.pathname.startsWith('/sign/')) {
     return (
       <Routes>
         <Route path="/sign/:token" element={<SignAgreement />} />
+      </Routes>
+    );
+  }
+  if (window.location.pathname.startsWith('/report/')) {
+    return (
+      <Routes>
+        <Route path="/report/:token" element={<ReportView />} />
+      </Routes>
+    );
+  }
+  if (window.location.pathname.startsWith('/portal/')) {
+    return (
+      <Routes>
+        <Route path="/portal/:token" element={<ClientPortal />} />
       </Routes>
     );
   }

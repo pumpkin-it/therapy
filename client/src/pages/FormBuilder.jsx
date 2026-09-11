@@ -4,6 +4,7 @@ import { Plus, Trash2, ArrowUp, ArrowDown, Copy, X, Sparkles } from 'lucide-reac
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import { SMART_FIELDS, CUSTOM_FIELD_CATEGORIES, fieldTypeMeta, makeField, makeSection } from '../lib/formFieldTypes';
+import { folderPaths } from '../lib/formFolders';
 
 function move(arr, index, dir) {
   const target = index + dir;
@@ -14,10 +15,11 @@ function move(arr, index, dir) {
 }
 
 // ─── One field card inside a section ──────────────────────────────────────────
-function FieldCard({ field, onChange, onRemove, onDuplicate, onMove, isFirst, isLast }) {
+function FieldCard({ field, onChange, onRemove, onDuplicate, onMove, isFirst, isLast, allFields }) {
   const meta = fieldTypeMeta(field.type);
   const set = patch => onChange({ ...field, ...patch });
   const isChoice = ['checkboxes', 'dropdown', 'multiple_choice'].includes(field.type);
+  const sumCandidates = (allFields || []).filter(f => f.id !== field.id && ['multiple_choice', 'dropdown'].includes(f.type));
 
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
@@ -91,6 +93,41 @@ function FieldCard({ field, onChange, onRemove, onDuplicate, onMove, isFirst, is
         <p className="text-xs text-gray-400">Client can attach a file here.</p>
       )}
 
+      {field.type === 'calculated_sum' && (
+        <div className="space-y-1.5">
+          <p className="text-xs text-gray-500">
+            Adds up the leading number of the selected option for each field checked below (e.g. an option
+            written as "3 - A Little Bit of Difficulty" contributes 3) and shows the running total live.
+          </p>
+          {sumCandidates.length === 0 ? (
+            <p className="text-xs text-gray-400 px-1">Add some multiple choice or dropdown fields first.</p>
+          ) : (
+            <>
+              <div className="flex gap-2 text-xs">
+                <button type="button" className="text-indigo-600 hover:text-indigo-700 font-medium"
+                  onClick={() => set({ sourceFieldIds: sumCandidates.map(f => f.id) })}>Select all</button>
+                <button type="button" className="text-gray-500 hover:text-gray-700 font-medium"
+                  onClick={() => set({ sourceFieldIds: [] })}>Clear</button>
+              </div>
+              <div className="max-h-48 overflow-y-auto space-y-1 rounded-lg border border-gray-200 p-2">
+                {sumCandidates.map(f => (
+                  <label key={f.id} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                    <input type="checkbox" className="accent-indigo-600"
+                      checked={(field.sourceFieldIds || []).includes(f.id)}
+                      onChange={e => set({
+                        sourceFieldIds: e.target.checked
+                          ? [...(field.sourceFieldIds || []), f.id]
+                          : (field.sourceFieldIds || []).filter(id => id !== f.id),
+                      })} />
+                    {f.label || '(untitled)'}
+                  </label>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="flex items-center justify-between pt-2 border-t border-gray-100">
         {'required' in field ? (
           <label className="flex items-center gap-1.5 text-xs text-gray-600">
@@ -110,7 +147,7 @@ function FieldCard({ field, onChange, onRemove, onDuplicate, onMove, isFirst, is
 }
 
 // ─── A section: purple header + its field cards ───────────────────────────────
-function SectionCard({ section, index, total, active, onSelect, onChange, onRemove, onDuplicate, onMove }) {
+function SectionCard({ section, index, total, active, onSelect, onChange, onRemove, onDuplicate, onMove, allFields }) {
   const setField = (fieldId, updated) => onChange({ ...section, fields: section.fields.map(f => f.id === fieldId ? updated : f) });
   const removeField = fieldId => onChange({ ...section, fields: section.fields.filter(f => f.id !== fieldId) });
   const duplicateField = fieldId => {
@@ -159,6 +196,7 @@ function SectionCard({ section, index, total, active, onSelect, onChange, onRemo
             onMove={dir => moveField(field.id, dir)}
             isFirst={i === 0}
             isLast={i === section.fields.length - 1}
+            allFields={allFields}
           />
         ))}
       </div>
@@ -216,13 +254,22 @@ export default function FormBuilder() {
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState('');
+  const [folder, setFolder] = useState('');
+  const [folderSuggestions, setFolderSuggestions] = useState([]);
   const [sections, setSections] = useState([makeSection('Section 1')]);
   const [activeSectionId, setActiveSectionId] = useState(() => sections[0].id);
+
+  // Existing folder paths across every template, for the datalist — cuts down on near-duplicate
+  // folder names from typos (e.g. "OT Forms" vs "OT forms").
+  useEffect(() => {
+    api.get('/form-templates').then(r => setFolderSuggestions(folderPaths(r.data)));
+  }, []);
 
   useEffect(() => {
     if (isNew) return;
     api.get(`/form-templates/${id}`).then(r => {
       setName(r.data.name);
+      setFolder(r.data.folder || '');
       const loaded = r.data.schema.sections?.length ? r.data.schema.sections : [makeSection('Section 1')];
       setSections(loaded);
       setActiveSectionId(loaded[0].id);
@@ -258,12 +305,13 @@ export default function FormBuilder() {
     });
   };
   const moveSection = (idx, dir) => setSections(prev => move(prev, idx, dir));
+  const allFields = sections.flatMap(s => s.fields);
 
   const save = async () => {
     if (!name.trim()) return alert('Give this form a name first.');
     setSaving(true);
     try {
-      const payload = { name, schema: { sections } };
+      const payload = { name, folder: folder.trim(), schema: { sections } };
       if (isNew) {
         await api.post('/form-templates', payload);
       } else {
@@ -299,6 +347,21 @@ export default function FormBuilder() {
             placeholder="Untitled form"
           />
 
+          <div className="space-y-1">
+            <label className="block text-xs font-medium text-gray-600">Folder (optional)</label>
+            <input
+              list="folder-suggestions"
+              className="w-full max-w-sm rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none"
+              value={folder}
+              onChange={e => setFolder(e.target.value)}
+              placeholder="e.g. OT Forms/Assessment Forms"
+            />
+            <datalist id="folder-suggestions">
+              {folderSuggestions.map(p => <option key={p} value={p} />)}
+            </datalist>
+            <p className="text-xs text-gray-400">Separate nested folders with "/", e.g. "OT Forms/Assessment Forms". Leave blank to keep this form ungrouped.</p>
+          </div>
+
           {sections.map((section, i) => (
             <SectionCard
               key={section.id}
@@ -311,6 +374,7 @@ export default function FormBuilder() {
               onRemove={() => removeSection(i)}
               onDuplicate={() => duplicateSection(i)}
               onMove={dir => moveSection(i, dir)}
+              allFields={allFields}
             />
           ))}
         </div>

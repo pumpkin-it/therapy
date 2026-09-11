@@ -1,19 +1,44 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import api from '../lib/api';
-import { substituteVars, fmtDateOnly } from '../lib/utils';
+import { substituteVars } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import Button from './ui/Button';
 
-// created_at strings sort lexicographically in chronological order (YYYY-MM-DD HH:MM:SS), so
-// plain string min/max is enough — the actual timezone-correct formatting is fmtDateOnly's job.
+// Mirrors server/routes/sessionNotes.js's sessionDateOf/dateRangeLabel exactly — this modal
+// pre-fills its own editable preview of the email body client-side (the user can tweak it before
+// sending), and since it always sends a non-empty body, the server's own copy of this logic never
+// actually gets used for the email content in practice. Both copies must resolve the same date:
+// the note's actual SESSION date (its linked appointment's start_time), never created_at (when the
+// note text was typed) — a note entered days after the session must still say it covers the
+// session date. `appointment_time` is naive LOCAL practice time (same convention as every other
+// appointments.start_time in this app) — its own leading "YYYY-MM-DD" IS the session's calendar
+// date, no timezone conversion needed or wanted. `created_at` is naive UTC and genuinely needs
+// timezone conversion to know which calendar day it falls on locally. Both are normalized to
+// {y,m,d} rather than compared as raw strings/Dates, so a mixed batch (some notes with a linked
+// appointment, some standalone) still sorts and ranges correctly.
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function sessionDateYMD(note, timezone) {
+  if (note.appointment_time) {
+    const [y, m, d] = note.appointment_time.slice(0, 10).split('-').map(Number);
+    return { y, m, d };
+  }
+  if (!note.created_at) return null;
+  const dt = new Date(note.created_at.endsWith('Z') ? note.created_at : note.created_at + 'Z');
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(dt);
+  const get = t => Number(parts.find(p => p.type === t).value);
+  return { y: get('year'), m: get('month'), d: get('day') };
+}
+const fmtYMD = ({ y, m, d }) => `${d} ${MONTHS[m - 1]} ${y}`;
+const ymdKey = ({ y, m, d }) => y * 10000 + m * 100 + d;
+
 function dateRangeLabel(notes, timezone) {
-  if (!notes.length) return '';
-  const dates = notes.map(n => n.created_at);
-  const min = dates.reduce((a, b) => (a < b ? a : b));
-  const max = dates.reduce((a, b) => (a > b ? a : b));
-  return min === max ? fmtDateOnly(min, timezone) : `${fmtDateOnly(min, timezone)} – ${fmtDateOnly(max, timezone)}`;
+  const ymds = notes.map(n => sessionDateYMD(n, timezone)).filter(Boolean);
+  if (!ymds.length) return '';
+  const sorted = [...ymds].sort((a, b) => ymdKey(a) - ymdKey(b));
+  const min = sorted[0], max = sorted[sorted.length - 1];
+  return ymdKey(min) === ymdKey(max) ? fmtYMD(min) : `${fmtYMD(min)} – ${fmtYMD(max)}`;
 }
 
 // Freeform To/Cc email chip input — types an address, Enter/comma adds it as a chip.

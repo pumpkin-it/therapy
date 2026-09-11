@@ -1,6 +1,20 @@
 import { useRef, useEffect } from 'react';
 import AddressAutocomplete from './AddressAutocomplete';
 
+// A required field's "empty" check varies by answer shape — checkboxes answer as an array,
+// funding_details as an object keyed by its own sub-fields, everything else as a plain scalar.
+// file_upload is deliberately never validated: FieldInput renders it as inert placeholder text
+// ("File attachments aren't supported in forms yet"), so a required file_upload field could
+// never be satisfied at all. Exported so FormFillModal's save-time validation uses the exact
+// same rule this component uses to decide what to highlight — one definition, not two that can
+// drift apart.
+export function isFieldEmpty(field, value) {
+  if (field.type === 'file_upload') return false;
+  if (field.type === 'checkboxes') return !Array.isArray(value) || value.length === 0;
+  if (field.type === 'funding_details') return !value?.funding_type;
+  return value === undefined || value === null || value === '';
+}
+
 const GENDER_OPTIONS = ['Male', 'Female', 'Non-binary', 'Other', 'Prefer not to say'];
 const FUND_MANAGEMENT_OPTIONS = [
   { value: 'plan', label: 'Plan managed' },
@@ -96,7 +110,32 @@ function FundingDetailsField({ value, onChange, funderOptions, fundsManagerOptio
   );
 }
 
-function FieldInput({ field, value, onChange, funderOptions, fundsManagerOptions }) {
+// Sums the leading number of each referenced field's currently-selected option (e.g. a
+// multiple_choice option string like "3 - A Little Bit of Difficulty" contributes 3) — the
+// convention established for standardized scales like the LEFS. Answers written into the
+// form as a plain numeric value under this field's own id, same as any other custom field, so
+// it round-trips through form_responses.answers_json with no special-casing on the backend.
+function CalculatedSumField({ field, values, onChange }) {
+  const sourceIds = field.sourceFieldIds || [];
+  let sum = 0, answered = 0;
+  for (const id of sourceIds) {
+    const raw = values[id];
+    const match = typeof raw === 'string' && raw.match(/-?\d+(\.\d+)?/);
+    if (match) { sum += parseFloat(match[0]); answered++; }
+  }
+  useEffect(() => {
+    if (values[field.id] !== sum) onChange(sum);
+  }, [sum]);
+
+  return (
+    <div className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm">
+      <span className="font-semibold text-gray-900">{sum}</span>
+      {sourceIds.length > 0 && <span className="text-gray-400">({answered}/{sourceIds.length} answered)</span>}
+    </div>
+  );
+}
+
+function FieldInput({ field, value, values, onChange, funderOptions, fundsManagerOptions }) {
   switch (field.type) {
     case 'statement':
       return field.content ? <p className="text-sm text-gray-600 whitespace-pre-wrap">{field.content}</p> : null;
@@ -155,6 +194,9 @@ function FieldInput({ field, value, onChange, funderOptions, fundsManagerOptions
     case 'file_upload':
       return <p className="text-sm text-gray-400 italic">File attachments aren't supported in forms yet.</p>;
 
+    case 'calculated_sum':
+      return <CalculatedSumField field={field} values={values} onChange={onChange} />;
+
     case 'first_name':
     case 'last_name':
       return (
@@ -185,23 +227,29 @@ function FieldInput({ field, value, onChange, funderOptions, fundsManagerOptions
   }
 }
 
-export default function FormRenderer({ schema, values, onChange, funderOptions, fundsManagerOptions }) {
+export default function FormRenderer({ schema, values, onChange, funderOptions, fundsManagerOptions, invalidFieldIds }) {
   const sections = schema?.sections || [];
   return (
     <div className="space-y-6">
       {sections.map(section => (
         <div key={section.id} className="space-y-4">
           <h3 className="font-semibold text-gray-900 border-b border-gray-100 pb-2">{section.title}</h3>
-          {section.fields.map(field => (
-            <div key={field.id} className="space-y-1">
-              {field.type !== 'statement' && field.type !== 'page_break' && (
-                <label className="block text-sm font-medium text-gray-700">
-                  {field.label}{field.required && <span className="text-red-500 ml-0.5">*</span>}
-                </label>
-              )}
-              <FieldInput field={field} value={values[field.id]} onChange={v => onChange(field.id, v)} funderOptions={funderOptions} fundsManagerOptions={fundsManagerOptions} />
-            </div>
-          ))}
+          {section.fields.map(field => {
+            // Only still-highlighted once flagged by a failed save AND still actually empty —
+            // clears itself the moment the field is answered, no need to re-click Save to see it go.
+            const invalid = invalidFieldIds?.has(field.id) && isFieldEmpty(field, values[field.id]);
+            return (
+              <div key={field.id} className={`space-y-1 rounded-lg ${invalid ? 'ring-2 ring-red-300 bg-red-50 p-3 -mx-3' : ''}`}>
+                {field.type !== 'statement' && field.type !== 'page_break' && (
+                  <label className={`block text-sm font-medium ${invalid ? 'text-red-700' : 'text-gray-700'}`}>
+                    {field.label}{field.required && <span className="text-red-500 ml-0.5">*</span>}
+                  </label>
+                )}
+                <FieldInput field={field} value={values[field.id]} values={values} onChange={v => onChange(field.id, v)} funderOptions={funderOptions} fundsManagerOptions={fundsManagerOptions} />
+                {invalid && <p className="text-xs text-red-600">This field is required.</p>}
+              </div>
+            );
+          })}
         </div>
       ))}
     </div>

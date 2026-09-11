@@ -33,23 +33,24 @@ router.get('/:id', auth, perm.permAny('clients', 'settings'), (req, res) => {
 });
 
 router.post('/', auth, perm('settings'), requireAdminOrOwner, (req, res) => {
-  const { name, description, schema } = req.body;
+  const { name, description, schema, folder } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
   const result = db.prepare(
-    `INSERT INTO form_templates (name, description, schema_json, created_by) VALUES (?, ?, ?, ?)`
-  ).run(name.trim(), description || null, JSON.stringify(schema || { sections: [] }), req.user.id);
+    `INSERT INTO form_templates (name, description, schema_json, folder, created_by) VALUES (?, ?, ?, ?, ?)`
+  ).run(name.trim(), description || null, JSON.stringify(schema || { sections: [] }), folder?.trim() || null, req.user.id);
   res.status(201).json(serialize(db.prepare('SELECT * FROM form_templates WHERE id = ?').get(result.lastInsertRowid)));
 });
 
 router.put('/:id', auth, perm('settings'), requireAdminOrOwner, (req, res) => {
   const tpl = db.prepare('SELECT * FROM form_templates WHERE id = ?').get(req.params.id);
   if (!tpl) return res.status(404).json({ error: 'Not found' });
-  const { name, description, schema } = req.body;
+  const { name, description, schema, folder } = req.body;
   if (name !== undefined && !name.trim()) return res.status(400).json({ error: 'name required' });
-  db.prepare(`UPDATE form_templates SET name = ?, description = ?, schema_json = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(
+  db.prepare(`UPDATE form_templates SET name = ?, description = ?, schema_json = ?, folder = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(
     name !== undefined ? name.trim() : tpl.name,
     description !== undefined ? description : tpl.description,
     schema !== undefined ? JSON.stringify(schema) : tpl.schema_json,
+    folder !== undefined ? (folder?.trim() || null) : tpl.folder,
     req.params.id
   );
   res.json(serialize(db.prepare('SELECT * FROM form_templates WHERE id = ?').get(req.params.id)));
