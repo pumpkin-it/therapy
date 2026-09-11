@@ -39,7 +39,7 @@ router.get('/:token/item/:fileId/file', (req, res) => {
   `).get(req.params.fileId, client.id);
   if (!report) return res.status(404).json({ error: 'Not found' });
   const filename = report.status === 'released' ? report.filename : report.preview_filename;
-  res.set('Content-Type', 'application/pdf');
+  res.set('Content-Type', report.mime_type || 'application/octet-stream');
   res.set('Content-Disposition', 'inline');
   res.sendFile(path.join(UPLOAD_DIR, filename));
 });

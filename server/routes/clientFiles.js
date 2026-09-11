@@ -6,7 +6,10 @@ const audit = require('../services/audit');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { generateReportPreview } = require('../services/reportRedact');
+const { generateReportPreview, generateImagePreview } = require('../services/reportRedact');
+
+const SHAREABLE_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
+const PREVIEW_EXT = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' };
 
 const UPLOAD_DIR = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -91,34 +94,50 @@ router.get('/:id/download', auth, (req, res) => {
   res.download(path.join(UPLOAD_DIR, file.filename), file.original_name);
 });
 
-// Turns an existing PDF already in Files into a shareable draft report — no separate upload,
-// the original stays exactly where the practitioner put it. Generates the redacted preview and
-// a public view_token (server/routes/reportView.js serves the preview or, once released, the
-// real client_files original at that same link).
+// Turns an existing file already in Files into a shareable draft — no separate upload, the
+// original stays exactly where the practitioner put it. Generates the redacted preview and a
+// public view_token (server/routes/reportView.js serves the preview or, once released, the
+// real client_files original at that same link). PDF and JPG/PNG only — Word/Excel have no
+// rasterization path here (would need converting to PDF first, e.g. headless LibreOffice) and
+// aren't worth the new dependency until there's an actual need for it.
 router.post('/:id/share-report', auth, async (req, res) => {
   const file = db.prepare('SELECT * FROM client_files WHERE id = ?').get(req.params.id);
   if (!file) return res.status(404).json({ error: 'Not found' });
-  if (file.mime_type !== 'application/pdf') return res.status(400).json({ error: 'Only PDF files can be shared as a report.' });
+  if (!SHAREABLE_MIME_TYPES.includes(file.mime_type)) {
+    return res.status(400).json({ error: 'Only PDF and image (JPG/PNG) files can be shared.' });
+  }
   const existing = db.prepare('SELECT 1 FROM client_file_reports WHERE client_file_id = ?').get(file.id);
-  if (existing) return res.status(409).json({ error: 'This file is already shared as a report.' });
+  if (existing) return res.status(409).json({ error: 'This file is already shared.' });
 
-  const visiblePages = Math.max(0, Math.min(10, parseInt(req.body.visible_pages, 10) || 0));
+  // Images have no "pages" — visible_pages is meaningless there and always stored as 0.
+  const isPdf = file.mime_type === 'application/pdf';
+  const visiblePages = isPdf ? Math.max(0, Math.min(10, parseInt(req.body.visible_pages, 10) || 0)) : 0;
   let previewBuffer;
   try {
     const original = fs.readFileSync(path.join(UPLOAD_DIR, file.filename));
-    previewBuffer = await generateReportPreview(original, visiblePages);
+    previewBuffer = isPdf
+      ? await generateReportPreview(original, visiblePages)
+      : await generateImagePreview(original, file.mime_type);
   } catch (e) {
     console.error('Report preview generation failed:', e);
-    return res.status(400).json({ error: 'Could not process this PDF — it may be corrupt or password-protected.' });
+    return res.status(400).json({ error: `Could not process this file — it may be corrupt${isPdf ? ' or password-protected' : ''}.` });
   }
 
-  const previewFilename = `${Date.now()}-${Math.round(Math.random() * 1e9)}-preview.pdf`;
+  const previewFilename = `${Date.now()}-${Math.round(Math.random() * 1e9)}-preview.${PREVIEW_EXT[file.mime_type]}`;
   fs.writeFileSync(path.join(UPLOAD_DIR, previewFilename), previewBuffer);
   const viewToken = crypto.randomBytes(24).toString('hex');
-  db.prepare(`
-    INSERT INTO client_file_reports (client_file_id, view_token, preview_filename, visible_pages)
-    VALUES (?, ?, ?, ?)
-  `).run(file.id, viewToken, previewFilename, visiblePages);
+  try {
+    db.prepare(`
+      INSERT INTO client_file_reports (client_file_id, view_token, preview_filename, visible_pages)
+      VALUES (?, ?, ?, ?)
+    `).run(file.id, viewToken, previewFilename, visiblePages);
+  } catch (e) {
+    // Preview generation isn't instant — a double-click can fire this route twice before the
+    // first request's INSERT lands, both passing the "not already shared" check above. The
+    // client_file_id primary key turns the second one into a clean conflict instead of a crash.
+    try { fs.unlinkSync(path.join(UPLOAD_DIR, previewFilename)); } catch {}
+    return res.status(409).json({ error: 'This file is already shared.' });
+  }
 
   audit.log('client_file', file.id, 'updated', `Shared "${file.label || file.original_name}" as a draft report`);
   res.status(201).json(db.prepare(`${FILE_WITH_REPORT_SELECT} WHERE cf.id = ?`).get(file.id));
@@ -156,6 +175,7 @@ router.patch('/:id/report-visible-pages', auth, async (req, res) => {
   if (!file) return res.status(404).json({ error: 'Not found' });
   const report = db.prepare('SELECT * FROM client_file_reports WHERE client_file_id = ?').get(req.params.id);
   if (!report) return res.status(404).json({ error: 'Not found' });
+  if (file.mime_type !== 'application/pdf') return res.status(400).json({ error: 'Visible pages only applies to PDF reports.' });
   const visiblePages = Math.max(0, Math.min(10, parseInt(req.body.visible_pages, 10) || 0));
 
   let previewBuffer;

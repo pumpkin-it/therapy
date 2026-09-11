@@ -20,14 +20,19 @@ function getByToken(token) {
 router.get('/:token', (req, res) => {
   const report = getByToken(req.params.token);
   if (!report) return res.status(404).json({ error: 'Not found' });
-  res.json({ title: report.label || report.original_name, client_name: report.client_name, status: report.status });
+  res.json({
+    title: report.label || report.original_name, client_name: report.client_name,
+    status: report.status, mime_type: report.mime_type,
+  });
 });
 
 router.get('/:token/file', (req, res) => {
   const report = getByToken(req.params.token);
   if (!report) return res.status(404).json({ error: 'Not found' });
   const filename = report.status === 'released' ? report.filename : report.preview_filename;
-  res.set('Content-Type', 'application/pdf');
+  // preview_filename is always re-encoded in the same format as the original (see
+  // reportRedact.js), so the original's stored mime_type is correct for both.
+  res.set('Content-Type', report.mime_type || 'application/octet-stream');
   res.set('Content-Disposition', 'inline');
   res.sendFile(path.join(UPLOAD_DIR, filename));
 });

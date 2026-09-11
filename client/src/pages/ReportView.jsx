@@ -35,13 +35,19 @@ export default function ReportView() {
         </div>
       )}
 
-      <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden" style={{ height: '80vh' }}>
-        <object data={fileUrl} type="application/pdf" className="w-full h-full">
-          <p className="p-6 text-sm text-gray-500">
-            Your browser can't preview PDFs inline. <a className="text-indigo-600 underline" href={fileUrl} target="_blank" rel="noreferrer">Open the document</a> instead.
-          </p>
-        </object>
-      </div>
+      {report.mime_type?.startsWith('image/') ? (
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden flex justify-center">
+          <img src={fileUrl} alt={report.title} className="max-w-full" />
+        </div>
+      ) : (
+        <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden" style={{ height: '80vh' }}>
+          <object data={fileUrl} type="application/pdf" className="w-full h-full">
+            <p className="p-6 text-sm text-gray-500">
+              Your browser can't preview PDFs inline. <a className="text-indigo-600 underline" href={fileUrl} target="_blank" rel="noreferrer">Open the document</a> instead.
+            </p>
+          </object>
+        </div>
+      )}
     </div>
   );
 }

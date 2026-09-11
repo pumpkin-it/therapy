@@ -644,6 +644,9 @@ function BillingSummaryTab({ clientId }) {
 // release. Release is a manual finance/admin toggle (this practice has no in-app payment
 // tracking). See FilesTab below — reports live as ordinary files, not a separate tab.
 const REPORT_STATUS_COLOR = { pending: 'bg-amber-100 text-amber-700', released: 'bg-green-100 text-green-700' };
+// Word/Excel have no rasterization path (would need converting to PDF first) — not worth the
+// dependency until there's an actual need. PDF and images cover the real workflow today.
+const SHAREABLE_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
 
 // ─── Files tab ────────────────────────────────────────────────────────────────
 function FilesTab({ clientId }) {
@@ -667,6 +670,7 @@ function FilesTab({ clientId }) {
   const [editVisiblePages, setEditVisiblePages] = useState(1);
   const [savingPages, setSavingPages] = useState(false);
   const [reportError, setReportError] = useState('');
+  const [sharingId, setSharingId] = useState(null);
   const inputRef = useRef();
 
   const loadFolders = () => api.get(`/client-file-folders?client_id=${clientId}`).then(r => setFolders(r.data));
@@ -756,12 +760,16 @@ function FilesTab({ clientId }) {
   const fmt = bytes => bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
   const shareReport = async f => {
+    if (sharingId) return; // preview generation takes a few seconds — ignore repeat clicks rather than fire twice
     setReportError('');
+    setSharingId(f.id);
     try {
       await api.post(`/client-files/${f.id}/share-report`, { visible_pages: 1 });
       refreshCurrentView();
     } catch (e) {
-      setReportError(e.response?.data?.error || 'Failed to share as a report');
+      setReportError(e.response?.data?.error || 'Failed to share file');
+    } finally {
+      setSharingId(null);
     }
   };
 
@@ -903,7 +911,7 @@ function FilesTab({ clientId }) {
               <p className="text-xs text-gray-400 truncate">
                 {view === 'shared' && `in ${f.folder_name || 'Files (root)'} · `}
                 {f.label ? `${f.original_name} · ` : ''}{fmt(f.size)} · {fmtDateOnly(f.created_at, timezone)}
-                {f.report_status && ` · ${f.report_visible_pages || 0} page${f.report_visible_pages === 1 ? '' : 's'} shown in full`}
+                {f.report_status && f.mime_type === 'application/pdf' && ` · ${f.report_visible_pages || 0} page${f.report_visible_pages === 1 ? '' : 's'} shown in full`}
               </p>
             </div>
             {f.report_status && (
@@ -918,8 +926,10 @@ function FilesTab({ clientId }) {
                 {folders.map(fo => <option key={fo.id} value={fo.id}>{fo.name}</option>)}
               </select>
             )}
-            {f.mime_type === 'application/pdf' && !f.report_status && (
-              <Button size="sm" variant="ghost" onClick={() => shareReport(f)}>Share as draft report</Button>
+            {SHAREABLE_MIME_TYPES.includes(f.mime_type) && !f.report_status && (
+              <Button size="sm" variant="ghost" onClick={() => shareReport(f)} disabled={sharingId === f.id}>
+                {sharingId === f.id ? 'Sharing…' : 'Share file'}
+              </Button>
             )}
             <button onClick={() => download(f.id)} className="text-indigo-500 hover:text-indigo-700 p-1"><Download className="h-4 w-4" /></button>
             <button onClick={() => remove(f.id)} className="text-red-300 hover:text-red-500 p-1"><Trash2 className="h-4 w-4" /></button>
@@ -928,7 +938,9 @@ function FilesTab({ clientId }) {
           {f.report_status && (
             <div className="flex items-center gap-1.5 pt-2 border-t border-gray-100">
               <Button size="sm" variant="ghost" onClick={() => copyReportLink(f)}>{copiedId === f.id ? 'Copied!' : 'Copy link'}</Button>
-              <Button size="sm" variant="ghost" onClick={() => startEditPages(f)}>Edit pages shown</Button>
+              {f.mime_type === 'application/pdf' && (
+                <Button size="sm" variant="ghost" onClick={() => startEditPages(f)}>Edit pages shown</Button>
+              )}
               <Button size="sm" variant={f.report_status === 'released' ? 'ghost' : 'secondary'} onClick={() => toggleReportStatus(f)}>
                 {f.report_status === 'released' ? 'Revert to draft' : 'Mark as released'}
               </Button>
