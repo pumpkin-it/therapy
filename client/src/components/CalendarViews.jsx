@@ -19,6 +19,7 @@ export const STATUS_CLASS = {
   completed:  'bg-gray-100 border-gray-300 text-gray-600',
   cancelled:  'bg-red-50 border-red-200 text-red-700 opacity-60',
   no_show:    'bg-orange-50 border-orange-300 text-orange-900',
+  blocked:    'hatch-block border-gray-300 text-gray-600',
 };
 
 // Standard working-hours window — the grid's default, always-visible range.
@@ -49,7 +50,7 @@ function calcTimeFromClick(e, containerEl, hourStart, hourCount) {
   return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
 }
 
-export const apptRef = id => `APT-${String(id).padStart(5,'0')}`;
+export const apptRef = id => typeof id === 'string' && id.startsWith('block-') ? 'Blocked time' : `APT-${String(id).padStart(5,'0')}`;
 
 export function getStyle(startISO, endISO, hourStart, hourCount) {
   const start = new Date(startISO);
@@ -306,8 +307,10 @@ export function WeekView({ date, appointments, practitioners, filteredPractition
                   <div
                     onClick={() => onClickAppt(appt)}
                     data-appt title={apptRef(appt.id)}
-                    className="absolute rounded border px-1.5 py-1 text-xs cursor-pointer overflow-hidden hover:shadow transition-shadow"
-                    style={appt.status === 'pending'
+                    className={cn('absolute rounded border px-1.5 py-1 text-xs cursor-pointer overflow-hidden hover:shadow transition-shadow', appt._isBlock && 'hatch-block')}
+                    style={appt._isBlock
+                      ? { ...getStyle(appt.start_time, appt.end_time, hourStart, hourCount), left: ol.left, width: ol.width, borderColor: '#9ca3af', color: '#4b5563' }
+                      : appt.status === 'pending'
                       ? { ...getStyle(appt.start_time, appt.end_time, hourStart, hourCount), left: ol.left, width: ol.width, borderColor: '#9ca3af', borderStyle: 'dashed', background: '#e5e7eb', color: '#374151' }
                       : { ...getStyle(appt.start_time, appt.end_time, hourStart, hourCount), left: ol.left, width: ol.width, borderColor: practitionerColor(appt.practitioner_id), background: practitionerColor(appt.practitioner_id) + '22', color: '#111' }}
                   >
@@ -380,8 +383,10 @@ export function MonthView({ date, appointments, practitioners, filteredPractitio
                   <div key={appt.id}
                     onClick={e => { e.stopPropagation(); onClickAppt(appt); }}
                     data-appt title={apptRef(appt.id)}
-                    className="rounded px-1 py-0.5 text-xs font-medium cursor-pointer hover:opacity-80"
-                    style={appt.status === 'pending'
+                    className={cn('rounded px-1 py-0.5 text-xs font-medium cursor-pointer hover:opacity-80', appt._isBlock && 'hatch-block')}
+                    style={appt._isBlock
+                      ? { color: '#4b5563', borderLeft: '3px solid #9ca3af' }
+                      : appt.status === 'pending'
                       ? { background: '#e5e7eb', color: '#374151', borderLeft: '3px dashed #9ca3af' }
                       : { background: practitionerColor(appt.practitioner_id) + '33', color: '#111', borderLeft: `3px solid ${practitionerColor(appt.practitioner_id)}` }}
                   >

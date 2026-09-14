@@ -103,9 +103,15 @@ calculated/derived field, e.g. LEFS's auto-summed total).
 
 ## 9. Invoicing — reach the confirm step
 Invoices → To Send (or To Export, depending on `invoicing_mode`) → open a real unbilled
-appointment → confirm the line items and total look right → reach the Generate/Export
-confirmation step. Do not actually complete a real MYOB export or send a real invoice email
-unless the user has explicitly asked for that as part of this run.
+appointment → confirm the line items and total look right. Do not actually complete a real MYOB
+export or send a real invoice email unless the user has explicitly asked for that as part of
+this run.
+
+**Note on `export_only` mode** (confirmed 2026-09-14): there is no separate confirm/preview
+screen in this mode — clicking "Export MYOB CSV" is a single action that immediately calls the
+export endpoint and stamps the appointment as exported. In this mode, **stop at "select the row
+and verify the line items/total in the list view"** — do not click Export, since that would
+complete a real (if harmless, QA-only-data) export rather than just previewing it.
 
 ## 10. Templates & Settings pages load cleanly
 Templates page — all four tabs (Email, Session Note, Agreement, Forms) load without a console

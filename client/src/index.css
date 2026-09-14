@@ -8,6 +8,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Blocked-time calendar entries — diagonal hatch, distinct from any real appointment's
+   solid/tinted status colour at a glance. */
+.hatch-block {
+  background-image: repeating-linear-gradient(135deg, #e5e7eb 0, #e5e7eb 4px, #f3f4f6 4px, #f3f4f6 9px);
+}
+
 /* Quill rich text editor overrides */
 .quill-wrapper .ql-toolbar {
   border: none;

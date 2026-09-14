@@ -1071,4 +1071,24 @@ try {
 try { db.exec(`ALTER TABLE clients ADD COLUMN portal_token TEXT`); } catch {}
 try { db.exec(`CREATE UNIQUE INDEX idx_clients_portal_token ON clients(portal_token) WHERE portal_token IS NOT NULL`); } catch {}
 
+// Practitioner time blocks — deliberately a separate table from appointments, not an
+// appointment row with a "don't bill this" flag. A block (training, leave, etc.) has no
+// client, no funder, no billing items, and must never be reachable by invoice generation,
+// MYOB export, or budget/spend calculations — the old workaround (a fake "Offline Time"
+// client) kept leaking into those because it lived in the same table billing already queries.
+// Putting blocks in their own table makes that leak structurally impossible: nothing in the
+// billing pipeline ever queries this table, so nothing there needs to remember to exclude it.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS practitioner_time_blocks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    practitioner_id INTEGER NOT NULL REFERENCES practitioners(id) ON DELETE CASCADE,
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL,
+    reason TEXT,
+    created_by INTEGER REFERENCES practitioners(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec(`CREATE INDEX idx_time_blocks_practitioner ON practitioner_time_blocks(practitioner_id, start_time)`); } catch {}
+
 module.exports = db;

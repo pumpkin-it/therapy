@@ -3,11 +3,12 @@ import {
   format, addDays, startOfDay, startOfWeek, endOfWeek,
   addWeeks, subWeeks, addMonths, subMonths, startOfMonth, endOfMonth,
 } from 'date-fns';
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, CalendarOff } from 'lucide-react';
 import api from '../lib/api';
 import { cn } from '../lib/utils';
 import Button from '../components/ui/Button';
 import AppointmentModal from '../components/AppointmentModal';
+import BlockTimeModal from '../components/BlockTimeModal';
 import CancelledAppointmentsModal from '../components/CancelledAppointmentsModal';
 import { DayView, WeekView, MonthView } from '../components/CalendarViews';
 import { useAuth } from '../context/AuthContext';
@@ -17,11 +18,13 @@ export default function Calendar() {
   const [date, setDate] = useState(startOfDay(new Date()));
   const [view, setView] = useState('week');
   const [appointments, setAppointments] = useState([]);
+  const [timeBlocks, setTimeBlocks] = useState([]);
   const [practitioners, setPractitioners] = useState([]);
   const [practitionerFilter, setPractitionerFilter] = useState('');
   const [showCancelled, setShowCancelled] = useState(false);
   const [showCancelledList, setShowCancelledList] = useState(false);
   const [modal, setModal] = useState(null);
+  const [blockModal, setBlockModal] = useState(null);
 
   const dateStr = format(date, 'yyyy-MM-dd');
 
@@ -39,6 +42,7 @@ export default function Calendar() {
       params = `from=${ms}T00:00&to=${me}T23:59`;
     }
     api.get(`/appointments?${params}`).then(r => setAppointments(r.data));
+    api.get(`/time-blocks?${params}`).then(r => setTimeBlocks(r.data));
   };
 
   useEffect(() => { api.get('/practitioners?role=practitioner').then(r => setPractitioners(r.data)); }, []);
@@ -84,6 +88,27 @@ export default function Calendar() {
     ? appointments.filter(a => a.status === 'cancelled')
     : appointments.filter(a => a.status !== 'cancelled' || a.late_cancel_billable);
 
+  // Time blocks are shaped to look like a (non-billable) appointment so they can flow through
+  // the exact same overlap-layout/rendering code Day/Week/Month views already use for real
+  // appointments — CalendarViews.jsx branches on `_isBlock` wherever the two need to look or
+  // behave differently (styling, click target). Hidden entirely by the cancelled-only toggle,
+  // since a block was never cancelled in the first place.
+  const visibleBlocks = showCancelled ? [] : timeBlocks.map(b => ({
+    id: `block-${b.id}`, _isBlock: true, raw: b,
+    practitioner_id: b.practitioner_id, start_time: b.start_time, end_time: b.end_time,
+    status: 'blocked', client_name: b.reason || 'Blocked time',
+  }));
+  const calendarItems = [...visibleAppointments, ...visibleBlocks];
+
+  const onClickCalendarItem = item => item._isBlock ? setBlockModal(item.raw) : openAppt(item);
+
+  // Clicking a calendar slot defaults straight into AppointmentModal — that's the common case
+  // (a real appointment) the vast majority of the time. AppointmentModal itself carries a
+  // small "Block time instead" link (shown only for a new, unsaved entry) that swaps over to
+  // BlockTimeModal with whatever date/time/practitioner was already selected, so blocking time
+  // is still one click away without making every appointment booking pay an extra step upfront.
+  const switchToBlock = slot => { setModal(null); setBlockModal({ _new: true, ...slot }); };
+
   return (
     <div className="flex flex-col h-full space-y-4">
       {/* Toolbar */}
@@ -116,24 +141,27 @@ export default function Calendar() {
 
         <Button variant="ghost" size="sm" onClick={() => setShowCancelledList(true)}>Cancelled appointments</Button>
 
-        <div className="ml-auto">
+        <div className="ml-auto flex gap-2">
+          <Button variant="secondary" onClick={() => setBlockModal({ _new: true, date: dateStr })}>
+            <CalendarOff className="h-4 w-4" /> Block time
+          </Button>
           <Button onClick={() => setModal({ _new: true, date: dateStr })}><Plus className="h-4 w-4" /> New appointment</Button>
         </div>
       </div>
 
       {view === 'day' && (
-        <DayView date={date} appointments={visibleAppointments} practitioners={practitioners}
-          filteredPractitionerId={practitionerFilter} onClickAppt={openAppt} dateStr={dateStr}
+        <DayView date={date} appointments={calendarItems} practitioners={practitioners}
+          filteredPractitionerId={practitionerFilter} onClickAppt={onClickCalendarItem} dateStr={dateStr}
           onClickSlot={slot => setModal({ _new: true, ...slot })} />
       )}
       {view === 'week' && (
-        <WeekView date={date} appointments={visibleAppointments} practitioners={practitioners}
-          filteredPractitionerId={practitionerFilter} onClickAppt={openAppt} onClickDay={goToDay}
+        <WeekView date={date} appointments={calendarItems} practitioners={practitioners}
+          filteredPractitionerId={practitionerFilter} onClickAppt={onClickCalendarItem} onClickDay={goToDay}
           onClickSlot={slot => setModal({ _new: true, ...slot })} />
       )}
       {view === 'month' && (
-        <MonthView date={date} appointments={visibleAppointments} practitioners={practitioners}
-          filteredPractitionerId={practitionerFilter} onClickAppt={openAppt} onClickDay={goToDay} />
+        <MonthView date={date} appointments={calendarItems} practitioners={practitioners}
+          filteredPractitionerId={practitionerFilter} onClickAppt={onClickCalendarItem} onClickDay={goToDay} />
       )}
 
       {modal !== null && (
@@ -145,6 +173,19 @@ export default function Calendar() {
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); load(); }}
           onRefresh={() => load()}
+          onSwitchToBlock={modal?._new ? switchToBlock : undefined}
+        />
+      )}
+
+      {blockModal !== null && (
+        <BlockTimeModal
+          block={blockModal._new ? null : blockModal}
+          defaultDate={blockModal._new ? blockModal.date : dateStr}
+          defaultTime={blockModal._new ? blockModal.time : null}
+          defaultPractitioner={blockModal._new ? blockModal.practitionerId : null}
+          practitioners={practitioners}
+          onClose={() => setBlockModal(null)}
+          onSaved={() => { setBlockModal(null); load(); }}
         />
       )}
 

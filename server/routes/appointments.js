@@ -103,11 +103,15 @@ router.get('/', auth, perm('calendar'), (req, res) => {
 
 // Check for scheduling conflicts
 router.get('/check-conflicts', auth, perm('calendar'), (req, res) => {
-  const { practitioner_id, client_id, start_time, end_time, exclude_id } = req.query;
+  const { practitioner_id, client_id, start_time, end_time, exclude_id, exclude_block_id } = req.query;
   if (!start_time || !end_time) return res.json({ conflicts: [] });
   const conflicts = [];
   const excl = exclude_id ? [exclude_id] : [];
   const exclSQL = exclude_id ? ' AND a.id != ?' : '';
+  // exclude_block_id: reused for both a new appointment's conflict check (never set) and a
+  // block being edited (excludes itself, same reasoning as exclude_id for appointments).
+  const exclBlock = exclude_block_id ? [exclude_block_id] : [];
+  const exclBlockSQL = exclude_block_id ? ' AND id != ?' : '';
   if (practitioner_id) {
     const rows = db.prepare(`
       SELECT c.first_name || ' ' || c.last_name AS client_name
@@ -116,6 +120,11 @@ router.get('/check-conflicts', auth, perm('calendar'), (req, res) => {
     `).all(practitioner_id, end_time, start_time, ...excl);
     const pName = db.prepare("SELECT first_name || ' ' || last_name AS name FROM practitioners WHERE id=?").get(practitioner_id);
     for (const r of rows) conflicts.push({ type: 'practitioner', message: `${pName?.name} already has an appointment with ${r.client_name} at this time` });
+
+    const blocks = db.prepare(`
+      SELECT reason FROM practitioner_time_blocks WHERE practitioner_id = ? AND start_time < ? AND end_time > ? ${exclBlockSQL}
+    `).all(practitioner_id, end_time, start_time, ...exclBlock);
+    for (const b of blocks) conflicts.push({ type: 'practitioner', message: `${pName?.name} has blocked this time${b.reason ? ` (${b.reason})` : ''}` });
   }
   if (client_id) {
     const rows = db.prepare(`
