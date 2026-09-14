@@ -22,6 +22,16 @@ Calendar → New appointment → pick Practitioner, Client, Funder (if the clien
 periods), Start/End time, a real Service line item → Save → appointment appears on the
 calendar at the right time/day, correct color per practitioner.
 
+**Session note indicator** (added 2026-09-14, Day/Week/Month views): a fresh appointment with no
+session note yet shows no icon next to the client name. Add a session note to it → the small
+note icon appears next to the name in all three calendar views (the practice relies on this to
+audit at a glance that every session has notes — a false icon, on either side, is a real bug).
+
+**Service description on the block** (added 2026-09-14): the first line item's description (e.g.
+"OT Session", "Report writing") shows under the suburb in Day/Week views, and combined with the
+suburb on one line in Month view — lets you tell what an appointment is for without opening it.
+Confirm it updates immediately after changing the service/description and saving.
+
 ## 3. Edit an appointment
 Open an existing appointment → change time and/or a line item → Save → change persists on
 reload (close and reopen the appointment, confirm the new value is still there — not just
@@ -87,12 +97,53 @@ billed case above).
 Both entry points write to the same place — a note added one way must be visible the other way
 (open the same appointment/client from both sides and confirm).
 
+**Draft recovery** (added 2026-09-14, both entry points): start typing a note, then navigate away
+without Save or Cancel (simulates an accidental tab/window close) → return to the same
+client/appointment → the compose box reopens on its own with the typed text restored. Saving or
+explicitly clicking Cancel must clear the recovered draft (retype something small, Save, navigate
+away and back → compose box should stay closed, not resurrect the old text).
+
+**Session date display + linking** (added 2026-09-14, client profile's Session Notes tab only):
+a note added via the appointment modal (so it's linked to that appointment) shows that
+appointment's date/time (e.g. "Monday 14/09/2026 at 10am") instead of when it was typed. A note
+added standalone via the client profile tab has no appointment link, shows when it was typed
+instead, and gets a **Link to appointment** action → opens a picker of that client's
+appointments → pick one → the note's displayed date switches to the appointment's date/time and
+the Link action disappears (now linked).
+
+**Rich text formatting** (added 2026-09-14, both entry points, compose and edit): the note
+editor is a Quill toolbar (font, bold, italic, underline, color, lists) instead of a plain
+textarea. Type a note, apply bold to one word, underline to another, a color to a third, and
+switch a fourth to Serif or Monospace font → Save → reopen the note (collapsed→expanded) and
+confirm all four are still visible → click Edit and confirm the editor reopens with the same
+formatting intact (not flattened to plain text). A **legacy plain-text note** (written before
+this feature existed) must still display and edit correctly — its line breaks preserved, no raw
+HTML tags visible.
+
 ## 7. Session notes — download / email
 Select a note (appointment modal or client profile, both have this) → Download PDF succeeds
 (real 200 response, real PDF bytes) → the PDF's date matches the actual session date, not
-today. Email button opens the pre-filled modal with the correct recipient/subject/body,
-including the same correct session date in the body — **do not actually click Send** (would
-dispatch a real email); confirming the pre-filled preview is correct is sufficient.
+today, and any bold/underline/color/font formatting on the note carries into the PDF (not
+flattened to plain text). Email button opens the pre-filled modal with the correct
+recipient/subject/body, including the same correct session date in the body — **do not actually
+click Send** (would dispatch a real email); confirming the pre-filled preview is correct is
+sufficient.
+
+## 7b. Client files — share a report and notify the client
+Added 2026-09-14. Client → Files → upload a PDF/JPG/PNG → "Share file" → a "Draft shared" badge
+appears with Copy link / Notify client / Edit pages shown / Mark as released / Stop sharing
+controls.
+
+Click **Notify client** while still in draft → modal title reads "Notify client (draft shared)"
+→ preview body must NOT mention payment, must say it's a preview, and must include a working
+`{{report_link}}` (`/report/<token>`) → **do not actually click Send** (would dispatch a real
+email); confirming the pre-filled preview is correct is sufficient, unless the user has
+explicitly asked for a real send test as part of this run.
+
+Click **Mark as released** → status badge flips to "Released" → open Notify client again → title
+drops the "(draft shared)" suffix, body now says the report is finalised and ready to download —
+confirm the link itself is unchanged from the draft version (same token, just what it serves
+changes server-side).
 
 ## 8. Fill in a form
 Client → Forms → Fill in a form → pick a template through the folder picker (if the template

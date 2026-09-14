@@ -4,11 +4,12 @@ import Modal from './ui/Modal';
 import Button from './ui/Button';
 import AddressAutocomplete from './AddressAutocomplete';
 import { Trash2, Plus, FileText, Pencil, RefreshCw, Mail, AlertCircle, CheckCircle, TriangleAlert, Paperclip, Upload, Download, File as FileIcon, X, CalendarOff } from 'lucide-react';
-import { localToday, fmtDate, fmtDateTime, downloadFile, roundQty, cn } from '../lib/utils';
+import { localToday, fmtDate, fmtDateTime, downloadFile, roundQty, cn, noteHtml } from '../lib/utils';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
 import SessionNoteEmailModal from './SessionNoteEmailModal';
 import DateTimeStepper from './DateTimeStepper';
+import RichEditor from './RichEditor';
 
 const EMPTY_ITEM = { service_id: '', description: '', quantity: 1, unit_rate: 0, travel_time_to: '', travel_time_from: '', travel_km: '', notes_min: '', item_notes: '' };
 
@@ -32,19 +33,6 @@ function addInterval(iso, freq) {
   return d.toISOString().slice(0, 16);
 }
 
-// Strip HTML tags to plain text, preserving line breaks from block elements
-function htmlToPlain(html) {
-  if (!html) return '';
-  return html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n')
-    .replace(/<\/li>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-}
-
 // Format a datetime string as "Monday 06/07/2026"
 function fmtNextAppt(isoStr) {
   if (!isoStr) return '';
@@ -56,6 +44,11 @@ function fmtNextAppt(isoStr) {
   return `${day} ${dd}/${mm}/${yyyy}`;
 }
 
+// Same accidental-close protection as the client profile's Session Notes tab (see
+// therapy:session-note-draft:client:* in ClientDetail.jsx) — cheap localStorage write per
+// keystroke, no server involvement, cleared on successful save.
+const noteDraftKey = appointmentId => `therapy:session-note-draft:appointment:${appointmentId}`;
+
 function SessionNotesSection({ appointmentId, clientId, appointment }) {
   const { timezone } = useSettings();
   const { user } = useAuth();
@@ -63,6 +56,11 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
   const [noteTemplates, setNoteTemplates] = useState([]);
   const [nextAppt, setNextAppt] = useState('');
   const [draft, setDraft] = useState('');
+  const setDraftPersist = v => {
+    setDraft(v);
+    try { v ? localStorage.setItem(noteDraftKey(appointmentId), v) : localStorage.removeItem(noteDraftKey(appointmentId)); } catch {}
+  };
+  const draftHtmlRef = useRef(); // full-content replace on the compose editor (template apply)
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
   const [saving, setSaving] = useState(false);
@@ -163,6 +161,16 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
   };
 
   useEffect(() => {
+    try {
+      const saved = localStorage.getItem(noteDraftKey(appointmentId));
+      // Unlike the client profile's compose box, this one isn't conditionally mounted, so by the
+      // time this effect runs the RichEditor (and its underlying Quill instance) already exists —
+      // defaultValue only applies at mount, so push a restored draft in imperatively instead.
+      if (saved) draftHtmlRef.current?.(saved);
+    } catch {}
+  }, [appointmentId]);
+
+  useEffect(() => {
     load();
     api.get('/templates?type=session_note').then(r => setNoteTemplates(r.data)).catch(() => {});
     // Find next appointment for this client after today, excluding current one
@@ -191,9 +199,10 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
       date:               today,
       next_appointment:   nextAppt,
     };
-    const body = htmlToPlain(t.body);
-    const rendered = body.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
-    setDraft(rendered);
+    // Templates are themselves Quill-authored HTML — substitute vars directly into it (rather
+    // than stripping to plain text first) so a template's own formatting carries into the note.
+    const rendered = (t.body || '').replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
+    draftHtmlRef.current?.(rendered);
   };
 
   const addNote = async () => {
@@ -208,7 +217,7 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
         if (sf.label) fd.append('label', sf.label);
         await api.post('/session-note-files', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       }
-      setDraft(''); setStagedFiles([]); load();
+      setDraftPersist(''); setStagedFiles([]); load();
     } finally { setSaving(false); }
   };
 
@@ -239,8 +248,7 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
         <div key={n.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
           {editingId === n.id ? (
             <div className="space-y-2">
-              <textarea rows={3} className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm resize-y"
-                value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
+              <RichEditor defaultValue={editText} onChange={setEditText} toolbar="session-note" />
               <div className="flex gap-2 justify-end">
                 <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
                 <Button size="sm" onClick={() => saveEdit(n.id)}>Save</Button>
@@ -248,18 +256,18 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
             </div>
           ) : (
             <div className="group">
-              <div className="flex gap-2">
+              <div className="flex items-start gap-2">
                 <input type="checkbox" className="mt-1 accent-indigo-600 shrink-0"
                   checked={selectedIds.includes(n.id)} onChange={() => toggleSelect(n.id)} />
                 <div className="flex-1">
-                  <p className="text-sm text-gray-800 whitespace-pre-wrap">{n.note}</p>
+                  <div className="text-sm text-gray-800" dangerouslySetInnerHTML={{ __html: noteHtml(n.note) }} />
                   <p className="text-xs text-gray-400 mt-1">{n.practitioner_name && <span>{n.practitioner_name} · </span>}{fmtDateTime(n.created_at, timezone)}</p>
                 </div>
                 <div className="flex gap-1 shrink-0">
                   <input ref={el => (fileInputRefs.current[n.id] = el)} type="file" className="hidden" onChange={e => pickFile(n.id, e)} />
                   <button onClick={() => fileInputRefs.current[n.id]?.click()} className="text-gray-400 hover:text-indigo-600" title="Attach file"><Paperclip className="h-3.5 w-3.5" /></button>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => { setEditingId(n.id); setEditText(n.note); }} className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
+                    <button onClick={() => { setEditingId(n.id); setEditText(noteHtml(n.note)); }} className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
                     <button onClick={() => remove(n.id)} className="text-red-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
                   </div>
                 </div>
@@ -326,8 +334,7 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
             ))}
           </div>
         )}
-        <textarea rows={3} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-y focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-          placeholder="Add a session note…" value={draft} onChange={e => setDraft(e.target.value)} />
+        <RichEditor defaultValue={draft} onChange={setDraftPersist} htmlRef={draftHtmlRef} toolbar="session-note" />
         {stagedFiles.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {stagedFiles.map(sf => (

@@ -39,6 +39,31 @@ export const substituteVars = (text, vars) => {
   return text.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
 };
 
+// Session notes moved from plain text to Quill-authored HTML — these three helpers let both
+// forms coexist without a data migration. A note is "rich" if it contains any HTML tag;
+// anything else is legacy plain text written before rich text existed.
+export const isRichHtml = str => /<[a-z][\s\S]*>/i.test(str || '');
+
+// Safe to feed into dangerouslySetInnerHTML either way — legacy plain text is escaped and its
+// newlines become <br>, so it renders identically to how it always has.
+export const noteHtml = note => {
+  if (!note) return '';
+  if (isRichHtml(note)) return note;
+  return note.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+};
+
+// Strips a rich note down to plain text — used for search matching and the collapsed snippet,
+// where formatting doesn't matter but an accurate line-break-aware length does.
+export const notePlainText = note => {
+  if (!note) return '';
+  if (!isRichHtml(note)) return note;
+  return note
+    .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<\/li>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
+    .replace(/\n{3,}/g, '\n\n').trim();
+};
+
 export const localToday = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;

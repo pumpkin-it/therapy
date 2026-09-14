@@ -78,9 +78,34 @@ router.post('/', auth, (req, res) => {
   `).get(result.lastInsertRowid));
 });
 
+// Also used to link/unlink a standalone note to an appointment after the fact (note and
+// appointment_id are independent — either can be sent without the other). A note can only be
+// linked to an appointment belonging to the same client, since the session date shown/used
+// elsewhere (PDF, email) comes from that appointment's start_time.
 router.patch('/:id', auth, (req, res) => {
-  db.prepare('UPDATE session_notes SET note = ? WHERE id = ?').run(req.body.note, req.params.id);
-  res.json(db.prepare('SELECT * FROM session_notes WHERE id = ?').get(req.params.id));
+  const existing = db.prepare('SELECT * FROM session_notes WHERE id = ?').get(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Not found' });
+
+  const note = req.body.note !== undefined ? req.body.note : existing.note;
+  let appointment_id = existing.appointment_id;
+  if (req.body.appointment_id !== undefined) {
+    appointment_id = req.body.appointment_id || null;
+    if (appointment_id) {
+      const appt = db.prepare('SELECT client_id FROM appointments WHERE id = ?').get(appointment_id);
+      if (!appt || appt.client_id !== existing.client_id) {
+        return res.status(400).json({ error: 'That appointment does not belong to this client' });
+      }
+    }
+  }
+
+  db.prepare('UPDATE session_notes SET note = ?, appointment_id = ? WHERE id = ?').run(note, appointment_id, req.params.id);
+  res.json(db.prepare(`
+    SELECT cn.*, p.first_name || ' ' || p.last_name AS practitioner_name, a.start_time AS appointment_time
+    FROM session_notes cn
+    LEFT JOIN practitioners p ON p.id = cn.practitioner_id
+    LEFT JOIN appointments a ON a.id = cn.appointment_id
+    WHERE cn.id = ?
+  `).get(req.params.id));
 });
 
 router.delete('/:id', auth, (req, res) => {

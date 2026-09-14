@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, X, ChevronDown, ChevronRight, Folder } from 'lucide-react';
-import Quill from 'quill';
-import 'quill/dist/quill.snow.css';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
+import RichEditor from '../components/RichEditor';
 import { buildFolderTree, sortedChildren, sortedItems, countItems } from '../lib/formFolders';
 
 // Variables available per template type/code
@@ -28,72 +27,6 @@ const AGREEMENT_VARS = [
   'plan_start_date', 'plan_end_date', 'funds_manager_name', 'funds_manager_email', 'funds_manager_phone',
   'pricing_table',
 ];
-
-// ─── Rich text editor (Quill) ─────────────────────────────────────────────────
-function RichEditor({ defaultValue, onChange, insertRef, toolbar = 'email' }) {
-  const containerRef = useRef();
-  const quillRef = useRef();
-
-  useEffect(() => {
-    const toolbarOptions = toolbar === 'email'
-      ? [
-          ['bold', 'italic', 'underline', 'strike'],
-          [{ header: [1, 2, 3, false] }],
-          [{ list: 'ordered' }, { list: 'bullet' }],
-          ['link'],
-          ['clean'],
-        ]
-      : [
-          ['bold', 'italic', 'underline'],
-          [{ list: 'bullet' }],
-          ['clean'],
-        ];
-
-    const quill = new Quill(containerRef.current, {
-      theme: 'snow',
-      modules: { toolbar: toolbarOptions },
-    });
-
-    quill.clipboard.dangerouslyPasteHTML(defaultValue || '');
-
-    quill.on('text-change', () => {
-      // Quill wraps even empty editors with <p><br></p> — treat as empty
-      const html = quill.root.innerHTML;
-      onChange(html === '<p><br></p>' ? '' : html);
-    });
-
-    quillRef.current = quill;
-    return () => {
-      quill.off('text-change');
-      // Quill's snow theme inserts the toolbar as a sibling before the container and mutates
-      // the container itself (adds .ql-container, child nodes, etc). Without undoing that, a
-      // remount of this effect (e.g. React StrictMode's dev double-invoke) re-runs `new Quill()`
-      // on top of the leftover DOM and produces a duplicate toolbar.
-      const toolbarEl = containerRef.current?.previousElementSibling;
-      if (toolbarEl?.classList.contains('ql-toolbar')) toolbarEl.remove();
-      if (containerRef.current) {
-        containerRef.current.innerHTML = '';
-        containerRef.current.removeAttribute('class');
-      }
-    };
-  }, []); // intentionally empty — Quill owns this DOM node
-
-  // Expose variable insertion to parent via ref
-  if (insertRef) {
-    insertRef.current = text => {
-      const quill = quillRef.current;
-      if (!quill) return;
-      const range = quill.getSelection(true);
-      quill.insertText(range ? range.index : quill.getLength() - 1, text, 'user');
-    };
-  }
-
-  return (
-    <div className="quill-wrapper rounded-lg overflow-hidden border border-gray-300 focus-within:border-indigo-500 transition-colors">
-      <div ref={containerRef} />
-    </div>
-  );
-}
 
 function VarChips({ vars, insertRef }) {
   const insert = v => insertRef?.current?.(`{{${v}}}`);

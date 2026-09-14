@@ -13,7 +13,8 @@ const APPT_SELECT = `
     c.address AS client_address,
     p.first_name || ' ' || p.last_name AS practitioner_name,
     p.color AS practitioner_color,
-    l.name AS location_name, l.address AS location_address
+    l.name AS location_name, l.address AS location_address,
+    (SELECT COUNT(*) FROM session_notes sn WHERE sn.appointment_id = a.id AND sn.archived = 0) AS session_note_count
   FROM appointments a
   JOIN clients c ON c.id = a.client_id
   JOIN practitioners p ON p.id = a.practitioner_id

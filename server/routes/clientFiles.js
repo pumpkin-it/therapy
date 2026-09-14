@@ -7,6 +7,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { generateReportPreview, generateImagePreview } = require('../services/reportRedact');
+const { graphSend, getTemplate, renderTemplate } = require('../services/mailer');
 
 const SHAREABLE_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
 const PREVIEW_EXT = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' };
@@ -168,6 +169,47 @@ router.patch('/:id/report-status', auth, (req, res) => {
   audit.log('client_file', file.id, status === 'released' ? 'released' : 'unreleased',
     status === 'released' ? `Released "${file.label || file.original_name}" to client` : `Reverted "${file.label || file.original_name}" to draft`);
   res.json(db.prepare(`${FILE_WITH_REPORT_SELECT} WHERE cf.id = ?`).get(req.params.id));
+});
+
+// Sends the "your report is ready" email directly, instead of the practitioner copying the
+// link and pasting it into their own mail client. `to`/`cc`/`subject`/`body` come pre-rendered
+// from the client's editable preview (same pattern as session-notes email) — the fallback
+// template rendering below only kicks in if the client sent an empty value.
+router.post('/:id/notify-report', auth, async (req, res) => {
+  const file = db.prepare('SELECT * FROM client_files WHERE id = ?').get(req.params.id);
+  if (!file) return res.status(404).json({ error: 'Not found' });
+  const report = db.prepare('SELECT * FROM client_file_reports WHERE client_file_id = ?').get(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+
+  const { to, cc, subject, body } = req.body;
+  if (!Array.isArray(to) || !to.length) return res.status(400).json({ error: 'At least one recipient is required' });
+
+  const client = db.prepare('SELECT first_name, last_name FROM clients WHERE id = ?').get(file.client_id);
+  const practitioner = db.prepare('SELECT first_name, last_name FROM practitioners WHERE id = ?').get(req.user.id);
+  const reportTitle = file.label || file.original_name;
+  const reportLink = `${process.env.APP_URL || ''}/report/${report.view_token}`;
+  const vars = {
+    client_name: client ? `${client.first_name} ${client.last_name}` : '',
+    client_first_name: client?.first_name || '',
+    practitioner_name: practitioner ? `${practitioner.first_name} ${practitioner.last_name}` : '',
+    report_title: reportTitle,
+    report_link: reportLink,
+  };
+
+  const templateCode = report.status === 'released' ? 'report_released' : 'report_shared_draft';
+  const tpl = getTemplate(templateCode);
+  const finalSubject = subject || (tpl ? renderTemplate(tpl.subject, vars) : `Your ${reportTitle} is ready`);
+  const finalBody = body || (tpl ? renderTemplate(tpl.body, vars) : `<p>You can view "${reportTitle}" using the link below.</p><p><a href="${reportLink}">${reportLink}</a></p>`);
+
+  try {
+    await graphSend({ to, cc: cc?.length ? cc : undefined, subject: finalSubject, html: finalBody });
+  } catch (e) {
+    return res.status(400).json({ error: e.message || 'Failed to send email' });
+  }
+
+  audit.log('client_file', file.id, 'updated',
+    `Notified client about "${reportTitle}" (${report.status === 'released' ? 'released' : 'draft'})`);
+  res.json({ ok: true });
 });
 
 router.patch('/:id/report-visible-pages', auth, async (req, res) => {

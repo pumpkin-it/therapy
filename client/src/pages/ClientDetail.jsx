@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
-import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, Folder, FolderPlus, Paperclip, X, UserX, UserCheck, Search, ChevronDown, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, Folder, FolderPlus, Paperclip, X, UserX, UserCheck, Search, ChevronDown, ChevronRight, Link2 } from 'lucide-react';
 import api from '../lib/api';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 import Button from '../components/ui/Button';
@@ -10,11 +10,13 @@ import Input from '../components/ui/Input';
 import SearchSelect from '../components/ui/SearchSelect';
 import Modal from '../components/ui/Modal';
 import { EmbeddedCalendar } from '../components/CalendarViews';
-import { localToday, fmtDateTime, fmtDateOnly, downloadFile, currency } from '../lib/utils';
+import { localToday, fmtDateTime, fmtDateOnly, downloadFile, currency, noteHtml, notePlainText } from '../lib/utils';
+import RichEditor from '../components/RichEditor';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import AgreementPricingTable from '../components/AgreementPricingTable';
 import SessionNoteEmailModal from '../components/SessionNoteEmailModal';
+import ReportNotifyModal from '../components/ReportNotifyModal';
 import FormFillModal from '../components/FormFillModal';
 import EntityAuditLog from '../components/EntityAuditLog';
 import { buildFolderTree, sortedChildren, sortedItems, countItems } from '../lib/formFolders';
@@ -649,7 +651,7 @@ const REPORT_STATUS_COLOR = { pending: 'bg-amber-100 text-amber-700', released: 
 const SHAREABLE_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
 
 // ─── Files tab ────────────────────────────────────────────────────────────────
-function FilesTab({ clientId }) {
+function FilesTab({ clientId, client }) {
   const { timezone } = useSettings();
   const [view, setView] = useState('folder'); // 'folder' | 'shared' — shared flattens every shared file across all folders
   const [folders, setFolders] = useState([]);
@@ -671,6 +673,8 @@ function FilesTab({ clientId }) {
   const [savingPages, setSavingPages] = useState(false);
   const [reportError, setReportError] = useState('');
   const [sharingId, setSharingId] = useState(null);
+  const [notifyingFile, setNotifyingFile] = useState(null);
+  const [notifySent, setNotifySent] = useState(null);
   const inputRef = useRef();
 
   const loadFolders = () => api.get(`/client-file-folders?client_id=${clientId}`).then(r => setFolders(r.data));
@@ -938,6 +942,9 @@ function FilesTab({ clientId }) {
           {f.report_status && (
             <div className="flex items-center gap-1.5 pt-2 border-t border-gray-100">
               <Button size="sm" variant="ghost" onClick={() => copyReportLink(f)}>{copiedId === f.id ? 'Copied!' : 'Copy link'}</Button>
+              <Button size="sm" variant="ghost" onClick={() => setNotifyingFile(f)}>
+                {notifySent === f.id ? 'Sent!' : 'Notify client'}
+              </Button>
               {f.mime_type === 'application/pdf' && (
                 <Button size="sm" variant="ghost" onClick={() => startEditPages(f)}>Edit pages shown</Button>
               )}
@@ -989,6 +996,19 @@ function FilesTab({ clientId }) {
             <Button onClick={() => setBlockedFolder(null)}>Got it</Button>
           </div>
         </Modal>
+      )}
+
+      {notifyingFile && (
+        <ReportNotifyModal
+          client={client}
+          file={notifyingFile}
+          onClose={() => setNotifyingFile(null)}
+          onSent={() => {
+            setNotifyingFile(null);
+            setNotifySent(notifyingFile.id);
+            setTimeout(() => setNotifySent(null), 2000);
+          }}
+        />
       )}
     </div>
   );
@@ -1108,6 +1128,32 @@ function highlightText(text, query) {
   );
 }
 
+// appointment_time is naive LOCAL practice time (same convention as every other
+// appointments.start_time read in this codebase) — parsed directly, no 'Z' appended, no timezone
+// conversion. e.g. "Monday 14/09/2026 at 10am".
+function fmtApptDateTime(localStr) {
+  const d = new Date(localStr);
+  const day = d.toLocaleDateString('en-AU', { weekday: 'long' });
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  let h = d.getHours();
+  const m = d.getMinutes();
+  const ampm = h >= 12 ? 'pm' : 'am';
+  h = h % 12 || 12;
+  const time = m === 0 ? `${h}${ampm}` : `${h}:${String(m).padStart(2, '0')}${ampm}`;
+  return `${day} ${dd}/${mm}/${yyyy} at ${time}`;
+}
+
+// Recovers in-progress note text after an accidental tab/window close — debounce-free
+// localStorage write on every keystroke (cheap: no network, no server load) rather than a
+// server-side draft, which would need every note-reading path (list, PDF, email) to correctly
+// exclude an unfinished draft. Cleared on successful save or explicit Cancel; left behind
+// (and restored) only when the compose box was never closed cleanly, matching the reported
+// scenario. Attachments staged on the compose box are NOT recovered — a File object can't be
+// serialized to localStorage, so re-attaching after a lost tab is an acceptable gap.
+const noteDraftKey = clientId => `therapy:session-note-draft:client:${clientId}`;
+
 function SessionNotesTab({ clientId, client }) {
   const { user } = useAuth();
   const { timezone } = useSettings();
@@ -1115,6 +1161,10 @@ function SessionNotesTab({ clientId, client }) {
   const [noteTemplates, setNoteTemplates] = useState([]);
   const [newNote, setNewNote] = useState('');
   const [showNew, setShowNew] = useState(false);
+  const setNewNoteDraft = v => {
+    setNewNote(v);
+    try { v ? localStorage.setItem(noteDraftKey(clientId), v) : localStorage.removeItem(noteDraftKey(clientId)); } catch {}
+  };
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
   const [saving, setSaving] = useState(false);
@@ -1132,6 +1182,7 @@ function SessionNotesTab({ clientId, client }) {
   const [editingFileLabelId, setEditingFileLabelId] = useState(null);
   const [editFileLabelDraft, setEditFileLabelDraft] = useState('');
   const fileInputRefs = useRef({});
+  const newNoteHtmlRef = useRef(); // full-content replace on the compose editor (template apply)
 
   // Files staged on the "new note" compose box, before the note (and therefore a session_note_id) exists
   const [stagedFiles, setStagedFiles] = useState([]);
@@ -1155,7 +1206,43 @@ function SessionNotesTab({ clientId, client }) {
 
   const [nextAppt, setNextAppt] = useState('');
 
+  const [linkingNote, setLinkingNote] = useState(null); // note object being linked
+  const [linkAppointments, setLinkAppointments] = useState([]);
+  const [loadingLinkAppointments, setLoadingLinkAppointments] = useState(false);
+  const [linkSaving, setLinkSaving] = useState(null); // appointment id currently being saved
+  const [linkError, setLinkError] = useState('');
+
+  const openLinkPicker = note => {
+    setLinkingNote(note);
+    setLinkError('');
+    setLoadingLinkAppointments(true);
+    api.get(`/appointments?client_id=${clientId}`)
+      .then(r => setLinkAppointments([...(r.data || [])].reverse())) // most recent first
+      .finally(() => setLoadingLinkAppointments(false));
+  };
+
+  const confirmLink = async apptId => {
+    setLinkSaving(apptId);
+    setLinkError('');
+    try {
+      await api.patch(`/session-notes/${linkingNote.id}`, { appointment_id: apptId });
+      setLinkingNote(null);
+      load();
+    } catch (e) {
+      setLinkError(e.response?.data?.error || 'Failed to link appointment');
+    } finally {
+      setLinkSaving(null);
+    }
+  };
+
   const load = () => api.get(`/session-notes?client_id=${clientId}`).then(r => setNotes(r.data));
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(noteDraftKey(clientId));
+      if (saved) { setNewNote(saved); setShowNew(true); }
+    } catch {}
+  }, [clientId]);
+
   useEffect(() => {
     load();
     if (user?.permissions?.settings) {
@@ -1186,14 +1273,10 @@ function SessionNotesTab({ clientId, client }) {
       date:              today,
       next_appointment:  nextAppt,
     };
-    // Strip HTML tags (templates now use rich text) then substitute variables
-    const plain = (t.body || '')
-      .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<\/li>/gi, '\n')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ')
-      .replace(/\n{3,}/g, '\n\n').trim();
-    const rendered = plain.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
-    setNewNote(rendered);
+    // Templates are themselves Quill-authored HTML — substitute vars directly into it (rather
+    // than stripping to plain text first) so a template's own formatting carries into the note.
+    const rendered = (t.body || '').replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
+    newNoteHtmlRef.current?.(rendered);
   };
 
   const saveNew = async () => {
@@ -1208,7 +1291,7 @@ function SessionNotesTab({ clientId, client }) {
         if (sf.label) fd.append('label', sf.label);
         await api.post('/session-note-files', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       }
-      setNewNote('');
+      setNewNoteDraft('');
       setStagedFiles([]);
       setShowNew(false);
       load();
@@ -1285,7 +1368,7 @@ function SessionNotesTab({ clientId, client }) {
   };
 
   const q = searchQuery.trim().toLowerCase();
-  const visibleNotes = q ? notes.filter(n => n.note.toLowerCase().includes(q)) : notes;
+  const visibleNotes = q ? notes.filter(n => notePlainText(n.note).toLowerCase().includes(q)) : notes;
 
   return (
     <div className="space-y-3">
@@ -1337,10 +1420,7 @@ function SessionNotesTab({ clientId, client }) {
               ))}
             </div>
           )}
-          <textarea rows={5} autoFocus
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-y focus:border-indigo-500 focus:outline-none"
-            placeholder="Write your session note…"
-            value={newNote} onChange={e => setNewNote(e.target.value)} />
+          <RichEditor defaultValue={newNote} onChange={setNewNoteDraft} htmlRef={newNoteHtmlRef} toolbar="session-note" />
           {stagedFiles.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {stagedFiles.map(sf => (
@@ -1357,7 +1437,7 @@ function SessionNotesTab({ clientId, client }) {
               <Paperclip className="h-3.5 w-3.5" /> Attach file
             </button>
             <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={() => { setShowNew(false); setNewNote(''); setStagedFiles([]); }}>Cancel</Button>
+              <Button variant="secondary" size="sm" onClick={() => { setShowNew(false); setNewNoteDraft(''); setStagedFiles([]); }}>Cancel</Button>
               <Button size="sm" onClick={saveNew} disabled={saving || !newNote.trim()}>{saving ? 'Saving…' : 'Save note'}</Button>
             </div>
           </div>
@@ -1388,12 +1468,13 @@ function SessionNotesTab({ clientId, client }) {
 
       {visibleNotes.map(n => {
         const isExpanded = expandedIds.includes(n.id) || !!q;
-        const snippet = n.note.length > 90 ? `${n.note.slice(0, 90).trim()}…` : n.note;
+        const plain = notePlainText(n.note);
+        const snippet = plain.length > 90 ? `${plain.slice(0, 90).trim()}…` : plain;
         return (
           <div key={n.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
             {editingId === n.id ? (
               <div className="space-y-2">
-                <textarea rows={4} className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm resize-y" value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
+                <RichEditor defaultValue={editText} onChange={setEditText} toolbar="session-note" />
                 <div className="flex gap-2 justify-end">
                   <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
                   <Button size="sm" onClick={() => saveEdit(n.id)}>Save</Button>
@@ -1401,28 +1482,38 @@ function SessionNotesTab({ clientId, client }) {
               </div>
             ) : (
               <div className="group">
-                <div className="flex gap-2 cursor-pointer" onClick={() => toggleExpand(n.id)}>
+                <div className="flex items-start gap-2 cursor-pointer" onClick={() => toggleExpand(n.id)}>
                   <input type="checkbox" className="mt-1 accent-indigo-600 shrink-0"
                     checked={selectedIds.includes(n.id)} onClick={e => e.stopPropagation()} onChange={() => toggleSelect(n.id)} />
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm text-gray-800 ${isExpanded ? 'whitespace-pre-wrap' : 'truncate'}`}>
-                      {q ? highlightText(n.note, searchQuery) : (isExpanded ? n.note : snippet)}
-                    </p>
+                    <div className={`text-sm text-gray-800 ${q ? 'whitespace-pre-wrap' : isExpanded ? '' : 'truncate'}`}>
+                      {q
+                        ? highlightText(plain, searchQuery)
+                        : isExpanded
+                          ? <div dangerouslySetInnerHTML={{ __html: noteHtml(n.note) }} />
+                          : snippet}
+                    </div>
                     <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1">
                       {n.practitioner_name && <span className="font-medium">{n.practitioner_name} · </span>}
-                      {fmtDateTime(n.created_at, timezone)}
+                      {n.appointment_time ? fmtApptDateTime(n.appointment_time) : fmtDateTime(n.created_at, timezone)}
                       {n.file_count > 0 && (
                         <span className="inline-flex items-center gap-0.5 text-gray-400">
                           · <Paperclip className="h-3 w-3" /> {n.file_count}
                         </span>
                       )}
                     </p>
+                    {!n.appointment_id && (
+                      <button onClick={e => { e.stopPropagation(); openLinkPicker(n); }}
+                        className="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1 mt-1">
+                        <Link2 className="h-3 w-3" /> Link to appointment
+                      </button>
+                    )}
                   </div>
                   <div className="flex gap-1 shrink-0">
                     <input ref={el => (fileInputRefs.current[n.id] = el)} type="file" className="hidden" onChange={e => pickFile(n.id, e)} />
                     <button onClick={e => { e.stopPropagation(); fileInputRefs.current[n.id]?.click(); }} className="text-gray-400 hover:text-indigo-600" title="Attach file"><Paperclip className="h-3.5 w-3.5" /></button>
                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={e => { e.stopPropagation(); setEditingId(n.id); setEditText(n.note); }} className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
+                      <button onClick={e => { e.stopPropagation(); setEditingId(n.id); setEditText(noteHtml(n.note)); }} className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
                       <button onClick={e => { e.stopPropagation(); remove(n.id); }} className="text-red-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
                     </div>
                   </div>
@@ -1486,6 +1577,40 @@ function SessionNotesTab({ clientId, client }) {
         </Modal>
       )}
 
+      {linkingNote && (
+        <Modal title="Link to appointment" onClose={() => setLinkingNote(null)}>
+          <p className="text-xs text-gray-500 mb-3">
+            Pick the appointment this note was written for — its date/time will then show on the note instead of when it was typed.
+          </p>
+          {linkError && <p className="text-xs text-red-600 mb-2">{linkError}</p>}
+          {loadingLinkAppointments && <p className="text-sm text-gray-400 py-4 text-center">Loading appointments…</p>}
+          {!loadingLinkAppointments && linkAppointments.length === 0 && (
+            <p className="text-sm text-gray-400 py-4 text-center">No appointments found for this client.</p>
+          )}
+          {!loadingLinkAppointments && linkAppointments.length > 0 && (
+            <div className="max-h-80 overflow-y-auto space-y-1.5 -mx-1 px-1">
+              {linkAppointments.map(a => (
+                <button key={a.id} onClick={() => confirmLink(a.id)} disabled={linkSaving === a.id}
+                  className="w-full text-left rounded-lg border border-gray-200 px-3 py-2 text-sm hover:border-indigo-300 hover:bg-indigo-50/40 flex items-center justify-between gap-2 disabled:opacity-50">
+                  <span>
+                    {fmtApptDateTime(a.start_time)}
+                    {a.practitioner_name && <span className="text-gray-400"> · {a.practitioner_name}</span>}
+                  </span>
+                  {a.status === 'cancelled'
+                    ? <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[11px] font-medium bg-gray-100 text-gray-500">Cancelled</span>
+                    : linkSaving === a.id
+                      ? <span className="shrink-0 text-xs text-indigo-500">Linking…</span>
+                      : null}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-end mt-4">
+            <Button variant="secondary" size="sm" onClick={() => setLinkingNote(null)}>Cancel</Button>
+          </div>
+        </Modal>
+      )}
+
       {showEmailModal && (
         <SessionNoteEmailModal
           clientId={clientId}
@@ -1505,6 +1630,7 @@ const EMPTY_FORM = {
   first_name: '', last_name: '', email: '', phone: '', date_of_birth: '', address: '', gender: '',
   notes: '', alert: '',
   emergency_contact_name: '', emergency_contact_phone: '', emergency_contact_relationship: '', emergency_contact_email: '',
+  case_manager_name: '', case_manager_organisation: '', case_manager_phone: '', case_manager_email: '',
   diagnosis: '', allergies: '', regular_medication: '', is_test_data: false,
 };
 
@@ -1540,6 +1666,10 @@ export default function ClientDetail() {
         emergency_contact_phone:        r.data.emergency_contact_phone        || '',
         emergency_contact_relationship: r.data.emergency_contact_relationship || '',
         emergency_contact_email:        r.data.emergency_contact_email        || '',
+        case_manager_name:         r.data.case_manager_name         || '',
+        case_manager_organisation: r.data.case_manager_organisation || '',
+        case_manager_phone:        r.data.case_manager_phone        || '',
+        case_manager_email:        r.data.case_manager_email        || '',
         diagnosis:         r.data.diagnosis         || '',
         allergies:         r.data.allergies         || '',
         regular_medication: r.data.regular_medication || '',
@@ -1715,6 +1845,16 @@ export default function ClientDetail() {
               </div>
             </div>
 
+            <div>
+              <p className="text-sm font-medium text-gray-700 mb-2">Case manager / support coordinator</p>
+              <div className="grid grid-cols-2 gap-3">
+                <Input label="Name"         value={form.case_manager_name}         onChange={e => set('case_manager_name',         e.target.value)} />
+                <Input label="Organisation" value={form.case_manager_organisation} onChange={e => set('case_manager_organisation', e.target.value)} />
+                <Input label="Phone"        value={form.case_manager_phone}        onChange={e => set('case_manager_phone',        e.target.value)} />
+                <Input label="Email" type="email" value={form.case_manager_email} onChange={e => set('case_manager_email', e.target.value)} />
+              </div>
+            </div>
+
             <div className="space-y-1">
               <label className="block text-sm font-medium text-gray-700">Notes</label>
               <textarea rows={3} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none focus:border-indigo-500 focus:outline-none"
@@ -1745,7 +1885,7 @@ export default function ClientDetail() {
         {tab === 'agreements' && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to create agreements.</p> : <AgreementsTab clientId={id} />)}
         {tab === 'forms'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to fill in forms.</p> : <FormsTab clientId={id} client={client} />)}
         {tab === 'billing'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view billing.</p> : <BillingSummaryTab clientId={id} />)}
-        {tab === 'files'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to upload files.</p> : <FilesTab     clientId={id} />)}
+        {tab === 'files'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to upload files.</p> : <FilesTab     clientId={id} client={client} />)}
         {tab === 'calendar'  && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view calendar.</p> : <EmbeddedCalendar clientId={id} />)}
         {tab === 'history'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view history.</p> : (
           <EntityAuditLog entityType="client" entityId={id} defaultOpen

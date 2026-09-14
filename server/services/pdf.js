@@ -154,29 +154,63 @@ function decodeHtmlEntities(str) {
     .replace(/[☐☑]/g, ch => PDF_UNSAFE_CHARS[ch]);
 }
 
-// Parses a Quill-authored HTML fragment (agreement template body) into block-level chunks
+// Quill's color picker inserts inline `style="color: rgb(r, g, b);"` (or a hex value if
+// configured with one) — pdfkit's fillColor wants a hex string, not raw CSS syntax.
+function toHexColor(cssColor) {
+  if (!cssColor) return null;
+  const rgb = cssColor.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (rgb) return '#' + rgb.slice(1, 4).map(n => Number(n).toString(16).padStart(2, '0')).join('');
+  if (/^#[0-9a-f]{3,6}$/i.test(cssColor)) return cssColor;
+  return null; // unrecognised format — fall back to the default fill colour
+}
+
+// Parses a Quill-authored HTML fragment (agreement/session-note body) into block-level chunks
 // (paragraphs / list items), each holding an ordered list of inline runs with their
-// bold/italic/underline state — so PDF output can preserve the formatting visible in the
-// template editor instead of flattening everything to plain text.
+// bold/italic/underline/color/font state — so PDF output can preserve the formatting visible in
+// the editor instead of flattening everything to plain text. Color and font (Quill's built-in
+// serif/monospace whitelist, carried as a <span class="ql-font-*">) nest via a stack the same
+// way bold/italic/underline nest via booleans, since a span can wrap other formatted spans.
 function parseInlineRuns(html) {
   const runs = [];
   const withBreaks = html.replace(/<br\s*\/?>/gi, '\n');
-  const tagRegex = /<(\/?)(strong|b|em|i|u)>/gi;
+  const tagRegex = /<(\/?)(strong|b|em|i|u|span)([^>]*)>/gi;
   let bold = false, italic = false, underline = false;
+  const colorStack = [];
+  const fontStack = [];
   let lastIndex = 0;
   let m;
+  const flush = end => {
+    const text = withBreaks.slice(lastIndex, end).replace(/<[^>]+>/g, '');
+    if (text) {
+      runs.push({
+        text: decodeHtmlEntities(text), bold, italic, underline,
+        color: colorStack[colorStack.length - 1] || null,
+        font: fontStack[fontStack.length - 1] || null,
+      });
+    }
+  };
   while ((m = tagRegex.exec(withBreaks))) {
-    const text = withBreaks.slice(lastIndex, m.index).replace(/<[^>]+>/g, '');
-    if (text) runs.push({ text: decodeHtmlEntities(text), bold, italic, underline });
+    flush(m.index);
     const closing = m[1] === '/';
     const tag = m[2].toLowerCase();
+    const attrs = m[3] || '';
     if (tag === 'strong' || tag === 'b') bold = !closing;
     else if (tag === 'em' || tag === 'i') italic = !closing;
     else if (tag === 'u') underline = !closing;
+    else if (tag === 'span') {
+      if (!closing) {
+        const colorMatch = attrs.match(/color:\s*([^;"']+)/i);
+        const fontMatch = attrs.match(/ql-font-(serif|monospace)/i);
+        colorStack.push(colorMatch ? toHexColor(colorMatch[1].trim()) : (colorStack[colorStack.length - 1] || null));
+        fontStack.push(fontMatch ? fontMatch[1].toLowerCase() : (fontStack[fontStack.length - 1] || null));
+      } else {
+        colorStack.pop();
+        fontStack.pop();
+      }
+    }
     lastIndex = tagRegex.lastIndex;
   }
-  const rest = withBreaks.slice(lastIndex).replace(/<[^>]+>/g, '');
-  if (rest) runs.push({ text: decodeHtmlEntities(rest), bold, italic, underline });
+  flush(withBreaks.length);
   return runs.filter(r => r.text.length > 0);
 }
 
@@ -200,16 +234,32 @@ function parseRichHtml(html) {
   return blocks;
 }
 
-function fontFor(bold, italic) {
+// pdfkit ships 14 standard fonts including full Times/Courier families — a happy match for
+// Quill's built-in font whitelist (default sans, serif, monospace), so "different fonts" needs
+// no embedded font files, just picking the right one of the 14 per run.
+function pdfFontFor(fontKey, bold, italic) {
+  if (fontKey === 'serif') {
+    if (bold && italic) return 'Times-BoldItalic';
+    if (bold) return 'Times-Bold';
+    if (italic) return 'Times-Italic';
+    return 'Times-Roman';
+  }
+  if (fontKey === 'monospace') {
+    if (bold && italic) return 'Courier-BoldOblique';
+    if (bold) return 'Courier-Bold';
+    if (italic) return 'Courier-Oblique';
+    return 'Courier';
+  }
   if (bold && italic) return 'Helvetica-BoldOblique';
   if (bold) return 'Helvetica-Bold';
   if (italic) return 'Helvetica-Oblique';
   return 'Helvetica';
 }
 
-// Draws parsed rich-text blocks at the given position, preserving bold/italic/underline and
-// bullet points (PDFKit has no built-in HTML renderer, so formatting must be replayed manually
-// via font switching between each inline run within a `continued: true` chain).
+// Draws parsed rich-text blocks at the given position, preserving bold/italic/underline/
+// color/font and bullet points (PDFKit has no built-in HTML renderer, so formatting must be
+// replayed manually via font/fill-color switching between each inline run within a
+// `continued: true` chain).
 function drawRichBlocks(doc, blocks, x, y, { width = 495, fontSize = 10 } = {}) {
   doc.x = x;
   doc.y = y;
@@ -219,12 +269,14 @@ function drawRichBlocks(doc, blocks, x, y, { width = 495, fontSize = 10 } = {}) 
     const prefix = block.listItem ? '•  ' : '';
     block.runs.forEach((run, i) => {
       const text = i === 0 ? prefix + run.text : run.text;
-      doc.font(fontFor(run.bold, run.italic));
+      doc.font(pdfFontFor(run.font, run.bold, run.italic));
+      doc.fillColor(run.color || '#111');
       const isLast = i === block.runs.length - 1;
       doc.text(text, { continued: !isLast, underline: run.underline, width });
     });
     doc.moveDown(0.5);
   }
+  doc.fillColor('#111');
   return doc.y;
 }
 
@@ -309,8 +361,11 @@ function generateAgreementPdf(agreement) {
 }
 
 // Renders one or more session notes (already loaded with practitioner_name/created_at) into a
-// simple PDF for download or emailing to a client/third party. Notes are plain text (not Quill
-// HTML), so no htmlToPlain step is needed.
+// simple PDF for download or emailing to a client/third party. Notes are Quill-authored HTML —
+// parseRichHtml/drawRichBlocks (shared with the agreement PDF) replays bold/italic/underline/
+// color/font. A legacy plain-text note (written before rich text existed, no HTML tags at all)
+// still renders correctly: parseRichHtml's no-block-match fallback treats it as one plain run,
+// identical to the old `doc.text(note.note, ...)` call this replaces.
 function generateSessionNotePdf({ client_name, notes }) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50, size: 'A4' });
@@ -351,7 +406,8 @@ function generateSessionNotePdf({ client_name, notes }) {
         doc.font('Helvetica').fontSize(9).fillColor('#666').text(note.practitioner_name, 50, doc.y + 2);
       }
       doc.moveDown(0.4);
-      doc.font('Helvetica').fontSize(10).fillColor('#111').text(note.note, 50, doc.y, { width: 495 });
+      const blocks = parseRichHtml(note.note);
+      doc.y = drawRichBlocks(doc, blocks, 50, doc.y, { width: 495, fontSize: 10 });
       doc.moveDown(0.6);
       const lineY = doc.y;
       doc.moveTo(50, lineY).lineTo(right, lineY).strokeColor('#e5e7eb').stroke();

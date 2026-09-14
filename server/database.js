@@ -185,6 +185,10 @@ try { db.exec(`ALTER TABLE clients ADD COLUMN emergency_contact_relationship TEX
 try { db.exec(`ALTER TABLE clients ADD COLUMN diagnosis TEXT`); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN allergies TEXT`); } catch {}
 try { db.exec(`ALTER TABLE clients ADD COLUMN regular_medication TEXT`); } catch {}
+try { db.exec(`ALTER TABLE clients ADD COLUMN case_manager_name TEXT`); } catch {}
+try { db.exec(`ALTER TABLE clients ADD COLUMN case_manager_organisation TEXT`); } catch {}
+try { db.exec(`ALTER TABLE clients ADD COLUMN case_manager_phone TEXT`); } catch {}
+try { db.exec(`ALTER TABLE clients ADD COLUMN case_manager_email TEXT`); } catch {}
 
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS funding_periods (
@@ -335,6 +339,8 @@ try { db.exec(`
   )
 `); } catch {}
 try { db.exec(`ALTER TABLE session_notes ADD COLUMN archived INTEGER DEFAULT 0`); } catch {}
+// Backs the per-appointment note-count subquery the calendar views use to show a "notes added" icon
+try { db.exec(`CREATE INDEX idx_session_notes_appointment ON session_notes(appointment_id)`); } catch {}
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS session_note_files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -586,6 +592,18 @@ const emailSeeds = [
     name: 'Agreement Signing Reminder',
     subject: 'Reminder: please sign — {{title}}',
     body: '<p>Hi {{client_first_name}},</p><p>This is a friendly reminder that your <strong>{{title}}</strong> is still awaiting your signature.</p><p>Please review and sign using the link below.</p><p><a href="{{signing_url}}">{{signing_url}}</a></p>',
+  },
+  {
+    code: 'report_shared_draft',
+    name: 'Report Shared (Draft)',
+    subject: 'Your {{report_title}} is ready to preview',
+    body: '<p>Hi {{client_first_name}},</p><p>A draft of your <strong>{{report_title}}</strong> is ready for you to look over. You can preview it using the link below — this is a preview version, and the same link will automatically show the finished report once it\'s released.</p><p><a href="{{report_link}}">{{report_link}}</a></p><p>Regards,<br>{{practitioner_name}}</p>',
+  },
+  {
+    code: 'report_released',
+    name: 'Report Released (Final)',
+    subject: 'Your {{report_title}} is ready to download',
+    body: '<p>Hi {{client_first_name}},</p><p>Your <strong>{{report_title}}</strong> is now finalised and ready to download using the link below.</p><p><a href="{{report_link}}">{{report_link}}</a></p><p>Regards,<br>{{practitioner_name}}</p>',
   },
 ];
 const seedStmt = db.prepare(`

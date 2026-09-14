@@ -114,16 +114,19 @@ router.post('/', auth, (req, res) => {
   const {
     first_name, last_name, email, phone, date_of_birth, address, notes, alert,
     emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
+    case_manager_name, case_manager_organisation, case_manager_phone, case_manager_email,
     diagnosis, allergies, regular_medication, gender, is_test_data,
   } = req.body;
   const result = db.prepare(`
     INSERT INTO clients (first_name, last_name, email, phone, date_of_birth, address, notes, alert,
       emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
+      case_manager_name, case_manager_organisation, case_manager_phone, case_manager_email,
       diagnosis, allergies, regular_medication, gender, is_test_data)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, notes||null, alert||null,
     emergency_contact_name||null, emergency_contact_phone||null, emergency_contact_relationship||null, emergency_contact_email||null,
+    case_manager_name||null, case_manager_organisation||null, case_manager_phone||null, case_manager_email||null,
     diagnosis||null, allergies||null, regular_medication||null, gender||null, is_test_data ? 1 : 0,
   );
   const newClient = db.prepare(`${CLIENT_SELECT} WHERE c.id = ?`).get(result.lastInsertRowid);
@@ -135,6 +138,7 @@ router.patch('/:id', auth, (req, res) => {
   const {
     first_name, last_name, email, phone, date_of_birth, address, notes, alert,
     emergency_contact_name, emergency_contact_phone, emergency_contact_relationship, emergency_contact_email,
+    case_manager_name, case_manager_organisation, case_manager_phone, case_manager_email,
     diagnosis, allergies, regular_medication, gender, is_test_data,
   } = req.body;
   const before = db.prepare('SELECT * FROM clients WHERE id=?').get(req.params.id);
@@ -142,11 +146,13 @@ router.patch('/:id', auth, (req, res) => {
     UPDATE clients SET
       first_name=?, last_name=?, email=?, phone=?, date_of_birth=?, address=?, notes=?, alert=?,
       emergency_contact_name=?, emergency_contact_phone=?, emergency_contact_relationship=?, emergency_contact_email=?,
+      case_manager_name=?, case_manager_organisation=?, case_manager_phone=?, case_manager_email=?,
       diagnosis=?, allergies=?, regular_medication=?, gender=?, is_test_data=?
     WHERE id=?
   `).run(
     first_name, last_name, email||null, phone||null, date_of_birth||null, address||null, notes||null, alert||null,
     emergency_contact_name||null, emergency_contact_phone||null, emergency_contact_relationship||null, emergency_contact_email||null,
+    case_manager_name||null, case_manager_organisation||null, case_manager_phone||null, case_manager_email||null,
     diagnosis||null, allergies||null, regular_medication||null, gender||null, is_test_data ? 1 : 0,
     req.params.id,
   );
