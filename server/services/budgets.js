@@ -1,5 +1,5 @@
 const db = require('../database');
-const { computeAppointmentTotal, appointmentDisciplines, computeBudgetItemLiveTotal } = require('../lib/billing');
+const { computeAppointmentTotal, computeBudgetItemLiveTotal } = require('../lib/billing');
 const { graphSend } = require('./mailer');
 const audit = require('./audit');
 
@@ -45,29 +45,17 @@ function computeSpend(clientId, startDate, endDate, disciplineId = null, { forBu
     WHERE i.client_id = ? AND i.status != 'void' AND ii.service_date BETWEEN ? AND ? ${disciplineFilter} ${excludeFilter}
   `).get(clientId, from, to, ...disciplineParams);
 
-  // Billed via MYOB export (or a migrated equivalent) — use the synced dollar amount where
-  // known, else fall back to the same full calculation a real export would produce (covers the
-  // window between exporting and the status-sync job pulling the amount back). When scoped to
-  // a discipline, the synced whole-appointment $ figure can only be trusted directly when every
-  // item on that appointment is that same discipline — a mixed appointment (or one belonging
-  // to a different discipline entirely) falls back to recomputing just that discipline's own
-  // portion from the items, since MYOB's synced amount has no per-discipline breakdown of its own.
+  // Billed via MYOB export (or a migrated equivalent) — counted at what was BILLED for the
+  // appointment, recomputed with the exact formula the export itself used. Deliberately not
+  // myob_amount_due: that's MYOB's outstanding balance on the whole invoice, so it drops to $0
+  // once paid (a status sync would make every paid session vanish from its budget) and, while
+  // unpaid, repeats the full invoice balance on every appointment sharing that invoice.
   const exportedAppts = db.prepare(`
-    SELECT a.id, a.myob_amount_due FROM appointments a
+    SELECT a.id FROM appointments a
     WHERE a.client_id = ? AND a.myob_exported_at IS NOT NULL AND DATE(a.start_time) BETWEEN ? AND ? ${excludeFilterA}
   `).all(clientId, from, to);
   let exportedTotal = 0;
-  for (const appt of exportedAppts) {
-    if (disciplineId == null) {
-      exportedTotal += appt.myob_amount_due != null ? appt.myob_amount_due : computeAppointmentTotal(appt.id);
-      continue;
-    }
-    const disciplines = appointmentDisciplines(appt.id);
-    const isSingleDisciplineMatch = disciplines.length === 1 && disciplines[0] === disciplineId;
-    exportedTotal += isSingleDisciplineMatch && appt.myob_amount_due != null
-      ? appt.myob_amount_due
-      : computeAppointmentTotal(appt.id, disciplineId);
-  }
+  for (const appt of exportedAppts) exportedTotal += computeAppointmentTotal(appt.id, disciplineId);
 
   // Booked but not yet billed by either mechanism — real future/pending exposure against the
   // budget. Includes a billable late cancellation (real money, just not cancelled-and-worthless)

@@ -1226,9 +1226,13 @@ try { db.exec(`ALTER TABLE agreement_budgets ADD COLUMN superseded_at TEXT`); } 
 // real budgets row (discipline_id left NULL — can't safely infer a single discipline from a
 // legacy agreement's mixed pricing table, so it's flagged in `notes` for manual assignment)
 // so existing client budget data isn't silently lost when the UI moves over to the new table.
-// Guarded per-agreement (checked via agreement_budgets) so this is safe to run on every boot.
+// Strictly one-time, tracked by a settings flag: without it, deleting a migrated budget (which
+// also removes its agreement_budgets link) made this recreate the budget on the next restart.
+// A database that already has budgets ran this before the flag existed — just mark it done.
 try {
-  const legacyAgreements = db.prepare(`
+  const alreadyDone = db.prepare(`SELECT 1 FROM settings WHERE key = 'legacy_agreement_budgets_migrated'`).get()
+    || db.prepare(`SELECT 1 FROM budgets LIMIT 1`).get();
+  const legacyAgreements = alreadyDone ? [] : db.prepare(`
     SELECT a.id, a.client_id, a.start_date, a.end_date, a.budget_amount, a.created_by
     FROM agreements a
     WHERE a.budget_amount IS NOT NULL
@@ -1248,6 +1252,7 @@ try {
     });
     migrate(legacyAgreements);
   }
+  db.prepare(`INSERT OR REPLACE INTO settings (key, value) VALUES ('legacy_agreement_budgets_migrated', ?)`).run(new Date().toISOString());
 } catch {}
 
 // Live-rate-tracking figure (see server/lib/billing.js's computeBudgetItemLiveTotal) is now

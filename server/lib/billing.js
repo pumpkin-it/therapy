@@ -12,13 +12,20 @@ function roundQty(qty) {
 // kept here so the MYOB-sync matching engine (server/routes/myobSync.js) can verify
 // a candidate appointment's total against an imported MYOB line-amount sum without
 // duplicating the formula.
+// A line's dollar amount exactly as the MYOB export writes it (qty rounded, then the amount
+// rounded to cents via toFixed(2)) — so totals built from these match the export to the cent.
+function lineAmount(qty, rate) {
+  return Number((roundQty(qty) * rate).toFixed(2));
+}
+
+// Includes finance's per-item billing overrides (billed_* columns) exactly as the export applies them.
 function computeApptItemAmounts(item) {
   const amounts = [];
-  amounts.push(roundQty(item.billed_quantity ?? item.quantity) * (item.billed_unit_rate ?? item.unit_rate));
+  amounts.push(lineAmount(item.billed_quantity ?? item.quantity, item.billed_unit_rate ?? item.unit_rate));
   const travelMin = (item.travel_time_to || 0) + (item.travel_time_from || 0);
-  if (travelMin) amounts.push(roundQty(travelMin / 60) * (item.travel_rate_per_hour || item.unit_rate));
-  if (item.travel_km && item.km_rate) amounts.push(roundQty(item.travel_km) * item.km_rate);
-  if (item.notes_min) amounts.push(roundQty(item.notes_min / 60) * (item.notes_rate || item.unit_rate));
+  if (travelMin) amounts.push(lineAmount(travelMin / 60, item.billed_travel_rate ?? item.travel_rate_per_hour ?? item.unit_rate));
+  if (item.travel_km && item.km_rate) amounts.push(lineAmount(item.travel_km, item.billed_km_rate ?? item.km_rate));
+  if (item.notes_min) amounts.push(lineAmount(item.notes_min / 60, item.billed_notes_rate ?? item.notes_rate ?? item.unit_rate));
   return amounts;
 }
 
@@ -88,30 +95,14 @@ function computeAppointmentTotal(apptId, disciplineId = null) {
   let total = 0;
   for (const item of items) {
     if (appt.status === 'cancelled' && appt.late_cancel_billable && appt.late_cancel_pct) {
-      total += roundQty(item.quantity) * (item.unit_rate * (appt.late_cancel_pct / 100));
-      const travelMin = (item.travel_time_to || 0) + (item.travel_time_from || 0);
-      if (travelMin) total += roundQty(travelMin / 60) * (item.travel_rate_per_hour || item.unit_rate);
-      if (item.travel_km && item.km_rate) total += roundQty(item.travel_km) * item.km_rate;
-      if (item.notes_min) total += roundQty(item.notes_min / 60) * (item.notes_rate || item.unit_rate);
+      total += lineAmount(item.quantity, item.unit_rate * (appt.late_cancel_pct / 100));
+      // Travel/km/notes lines are billed exactly as normal — reuse them (index 0 is the session line).
+      total += computeApptItemAmounts(item).slice(1).reduce((a, b) => a + b, 0);
     } else {
       total += computeApptItemAmounts(item).reduce((a, b) => a + b, 0);
     }
   }
   return total;
-}
-
-// Distinct discipline_ids among an appointment's items — used by discipline-scoped spend
-// tracking to tell whether a whole appointment's already-synced myob_amount_due can be trusted
-// as-is for one discipline (single-discipline appointment, the common case) or must instead be
-// recomputed item-by-item via computeAppointmentTotal(apptId, disciplineId) (mixed appointment).
-function appointmentDisciplines(apptId) {
-  const rows = db.prepare(`
-    SELECT DISTINCT s.discipline_id AS discipline_id
-    FROM appointment_items ai
-    LEFT JOIN services s ON s.id = ai.service_id
-    WHERE ai.appointment_id = ?
-  `).all(apptId);
-  return rows.map(r => r.discipline_id);
 }
 
 // Looks up a service's currently-effective rate as of `date`, independent of any client or
@@ -153,6 +144,6 @@ function computeBudgetItemLiveTotal(item, date) {
 }
 
 module.exports = {
-  roundQty, computeApptItemAmounts, computeAppointmentTotal, appointmentDisciplines,
+  roundQty, computeApptItemAmounts, computeAppointmentTotal,
   computeBudgetItemLineTotal, computeBudgetItemLiveTotal,
 };
