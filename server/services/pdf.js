@@ -1,6 +1,7 @@
 const PDFDocument = require('pdfkit');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 function generateInvoicePdf(data) {
   return new Promise((resolve, reject) => {
@@ -280,11 +281,27 @@ function drawRichBlocks(doc, blocks, x, y, { width = 495, fontSize = 10 } = {}) 
   return doc.y;
 }
 
+// Pulls the pricing rows back out of the <table> embedded in rendered_html (produced by
+// templateVars.js's renderPricingTableHtml — fixed 5-cell rows). This is exactly what the
+// client sees on the signing link (and, once sent, the frozen snapshot they signed), so the
+// PDF always matches it — whether the rows came from manual agreement_items or a linked budget.
+function pricingRowsFromHtml(tableHtml) {
+  const tbody = tableHtml.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
+  if (!tbody) return [];
+  const cellText = c => decodeHtmlEntities(c.replace(/<[^>]+>/g, '').trim());
+  const num = s => Number(String(s).replace(/[$,\s]/g, '')) || 0;
+  const rows = [];
+  for (const tr of tbody[1].match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) || []) {
+    const cells = (tr.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || []).map(c => cellText(c.replace(/^<td[^>]*>|<\/td>$/gi, '')));
+    if (cells.length < 5) continue;
+    rows.push({ description: cells[0], code: cells[1], quantity: num(cells[2]), unit_rate: num(cells[3]), line_total: num(cells[4]) });
+  }
+  return rows;
+}
+
 // Renders an agreement's rendered_html (prose + the {{pricing_table}} placeholder already
-// substituted with a real <table>) into a PDF. The embedded table HTML is never parsed back
-// out — the pricing rows are always read fresh from agreement.items and rendered with the
-// same fixed-column row-loop used for invoices, so the PDF numbers can never drift from the
-// structured data even if the HTML table markup ever changes shape.
+// substituted with a real <table>) into a PDF, redrawing the table with the same fixed-column
+// row-loop used for invoices.
 function generateAgreementPdf(agreement) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ margin: 50, size: 'A4' });
@@ -305,6 +322,10 @@ function generateAgreementPdf(agreement) {
     doc.fontSize(16).font('Helvetica-Bold').text(agreement.title, 50, titleY);
     doc.moveDown(1);
 
+    const tableMatch = agreement.rendered_html.match(/<table[\s\S]*?<\/table>/i);
+    const htmlRows = tableMatch ? pricingRowsFromHtml(tableMatch[0]) : [];
+    const pricingRows = htmlRows.length ? htmlRows : (agreement.items || []);
+
     const [beforeHtml, afterHtml] = agreement.rendered_html
       .replace(/<table[\s\S]*?<\/table>/i, '[[PRICING_TABLE]]')
       .split('[[PRICING_TABLE]]');
@@ -324,7 +345,7 @@ function generateAgreementPdf(agreement) {
 
     let rowY = tableY + 20;
     doc.font('Helvetica').fontSize(8);
-    for (const item of (agreement.items || [])) {
+    for (const item of pricingRows) {
       doc.fillColor('#111').text(item.description, 55, rowY, { width: 220 });
       doc.text(item.code || '', 275, rowY, { width: 90 });
       doc.text(Number(item.quantity).toFixed(2), 365, rowY, { width: 40, align: 'right' });
@@ -335,7 +356,7 @@ function generateAgreementPdf(agreement) {
       rowY += 4;
     }
 
-    const grandTotal = (agreement.items || []).reduce((s, i) => s + Number(i.line_total || 0), 0);
+    const grandTotal = pricingRows.reduce((s, i) => s + Number(i.line_total || 0), 0);
     doc.font('Helvetica-Bold').fontSize(10);
     doc.text('Grand Total', 365, rowY + 8, { width: 100, align: 'right' });
     doc.text(`$${grandTotal.toFixed(2)}`, 465, rowY + 8, { width: 65, align: 'right' });
@@ -344,16 +365,39 @@ function generateAgreementPdf(agreement) {
     const afterBlocks = parseRichHtml(afterHtml);
     if (afterBlocks.length) { footerY = drawRichBlocks(doc, afterBlocks, 50, footerY, { width: 495 }) + 20; }
 
+    // A full chain-of-custody trail, not just the final signature — sent/viewed/signed
+    // timestamps, the IP/device from the FIRST view compared against the IP/device at the actual
+    // sign action, a reference to the unique link used (proof of possession, not just a typed
+    // name), and a content hash (proof this exact document, unaltered, is what was signed). None
+    // of this is airtight proof of identity on its own, but together it's real evidence beyond an
+    // assertion — and a mismatch between viewed/signed device is exactly what would need
+    // explaining if this were ever challenged.
     if (agreement.signer_name) {
       doc.moveTo(50, footerY).lineTo(right, footerY).strokeColor('#e5e7eb').stroke();
       footerY += 10;
-      doc.font('Helvetica-Bold').fontSize(9).text('SIGNED', 50, footerY);
+      doc.font('Helvetica-Bold').fontSize(9).text('SIGNING AUDIT TRAIL', 50, footerY);
       footerY += 14;
       doc.font('Helvetica').fontSize(8.5).fillColor('#333');
-      doc.text(`Signed by: ${agreement.signer_name}`, 50, footerY); footerY = doc.y + 2;
-      if (agreement.signed_at) { doc.text(`Date: ${new Date(agreement.signed_at).toLocaleString('en-AU')}`, 50, footerY); footerY = doc.y + 2; }
-      if (agreement.signed_ip) { doc.text(`IP address: ${agreement.signed_ip}`, 50, footerY); footerY = doc.y + 2; }
-      doc.text(`Agreement ID: ${agreement.id}`, 50, footerY);
+      const line = text => { doc.text(text, 50, footerY, { width: 495 }); footerY = doc.y + 2; };
+      if (agreement.sent_at) line(`Sent: ${new Date(agreement.sent_at).toLocaleString('en-AU')}`);
+      if (agreement.viewed_at) {
+        line(`Viewed: ${new Date(agreement.viewed_at).toLocaleString('en-AU')}${agreement.viewed_ip ? ` from ${agreement.viewed_ip}` : ''}`);
+        if (agreement.viewed_user_agent) line(`  Viewing device/browser: ${agreement.viewed_user_agent}`);
+      }
+      line(`Signed by: ${agreement.signer_name}${agreement.signer_email ? ` <${agreement.signer_email}>` : ''}`);
+      if (agreement.signed_at) line(`Signed: ${new Date(agreement.signed_at).toLocaleString('en-AU')}${agreement.signed_ip ? ` from ${agreement.signed_ip}` : ''}`);
+      if (agreement.signed_user_agent) line(`  Signing device/browser: ${agreement.signed_user_agent}`);
+      if (agreement.viewed_ip && agreement.signed_ip) {
+        const sameIp = agreement.viewed_ip === agreement.signed_ip;
+        const sameDevice = agreement.viewed_user_agent === agreement.signed_user_agent;
+        line(`Same IP/device as initial view: ${sameIp && sameDevice ? 'Yes' : sameIp ? 'Same IP, different device' : 'No — different IP'}`);
+      }
+      if (agreement.signing_token) {
+        const tokenRef = crypto.createHash('sha256').update(agreement.signing_token).digest('hex');
+        line(`Signing link reference (SHA-256 of the unique link token): ${tokenRef}`);
+      }
+      if (agreement.content_hash) line(`Document content hash (SHA-256): ${agreement.content_hash}`);
+      line(`Agreement ID: ${agreement.id}`);
     }
 
     doc.end();

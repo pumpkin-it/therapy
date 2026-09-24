@@ -280,6 +280,14 @@ export default function Settings() {
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
         <div>
+          <h2 className="font-semibold text-gray-900">Budget Alerts</h2>
+          <p className="text-sm text-gray-500 mt-1">Every night, each active budget that's newly crossed 75%, 90%, or 100% of its current tracked total gets an email — sent to the client's practitioner(s), everyone with the finance or owner role, and this address.</p>
+        </div>
+        {field('Practice alert inbox (optional)', 'budget_alert_email', 'email')}
+      </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+        <div>
           <h2 className="font-semibold text-gray-900">Late Cancellation Policy</h2>
           <p className="text-sm text-gray-500 mt-1">Define tiers by how many business days before the appointment the cancellation occurs (weekends don't count toward the notice period). Tiers are sorted automatically — the shortest window takes priority.</p>
         </div>

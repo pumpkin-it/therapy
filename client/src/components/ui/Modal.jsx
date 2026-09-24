@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 
 const SIZES = { md: 'max-w-md', lg: 'max-w-2xl', xl: 'max-w-4xl' };
 
-export default function Modal({ title, onClose, children, wide = false, size }) {
+export default function Modal({ title, onClose, children, wide = false, size, headerExtra }) {
   useEffect(() => {
     const handler = e => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', handler);
@@ -16,7 +16,10 @@ export default function Modal({ title, onClose, children, wide = false, size }) 
       <div className={`w-full ${widthClass} max-h-[90vh] flex flex-col rounded-2xl bg-white shadow-xl`}>
         <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4 shrink-0">
           <h2 className="text-base font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+          <div className="flex items-center gap-3">
+            {headerExtra}
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+          </div>
         </div>
         <div className="px-6 py-5 overflow-y-auto">{children}</div>
       </div>

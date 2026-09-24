@@ -224,6 +224,15 @@ try { db.exec(`ALTER TABLE practitioners ADD COLUMN password_hash TEXT`); } catc
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN cal_token TEXT`); } catch {}
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN target_amount REAL`); } catch {}
 try { db.exec(`ALTER TABLE practitioners ADD COLUMN target_period TEXT`); } catch {} // 'weekly' | 'fortnightly' | 'monthly'
+// A practitioner's own secret ICS/webcal URL from an external calendar (Outlook "Publish a
+// Calendar", Google Calendar's "Secret address in iCal format", iCloud public calendar link,
+// etc.) — provider-agnostic, since they all serve the same RFC 5545 format. Synced periodically
+// by server/services/calendarSync.js into practitioner_time_blocks so double-booking checks see
+// external meetings too. synced_at/error are surfaced in the practitioner edit UI so a broken
+// or stale link is visible rather than silently failing.
+try { db.exec(`ALTER TABLE practitioners ADD COLUMN external_cal_url TEXT`); } catch {}
+try { db.exec(`ALTER TABLE practitioners ADD COLUMN external_cal_synced_at TEXT`); } catch {}
+try { db.exec(`ALTER TABLE practitioners ADD COLUMN external_cal_error TEXT`); } catch {}
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS push_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -790,6 +799,17 @@ try { db.exec(`ALTER TABLE agreements ADD COLUMN reminder_end_date TEXT`); } cat
 try { db.exec(`ALTER TABLE agreements ADD COLUMN last_reminder_at TEXT`); } catch {}
 try { db.exec(`ALTER TABLE agreements ADD COLUMN reminder_count INTEGER DEFAULT 0`); } catch {}
 
+// Strengthens the signing audit trail beyond "a name was typed": viewed_ip/viewed_user_agent
+// capture the FIRST view (the moment the sent link was actually opened), kept alongside the
+// existing signed_ip/signed_user_agent (captured at the sign action itself) so the two can be
+// compared — the same device viewing and signing looks like one continuous real interaction; a
+// mismatch is exactly the kind of thing that would need explaining if challenged. content_hash
+// is a SHA-256 of the exact rendered_html at the moment of signing, so a disputed PDF can be
+// proven byte-for-byte identical to what was actually signed, not edited afterward.
+try { db.exec(`ALTER TABLE agreements ADD COLUMN viewed_ip TEXT`); } catch {}
+try { db.exec(`ALTER TABLE agreements ADD COLUMN viewed_user_agent TEXT`); } catch {}
+try { db.exec(`ALTER TABLE agreements ADD COLUMN content_hash TEXT`); } catch {}
+
 const SERVICE_AGREEMENT_PLACEHOLDER_BODY =
   '<p>This Service Agreement is made between {{practice_name}} and {{client_name}} on {{date}}.</p>' +
   '<p>{{practice_name}} agrees to provide the services listed below to {{client_name}}, at the rates specified.</p>' +
@@ -810,7 +830,7 @@ const SERVICE_AGREEMENT_BODY = `
 <p>Here&rsquo;s how your funds will be allocated:</p>
 {{pricing_table}}
 <p><strong>Dates of the Plan</strong> {{plan_start_date}} to {{plan_end_date}}</p>
-<p><strong>Dates of this Agreement</strong> {{date}} to _________</p>
+<p><strong>Dates of this Agreement</strong> {{agreement_start_date}} to {{agreement_end_date}}</p>
 <p><strong>Travel</strong></p>
 <p>Feel free to discuss your therapy session location with your therapist. Travel time will be charged to and from the appointment at the rate specified in the pricing table above. Kilometre charges also apply on top of travel time.</p>
 <p><strong>Non-Face-to-Face Activities</strong></p>
@@ -874,7 +894,7 @@ const SERVICE_AGREEMENT_BODY = `
 <p>&#9744; I&rsquo;ve understood and accepted the terms and conditions in this service agreement.</p>
 <p>&#9744; I&rsquo;ve agreed to the collection, storage and sharing of my personal info.</p>
 <p><strong>Name</strong> {{client_name}}</p>
-<p><strong>Signature</strong> ____________________________________________________________</p>
+<p><strong>Signature</strong> {{client_signature}}</p>
 <p><strong>Date</strong> {{date}}</p>
 <p><strong>{{practice_name}} Representative</strong></p>
 <p><strong>Name</strong> {{practitioner_name}}</p>
@@ -1108,5 +1128,159 @@ try { db.exec(`
   )
 `); } catch {}
 try { db.exec(`CREATE INDEX idx_time_blocks_practitioner ON practitioner_time_blocks(practitioner_id, start_time)`); } catch {}
+// NULL = created manually in the app (existing behaviour, untouched). 'external_sync' = written
+// by server/services/calendarSync.js from a practitioner's external calendar feed — external_uid
+// is that source event's ICS UID (recurring instances get a per-occurrence suffix), used to
+// update/remove the right row on each re-sync rather than duplicating or orphaning blocks.
+try { db.exec(`ALTER TABLE practitioner_time_blocks ADD COLUMN source TEXT`); } catch {}
+try { db.exec(`ALTER TABLE practitioner_time_blocks ADD COLUMN external_uid TEXT`); } catch {}
+try { db.exec(`CREATE INDEX idx_time_blocks_external_uid ON practitioner_time_blocks(practitioner_id, external_uid)`); } catch {}
+
+// Budgets — decoupled from agreements (an agreement links to one or more, via
+// agreement_budgets, rather than owning a single budget_amount itself). Scoped to one
+// discipline per budget: a client getting both OT and Physio gets two separate budget rows,
+// each independently tracked/alerted, since funding is genuinely split by discipline rather
+// than one combined pool. Revising a budget (e.g. reducing sessions to fund more report
+// writing) never edits an active row in place — it marks the old one 'inactive' and points
+// superseded_by at the new row, preserving history instead of overwriting it.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS budgets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    discipline_id INTEGER REFERENCES disciplines(id),
+    start_date TEXT NOT NULL,
+    end_date TEXT,
+    total_amount REAL NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'active',
+    notes TEXT,
+    superseded_by INTEGER REFERENCES budgets(id),
+    notified_75_at TEXT,
+    notified_90_at TEXT,
+    notified_100_at TEXT,
+    created_by INTEGER REFERENCES practitioners(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec(`CREATE INDEX idx_budgets_client ON budgets(client_id)`); } catch {}
+try { db.exec(`CREATE INDEX idx_budgets_status ON budgets(status)`); } catch {}
+
+// Quoted/estimated line items for a budget — same session+travel+km+notes shape as
+// appointment_items (so a line can be priced exactly the way a real appointment bills), plus
+// a `sessions` multiplier since these represent an expected number of future occurrences over
+// the budget period rather than one real booked appointment. Rates are snapshotted at add-time
+// (matching appointment_items' own unit_rate snapshot convention) so an edited service_rates
+// row later doesn't silently change an already-quoted budget total.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS budget_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    budget_id INTEGER NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
+    service_id INTEGER REFERENCES services(id),
+    description TEXT NOT NULL,
+    sessions REAL NOT NULL DEFAULT 1,
+    unit_rate REAL NOT NULL DEFAULT 0,
+    travel_time_to INTEGER,
+    travel_time_from INTEGER,
+    travel_rate_per_hour REAL,
+    travel_km REAL,
+    km_rate REAL,
+    notes_min INTEGER,
+    notes_rate REAL,
+    line_total REAL NOT NULL DEFAULT 0,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec(`CREATE INDEX idx_budget_items_budget ON budget_items(budget_id)`); } catch {}
+// How long one session actually runs — defaults to the service's own default_duration at
+// creation time but is editable per item, since a specific client may run longer/shorter
+// sessions than the catalog standard. NULL (legacy rows created before this existed) is treated
+// as 60 minutes everywhere it's read, matching the implicit "1 session = 1 hour" assumption
+// budgets used before this column existed, so old totals are unaffected.
+try { db.exec(`ALTER TABLE budget_items ADD COLUMN session_duration_min REAL`); } catch {}
+// Rarely-used escape hatch: an appointment flagged here still bills normally and still counts in
+// the Billing tab's billed-period totals, but is left out of every budget's spend/pct_used
+// (and therefore the 75/90/100% alerts) — e.g. a session funded from somewhere other than the
+// budget it would otherwise be counted against.
+try { db.exec(`ALTER TABLE appointments ADD COLUMN exclude_from_budget INTEGER NOT NULL DEFAULT 0`); } catch {}
+
+// An agreement can link to more than one budget (its OT items to the OT budget, its Physio
+// items to the Physio budget) since a single agreement's pricing table isn't itself
+// discipline-scoped.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS agreement_budgets (
+    agreement_id INTEGER NOT NULL REFERENCES agreements(id) ON DELETE CASCADE,
+    budget_id INTEGER NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
+    PRIMARY KEY (agreement_id, budget_id)
+  )
+`); } catch {}
+// NULL = this link is the one currently powering the agreement's pricing table and spend
+// tracking. Set when a practitioner explicitly switches an agreement over to a budget's revised
+// successor (see POST /:id/budgets/:budgetId/switch) — the old row is kept, not deleted, so the
+// agreement retains a permanent record of every budget version it was ever tracked against.
+// Deliberately never set automatically by indexation (current_total_amount recompute) — only by
+// an actual revision the practitioner has chosen to carry forward.
+try { db.exec(`ALTER TABLE agreement_budgets ADD COLUMN superseded_at TEXT`); } catch {}
+
+// One-time backfill: agreements created before the standalone budgets table existed stored
+// their budget directly as agreements.budget_amount/start_date/end_date. Migrate each into a
+// real budgets row (discipline_id left NULL — can't safely infer a single discipline from a
+// legacy agreement's mixed pricing table, so it's flagged in `notes` for manual assignment)
+// so existing client budget data isn't silently lost when the UI moves over to the new table.
+// Guarded per-agreement (checked via agreement_budgets) so this is safe to run on every boot.
+try {
+  const legacyAgreements = db.prepare(`
+    SELECT a.id, a.client_id, a.start_date, a.end_date, a.budget_amount, a.created_by
+    FROM agreements a
+    WHERE a.budget_amount IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM agreement_budgets ab WHERE ab.agreement_id = a.id)
+  `).all();
+  if (legacyAgreements.length) {
+    const insertBudget = db.prepare(`
+      INSERT INTO budgets (client_id, discipline_id, start_date, end_date, total_amount, status, notes, created_by)
+      VALUES (?, NULL, ?, ?, ?, 'active', 'Migrated from agreement budget — assign a discipline and review.', ?)
+    `);
+    const linkBudget = db.prepare(`INSERT INTO agreement_budgets (agreement_id, budget_id) VALUES (?, ?)`);
+    const migrate = db.transaction(rows => {
+      for (const a of rows) {
+        const { lastInsertRowid } = insertBudget.run(a.client_id, a.start_date || null, a.end_date || null, a.budget_amount, a.created_by || null);
+        linkBudget.run(a.id, lastInsertRowid);
+      }
+    });
+    migrate(legacyAgreements);
+  }
+} catch {}
+
+// Live-rate-tracking figure (see server/lib/billing.js's computeBudgetItemLiveTotal) is now
+// computed once nightly and stored here, rather than recomputed from scratch on every read —
+// the underlying rates it depends on only change a handful of times a year (NDIS indexation),
+// so recomputing per-item on every page load bought nothing. Initialized to total_amount at
+// creation/revision time so it's never null for a freshly created budget; refreshed nightly by
+// refreshBudgetCurrentTotals() in server/services/budgets.js for every active budget.
+try { db.exec(`ALTER TABLE budgets ADD COLUMN current_total_amount REAL`); } catch {}
+try { db.exec(`UPDATE budgets SET current_total_amount = total_amount WHERE current_total_amount IS NULL`); } catch {}
+
+// One-time fix: existing "Service Agreement" templates (created before agreement_start_date/
+// agreement_end_date existed as real template vars) have the end date hardcoded as a blank
+// underscore line rather than substituted from agreement.end_date. Safe to run on every boot —
+// no-ops once the replacement has happened.
+try {
+  db.prepare(`UPDATE templates SET body = REPLACE(body, '{{date}} to _________', '{{agreement_start_date}} to {{agreement_end_date}}') WHERE type = 'agreement' AND body LIKE '%{{date}} to _________%'`).run();
+} catch {}
+
+// One-time fix: the client's signature line was static blank underscores — replace with the
+// {{client_signature}} variable (left unsubstituted by renderAgreementContent, filled in by
+// signAgreement.js at sign time) so the actual signature shows up in the signature space rather
+// than only in the separate "SIGNED" audit footer. Matched on the surrounding {{client_name}}
+// context so only the client's line changes, not the practice representative's identical-looking
+// blank line just below it.
+try {
+  db.prepare(`
+    UPDATE templates SET body = REPLACE(
+      body,
+      '{{client_name}}</p><p><br></p><p><strong>Signature</strong> ____________________________________________________________</p>',
+      '{{client_name}}</p><p><br></p><p><strong>Signature</strong> {{client_signature}}</p>'
+    ) WHERE type = 'agreement' AND body LIKE '%{{client_name}}</p><p><br></p><p><strong>Signature</strong> ____________________________________________________________</p>%'
+  `).run();
+} catch {}
 
 module.exports = db;

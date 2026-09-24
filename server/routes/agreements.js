@@ -4,9 +4,9 @@ const db = require('../database');
 const auth = require('../middleware/auth');
 const audit = require('../services/audit');
 const { renderTemplate, graphSend, getTemplate } = require('../services/mailer');
-const { renderPricingTableHtml } = require('../services/templateVars');
+const { renderPricingTableHtml, budgetItemsAsPricingRows } = require('../services/templateVars');
 const { generateAgreementPdf } = require('../services/pdf');
-const { getAgreementSpend } = require('../services/budgets');
+const { getAgreementSpend, computeBudgetSpend } = require('../services/budgets');
 
 function getSettings() {
   const rows = db.prepare('SELECT key, value FROM settings').all();
@@ -23,8 +23,48 @@ function getAgreementWithItems(id) {
     LEFT JOIN funding_types ft ON ft.id = a.funding_type_id
     WHERE a.id = ?
   `).get(id);
-  if (agreement) agreement.items = db.prepare('SELECT * FROM agreement_items WHERE agreement_id = ? ORDER BY sort_order, id').all(id);
+  if (agreement) {
+    agreement.items = db.prepare('SELECT * FROM agreement_items WHERE agreement_id = ? ORDER BY sort_order, id').all(id);
+    const withDetails = rows => rows.map(b => ({
+      ...b,
+      spend: computeBudgetSpend(b.id),
+      items: db.prepare('SELECT * FROM budget_items WHERE budget_id = ? ORDER BY sort_order, id').all(b.id),
+    }));
+    // Only the current (superseded_at IS NULL) links power the pricing table and spend
+    // tracking. Historical links are kept forever once a practitioner explicitly switches an
+    // agreement over to a revised budget (see /:id/budgets/:budgetId/switch below) — they're a
+    // permanent record of what this agreement was tracked against at each point in time, shown
+    // separately rather than silently dropped.
+    agreement.linked_budgets = withDetails(db.prepare(`
+      SELECT b.*, d.name AS discipline_name
+      FROM agreement_budgets ab
+      JOIN budgets b ON b.id = ab.budget_id
+      LEFT JOIN disciplines d ON d.id = b.discipline_id
+      WHERE ab.agreement_id = ? AND ab.superseded_at IS NULL
+      ORDER BY d.name IS NULL, d.name
+    `).all(id));
+    agreement.historical_budgets = withDetails(db.prepare(`
+      SELECT b.*, d.name AS discipline_name, ab.superseded_at
+      FROM agreement_budgets ab
+      JOIN budgets b ON b.id = ab.budget_id
+      LEFT JOIN disciplines d ON d.id = b.discipline_id
+      WHERE ab.agreement_id = ? AND ab.superseded_at IS NOT NULL
+      ORDER BY ab.superseded_at DESC
+    `).all(id));
+  }
   return agreement;
+}
+
+// Walks a budget's superseded_by chain to the final, still-active head — a budget can be
+// revised more than once before anyone gets around to switching an agreement over, so this
+// isn't necessarily a single hop.
+function currentBudgetHead(budgetId) {
+  let id = budgetId;
+  for (;;) {
+    const row = db.prepare('SELECT superseded_by FROM budgets WHERE id = ?').get(id);
+    if (!row || !row.superseded_by) return id;
+    id = row.superseded_by;
+  }
 }
 
 // The active funding period (with its funds manager, if any) as of the agreement's effective
@@ -71,12 +111,22 @@ function renderAgreementContent(agreement, practitionerId) {
     practice_abn: settings.practice_abn || '',
     practitioner_name: `${practitioner.first_name || ''} ${practitioner.last_name || ''}`.trim(),
     date: fmtDate(agreement.effective_date),
+    agreement_start_date: fmtDate(agreement.start_date) || fmtDate(agreement.effective_date),
+    agreement_end_date: fmtDate(agreement.end_date) || 'ongoing',
     plan_start_date: fmtDate(fundingContext.plan_start_date),
     plan_end_date: fmtDate(fundingContext.plan_end_date),
     funds_manager_name: fundingContext.funds_manager_name || '',
     funds_manager_email: fundingContext.funds_manager_email || '',
     funds_manager_phone: fundingContext.funds_manager_phone || '',
-    pricing_table: renderPricingTableHtml(agreement.items),
+    // A linked budget already captures every piece of pricing information (service, sessions,
+    // travel/km/notes, current rate) — once one's linked, it's the source of truth for what
+    // gets shown to the client, so the separately-maintained agreement_items table is only
+    // still used as a fallback for agreements with no linked budget at all.
+    pricing_table: renderPricingTableHtml(
+      agreement.linked_budgets?.length
+        ? agreement.linked_budgets.flatMap(b => budgetItemsAsPricingRows(b.items))
+        : agreement.items
+    ),
   };
   return renderTemplate(template.body, vars);
 }
@@ -118,13 +168,17 @@ router.post('/', auth, (req, res) => {
     : null;
 
   const effectiveDate = new Date().toISOString().slice(0, 10);
-  const { start_date, end_date, budget_amount } = req.body;
+  const { start_date, end_date, budget_amount, label } = req.body;
+  // Defaults to the template's own name (unchanged behaviour) — `label` just lets staff tell
+  // apart multiple agreements of the same template for one client (e.g. by plan period) instead
+  // of every one of them showing up as an identical "Service Agreement" in the list.
+  const title = label?.trim() || template.name;
   const result = db.prepare(`
     INSERT INTO agreements (client_id, template_id, funding_type_id, effective_date, start_date, end_date, budget_amount, title, status, created_by)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
-  `).run(client_id, template_id, fundingType?.id || null, effectiveDate, start_date || effectiveDate, end_date || null, budget_amount || null, template.name, req.user.id);
+  `).run(client_id, template_id, fundingType?.id || null, effectiveDate, start_date || effectiveDate, end_date || null, budget_amount || null, title, req.user.id);
 
-  audit.log('agreement', result.lastInsertRowid, 'created', `Agreement "${template.name}" drafted for ${client.first_name} ${client.last_name}`);
+  audit.log('agreement', result.lastInsertRowid, 'created', `Agreement "${title}" drafted for ${client.first_name} ${client.last_name}`);
   res.status(201).json(getAgreementWithItems(result.lastInsertRowid));
 });
 
@@ -154,6 +208,66 @@ router.get('/:id/spend', auth, (req, res) => {
   const agreement = db.prepare('SELECT * FROM agreements WHERE id = ?').get(req.params.id);
   if (!agreement) return res.status(404).json({ error: 'Not found' });
   res.json(getAgreementSpend(agreement.id));
+});
+
+// Link/unlink a real Billing-tab budget to this agreement (server/database.js's agreement_budgets
+// join table) — an agreement's pricing table isn't itself discipline-scoped, so it can link to
+// more than one budget (e.g. its OT items to the OT budget, its Physio items to the Physio one).
+router.post('/:id/budgets', auth, (req, res) => {
+  const agreement = db.prepare('SELECT * FROM agreements WHERE id = ?').get(req.params.id);
+  if (!agreement) return res.status(404).json({ error: 'Not found' });
+  const { budget_id } = req.body;
+  const budget = db.prepare('SELECT * FROM budgets WHERE id = ? AND client_id = ?').get(budget_id, agreement.client_id);
+  if (!budget) return res.status(404).json({ error: 'Budget not found for this client' });
+
+  // ON CONFLICT rather than INSERT OR IGNORE: re-linking a budget that's currently sitting in
+  // this agreement's history (e.g. reverting a switch) should bring it back as current, not
+  // silently no-op and leave it stuck as historical.
+  db.prepare(`
+    INSERT INTO agreement_budgets (agreement_id, budget_id, superseded_at) VALUES (?, ?, NULL)
+    ON CONFLICT(agreement_id, budget_id) DO UPDATE SET superseded_at = NULL
+  `).run(agreement.id, budget.id);
+  audit.log('agreement', agreement.id, 'budget_linked', `Linked to budget #${budget.id} (${budget.discipline_id ? '' : 'unassigned discipline, '}$${budget.total_amount.toFixed(2)})`);
+  res.json(getAgreementWithItems(agreement.id));
+});
+
+router.delete('/:id/budgets/:budgetId', auth, (req, res) => {
+  const agreement = db.prepare('SELECT * FROM agreements WHERE id = ?').get(req.params.id);
+  if (!agreement) return res.status(404).json({ error: 'Not found' });
+  db.prepare('DELETE FROM agreement_budgets WHERE agreement_id = ? AND budget_id = ?').run(agreement.id, req.params.budgetId);
+  audit.log('agreement', agreement.id, 'budget_unlinked', `Unlinked budget #${req.params.budgetId}`);
+  res.json(getAgreementWithItems(agreement.id));
+});
+
+// Explicit, practitioner-initiated carry-forward when a linked budget has since been revised
+// (superseded) — deliberately never automatic, since indexation-driven rate changes already
+// live-update the same budget's current_total_amount without a revision, and an actual revision
+// (new session counts, new services, etc.) is exactly the kind of change the client needs to be
+// made aware of rather than have silently swapped underneath an existing agreement. The old link
+// is kept, marked historical, rather than deleted — see getAgreementWithItems's
+// linked_budgets/historical_budgets split.
+router.post('/:id/budgets/:budgetId/switch', auth, (req, res) => {
+  const agreement = db.prepare('SELECT * FROM agreements WHERE id = ?').get(req.params.id);
+  if (!agreement) return res.status(404).json({ error: 'Not found' });
+  const oldBudgetId = Number(req.params.budgetId);
+  const link = db.prepare('SELECT * FROM agreement_budgets WHERE agreement_id = ? AND budget_id = ? AND superseded_at IS NULL').get(agreement.id, oldBudgetId);
+  if (!link) return res.status(404).json({ error: 'This budget is not currently linked to the agreement' });
+
+  const newBudgetId = currentBudgetHead(oldBudgetId);
+  if (newBudgetId === oldBudgetId) return res.status(400).json({ error: 'This budget has not been revised' });
+  const newBudget = db.prepare('SELECT * FROM budgets WHERE id = ?').get(newBudgetId);
+
+  db.transaction(() => {
+    db.prepare('UPDATE agreement_budgets SET superseded_at = ? WHERE agreement_id = ? AND budget_id = ?')
+      .run(new Date().toISOString(), agreement.id, oldBudgetId);
+    db.prepare(`
+      INSERT INTO agreement_budgets (agreement_id, budget_id, superseded_at) VALUES (?, ?, NULL)
+      ON CONFLICT(agreement_id, budget_id) DO UPDATE SET superseded_at = NULL
+    `).run(agreement.id, newBudgetId);
+  })();
+
+  audit.log('agreement', agreement.id, 'budget_switched', `Switched from budget #${oldBudgetId} to its current revision #${newBudgetId} ($${newBudget.total_amount.toFixed(2)})`);
+  res.json(getAgreementWithItems(agreement.id));
 });
 
 // Bulk replace-in-place for pricing table rows — draft-only, server recomputes line_total
@@ -206,7 +320,7 @@ router.post('/:id/finalize', auth, async (req, res) => {
   const agreement = getAgreementWithItems(req.params.id);
   if (!agreement) return res.status(404).json({ error: 'Not found' });
   if (!assertDraft(agreement, res)) return;
-  if (!agreement.items.length) return res.status(400).json({ error: 'Add at least one pricing item before sending' });
+  if (!agreement.items.length && !agreement.linked_budgets.length) return res.status(400).json({ error: 'Add at least one pricing item, or link a budget, before sending' });
 
   const renderedHtml = renderAgreementContent(agreement, req.user.id);
   const token = crypto.randomBytes(24).toString('hex');
@@ -252,11 +366,17 @@ router.post('/:id/resend', auth, async (req, res) => {
   if (!agreement.signing_token) return res.status(409).json({ error: 'Agreement has not been sent yet' });
   if (!agreement.client_email) return res.status(400).json({ error: 'Client has no email on file' });
 
+  // Same link either way — the public sign page itself already shows the right thing depending
+  // on status (the sign form if still outstanding, or the signed confirmation + download button
+  // if not) — only the email wording needs to know which one to set expectations for.
   const signingUrl = `${process.env.APP_URL || ''}/sign/${agreement.signing_token}`;
+  const isSigned = agreement.status === 'signed';
   await graphSend({
     to: agreement.client_email,
-    subject: `Please sign: ${agreement.title}`,
-    html: `<p>Hi ${agreement.client_name.split(' ')[0] || ''},</p><p>Please review and sign your ${agreement.title} using the link below.</p><p><a href="${signingUrl}">${signingUrl}</a></p>`,
+    subject: isSigned ? `Your copy: ${agreement.title}` : `Please sign: ${agreement.title}`,
+    html: isSigned
+      ? `<p>Hi ${agreement.client_name.split(' ')[0] || ''},</p><p>Here's the link to your signed ${agreement.title} — you can download a copy from there any time.</p><p><a href="${signingUrl}">${signingUrl}</a></p>`
+      : `<p>Hi ${agreement.client_name.split(' ')[0] || ''},</p><p>Please review and sign your ${agreement.title} using the link below.</p><p><a href="${signingUrl}">${signingUrl}</a></p>`,
   });
 
   audit.log('agreement', agreement.id, 'resent', `Agreement resent by email to ${agreement.client_email}`);
@@ -278,7 +398,7 @@ router.patch('/:id/reminder-end-date', auth, (req, res) => {
 router.get('/:id/pdf', auth, async (req, res) => {
   const agreement = getAgreementWithItems(req.params.id);
   if (!agreement) return res.status(404).json({ error: 'Not found' });
-  if (!agreement.items.length) return res.status(400).json({ error: 'Add at least one pricing item to preview the PDF' });
+  if (!agreement.items.length && !agreement.linked_budgets.length) return res.status(400).json({ error: 'Add at least one pricing item, or link a budget, to preview the PDF' });
 
   // Once sent, rendered_html is the immutable snapshot of what the client is signing — always
   // use it as-is. While still a draft there's no snapshot yet, so render a live, unsaved

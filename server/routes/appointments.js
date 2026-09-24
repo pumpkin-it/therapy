@@ -161,16 +161,16 @@ function addInterval(date, freq) {
 }
 
 router.post('/', auth, perm('calendar'), (req, res) => {
-  const { practitioner_id, client_id, location_type, location_id, location_other, title, start_time, end_time, notes, status, items = [], recurrence, funding_period_id } = req.body;
+  const { practitioner_id, client_id, location_type, location_id, location_other, title, start_time, end_time, notes, status, items = [], recurrence, funding_period_id, exclude_from_budget } = req.body;
   const { locationText, resolvedLocationId, locationOther } = resolveLocation(location_type, location_id, location_other);
 
   const insertAppt = db.prepare(`
-    INSERT INTO appointments (practitioner_id, client_id, location, location_id, location_other, title, start_time, end_time, notes, status, funding_period_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO appointments (practitioner_id, client_id, location, location_id, location_other, title, start_time, end_time, notes, status, funding_period_id, exclude_from_budget)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   const createOne = (st, et) => {
-    const r = insertAppt.run(practitioner_id, client_id, locationText, resolvedLocationId, locationOther, title||null, st, et, notes||null, status||'scheduled', funding_period_id||null);
+    const r = insertAppt.run(practitioner_id, client_id, locationText, resolvedLocationId, locationOther, title||null, st, et, notes||null, status||'scheduled', funding_period_id||null, exclude_from_budget ? 1 : 0);
     insertItems(r.lastInsertRowid, items);
     return r.lastInsertRowid;
   };
@@ -192,16 +192,19 @@ router.post('/', auth, perm('calendar'), (req, res) => {
 });
 
 router.patch('/:id', auth, perm('calendar'), (req, res) => {
-  const { practitioner_id, client_id, location_type, location_id, location_other, title, start_time, end_time, notes, status, items, late_cancel_pct, late_cancel_billable, funding_period_id } = req.body;
+  const { practitioner_id, client_id, location_type, location_id, location_other, title, start_time, end_time, notes, status, items, late_cancel_pct, late_cancel_billable, funding_period_id, exclude_from_budget } = req.body;
   const { locationText, resolvedLocationId, locationOther } = resolveLocation(location_type, location_id, location_other);
   const before = db.prepare('SELECT * FROM appointments WHERE id=?').get(req.params.id);
+  // Preserved when omitted — callers that don't know about this flag (drag-to-reschedule, the
+  // mobile app) must not silently clear it.
+  const excludeFromBudget = exclude_from_budget === undefined ? before.exclude_from_budget : (exclude_from_budget ? 1 : 0);
 
   db.prepare(`
     UPDATE appointments SET practitioner_id=?, client_id=?, location=?, location_id=?, location_other=?, title=?, start_time=?, end_time=?, notes=?, status=?,
-      late_cancel_pct=?, late_cancel_billable=?, funding_period_id=?
+      late_cancel_pct=?, late_cancel_billable=?, funding_period_id=?, exclude_from_budget=?
     WHERE id=?
   `).run(practitioner_id, client_id, locationText, resolvedLocationId, locationOther, title||null, start_time, end_time, notes||null, status||'scheduled',
-    late_cancel_pct ?? null, late_cancel_billable ? 1 : 0, funding_period_id || null, req.params.id);
+    late_cancel_pct ?? null, late_cancel_billable ? 1 : 0, funding_period_id || null, excludeFromBudget, req.params.id);
 
   if (items) {
     const existing = db.prepare('SELECT service_id, description, quantity, unit_rate, travel_time_to, travel_time_from, travel_km, prep_time_min, item_notes, notes_min FROM appointment_items WHERE appointment_id = ? ORDER BY id').all(req.params.id);
@@ -246,7 +249,7 @@ router.patch('/:id', auth, perm('calendar'), (req, res) => {
     }
   }
 
-  const changes = audit.diff(before, { practitioner_id, client_id, start_time, end_time, status, location: locationText }, ['practitioner_id','client_id','start_time','end_time','status','location']);
+  const changes = audit.diff(before, { practitioner_id, client_id, start_time, end_time, status, location: locationText, exclude_from_budget: excludeFromBudget }, ['practitioner_id','client_id','start_time','end_time','status','location','exclude_from_budget']);
   if (changes) audit.log('appointment', Number(req.params.id), 'updated', changes, {
     ref: `APT-${String(req.params.id).padStart(5,'0')}`,
     snapshot: { before_start_time: before.start_time, before_end_time: before.end_time },

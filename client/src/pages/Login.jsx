@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Stethoscope } from 'lucide-react';
 import api from '../lib/api';
@@ -8,6 +8,7 @@ import { isUAT } from '../lib/env';
 export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -23,7 +24,10 @@ export default function Login() {
     setError(''); setLoading(true);
     try {
       await login(email, password);
-      navigate('/calendar');
+      const next = searchParams.get('next');
+      // Only ever follow an internal path — never let a crafted ?next= value send a user
+      // somewhere off-app after they've just authenticated.
+      navigate(next && next.startsWith('/') && !next.startsWith('//') ? next : '/calendar');
     } catch (err) {
       if (err.response?.status === 401) {
         setError('Invalid email or password.');

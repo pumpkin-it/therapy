@@ -75,21 +75,68 @@ router.post('/', auth, perm('users'), async (req, res, next) => {
 });
 
 router.patch('/:id', auth, perm('users'), (req, res) => {
-  const { first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password, target_amount, target_period } = req.body;
+  const { first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password, target_amount, target_period, external_cal_url } = req.body;
   if (email) {
     const existing = db.prepare('SELECT id FROM practitioners WHERE LOWER(email) = LOWER(?) AND id != ? LIMIT 1').get(email, req.params.id);
     if (existing) return res.status(409).json({ field: 'email', message: `A user with email "${email}" already exists` });
   }
   const before = db.prepare('SELECT * FROM practitioners WHERE id=?').get(req.params.id);
+  // Changing the URL invalidates any previous sync error/timestamp — the next scheduled or
+  // manual sync starts fresh against the new link rather than showing stale status for the old one.
+  const urlChanged = external_cal_url !== undefined && (external_cal_url || null) !== before.external_cal_url;
   db.prepare(
-    'UPDATE practitioners SET first_name=?, last_name=?, title=?, email=?, phone=?, color=?, provider_number=?, role=?, gender=?, discipline_id=?, target_amount=?, target_period=? WHERE id=?'
-  ).run(first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', provider_number || null, role || 'practitioner', gender || null, discipline_id || null, target_amount ? Number(target_amount) : null, target_period || null, req.params.id);
+    'UPDATE practitioners SET first_name=?, last_name=?, title=?, email=?, phone=?, color=?, provider_number=?, role=?, gender=?, discipline_id=?, target_amount=?, target_period=?, external_cal_url=? WHERE id=?'
+  ).run(
+    first_name, last_name, title || null, email || null, phone || null, color || '#6366f1', provider_number || null, role || 'practitioner', gender || null, discipline_id || null, target_amount ? Number(target_amount) : null, target_period || null,
+    external_cal_url !== undefined ? (external_cal_url || null) : before.external_cal_url,
+    req.params.id
+  );
+  if (urlChanged) {
+    db.prepare('UPDATE practitioners SET external_cal_synced_at = NULL, external_cal_error = NULL WHERE id = ?').run(req.params.id);
+    // Blocks this sync previously wrote are tied to the calendar that was just removed (or
+    // swapped for a different one) — leaving them would show blocked time nobody is tracking or
+    // refreshing any more. Manually-created blocks (source IS NULL) are untouched either way.
+    const removed = db.prepare(`DELETE FROM practitioner_time_blocks WHERE practitioner_id = ? AND source = 'external_sync'`).run(req.params.id);
+    if (removed.changes) {
+      audit.log('user', Number(req.params.id), 'calendar_sync_removed', `Cleared ${removed.changes} synced calendar block(s) after the external calendar URL changed`);
+    }
+  }
   if (password) {
     db.prepare('UPDATE practitioners SET password_hash=? WHERE id=?').run(bcrypt.hashSync(password, 10), req.params.id);
   }
-  const changes = audit.diff(before, req.body, ['first_name','last_name','title','email','phone','role','gender','provider_number','target_amount','target_period']);
+  const changes = audit.diff(before, req.body, ['first_name','last_name','title','email','phone','role','gender','provider_number','target_amount','target_period','external_cal_url']);
   if (changes) audit.log('user', Number(req.params.id), 'updated', changes);
   res.json(db.prepare('SELECT * FROM practitioners WHERE id = ?').get(req.params.id));
+});
+
+// Manual "Sync now" — same logic the hourly scheduler runs, exposed so a practitioner's admin
+// can verify a newly-pasted calendar URL immediately instead of waiting for the next scheduled pass.
+router.post('/:id/sync-calendar', auth, perm('users'), async (req, res) => {
+  const p = db.prepare('SELECT * FROM practitioners WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Not found' });
+  if (!p.external_cal_url) return res.status(400).json({ error: 'No external calendar URL set for this user' });
+  try {
+    const { syncPractitionerCalendar } = require('../services/calendarSync');
+    const result = await syncPractitionerCalendar(p.id);
+    audit.log('user', p.id, 'calendar_synced', `External calendar synced: ${result.created} added, ${result.updated} updated, ${result.removed} removed`);
+    res.json({ ...result, ...db.prepare('SELECT external_cal_synced_at, external_cal_error FROM practitioners WHERE id = ?').get(p.id) });
+  } catch (e) {
+    res.status(502).json({ error: e.message || 'Sync failed' });
+  }
+});
+
+// One-click disconnect — clears the URL and the blocks that sync wrote, in a single action
+// rather than requiring the user to blank the field and separately hit Save (which PATCH /:id
+// also handles as a fallback, but this is the intuitive path). Self-contained route (not a PATCH
+// with a partial body) since PATCH /:id expects the full edit form and would otherwise need
+// every other field re-sent just to change this one thing.
+router.post('/:id/remove-calendar', auth, perm('users'), (req, res) => {
+  const p = db.prepare('SELECT * FROM practitioners WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Not found' });
+  db.prepare('UPDATE practitioners SET external_cal_url = NULL, external_cal_synced_at = NULL, external_cal_error = NULL WHERE id = ?').run(p.id);
+  const removed = db.prepare(`DELETE FROM practitioner_time_blocks WHERE practitioner_id = ? AND source = 'external_sync'`).run(p.id);
+  audit.log('user', p.id, 'calendar_sync_removed', `Removed external calendar sync${removed.changes ? ` and cleared ${removed.changes} synced block(s)` : ''}`);
+  res.json(db.prepare('SELECT * FROM practitioners WHERE id = ?').get(p.id));
 });
 
 router.patch('/:id/active', auth, perm('users'), (req, res) => {

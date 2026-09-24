@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   format, addDays, startOfDay, startOfWeek, endOfWeek,
   addWeeks, subWeeks, addMonths, subMonths, startOfMonth, endOfMonth,
@@ -25,8 +26,26 @@ export default function Calendar() {
   const [showCancelledList, setShowCancelledList] = useState(false);
   const [modal, setModal] = useState(null);
   const [blockModal, setBlockModal] = useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const apptIdParam = searchParams.get('appt');
 
   const dateStr = format(date, 'yyyy-MM-dd');
+
+  const closeModal = () => {
+    setModal(null);
+    if (apptIdParam) setSearchParams({}, { replace: true });
+  };
+
+  // Deep link support (/appointments/:id redirects here as ?appt=<id>) — opens the same modal
+  // used everywhere else, so a pasted link works whether the appointment was originally reached
+  // via Calendar, a client's embedded calendar, or Invoices. Guarded against re-fetching the
+  // appointment that's already open (e.g. after openAppt itself just set this same param).
+  useEffect(() => {
+    if (!apptIdParam || String(modal?.id) === apptIdParam) return;
+    api.get(`/appointments/${apptIdParam}`)
+      .then(r => setModal(r.data))
+      .catch(() => setSearchParams({}, { replace: true }));
+  }, [apptIdParam]);
 
   const load = () => {
     let params;
@@ -55,6 +74,7 @@ export default function Calendar() {
   const openAppt = async appt => {
     const { data } = await api.get(`/appointments/${appt.id}`);
     setModal(data);
+    setSearchParams({ appt: data.id }, { replace: true });
   };
 
   // Practitioners default to seeing only their own appointments — the dropdown still lets
@@ -107,7 +127,7 @@ export default function Calendar() {
   // small "Block time instead" link (shown only for a new, unsaved entry) that swaps over to
   // BlockTimeModal with whatever date/time/practitioner was already selected, so blocking time
   // is still one click away without making every appointment booking pay an extra step upfront.
-  const switchToBlock = slot => { setModal(null); setBlockModal({ _new: true, ...slot }); };
+  const switchToBlock = slot => { closeModal(); setBlockModal({ _new: true, ...slot }); };
 
   return (
     <div className="flex flex-col h-full space-y-4">
@@ -170,8 +190,8 @@ export default function Calendar() {
           defaultDate={modal?._new ? modal.date : dateStr}
           defaultTime={modal?._new ? modal.time : null}
           defaultPractitioner={modal?._new ? modal.practitionerId : null}
-          onClose={() => setModal(null)}
-          onSaved={() => { setModal(null); load(); }}
+          onClose={closeModal}
+          onSaved={() => { closeModal(); load(); }}
           onRefresh={() => load()}
           onSwitchToBlock={modal?._new ? switchToBlock : undefined}
         />

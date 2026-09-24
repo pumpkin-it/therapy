@@ -43,7 +43,15 @@ export default function SignAgreement() {
 
       {alreadyDone ? (
         <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-6 text-center space-y-2">
-          {finalStatus === 'signed' && <p className="text-green-700 font-medium">This agreement has been signed{agreement.signed_at ? ` on ${new Date(agreement.signed_at).toLocaleDateString('en-AU')}` : ''}.</p>}
+          {finalStatus === 'signed' && (
+            <>
+              <p className="text-green-700 font-medium">This agreement has been signed{agreement.signed_at ? ` on ${new Date(agreement.signed_at).toLocaleDateString('en-AU')}` : ''}.</p>
+              <p className="text-sm text-gray-500">A copy has been emailed to you — you can also download it directly below.</p>
+              <a href={`/api/sign/${token}/pdf`} className="inline-block">
+                <Button variant="secondary">Download your copy</Button>
+              </a>
+            </>
+          )}
           {finalStatus === 'declined' && <p className="text-red-600 font-medium">This agreement was declined.</p>}
           {finalStatus === 'voided' && <p className="text-gray-500 font-medium">This agreement is no longer available.</p>}
         </div>

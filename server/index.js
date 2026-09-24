@@ -57,6 +57,7 @@ app.use('/api/templates',        perm('settings'), require('./routes/templates')
 app.use('/api/form-templates',  require('./routes/formTemplates')); // perm applied per-route inside
 app.use('/api/form-responses',  perm('clients'), require('./routes/formResponses'));
 app.use('/api/agreements',      perm('clients'), require('./routes/agreements'));
+app.use('/api/budgets',         perm('clients'), require('./routes/budgets'));
 app.use('/api/reports',         perm('reports'), require('./routes/reports'));
 
 // Logo is public; all other uploads require auth
@@ -83,11 +84,24 @@ app.listen(PORT, () => {
   const { generateAll } = require('./routes/recurringSeries');
   const { sendOverdueReminders } = require('./routes/invoices');
   const { sendAgreementReminders } = require('./routes/agreements');
+  const { refreshBudgetCurrentTotals, sendBudgetAlerts } = require('./services/budgets');
+  const { syncAllPractitionerCalendars } = require('./services/calendarSync');
   const runDaily = async () => {
     try { generateAll(); } catch (e) { console.error('Recurring generation error:', e.message); }
     try { await sendOverdueReminders(); } catch (e) { console.error('Invoice reminder error:', e.message); }
     try { await sendAgreementReminders(); } catch (e) { console.error('Agreement reminder error:', e.message); }
+    try { refreshBudgetCurrentTotals(); } catch (e) { console.error('Budget rate refresh error:', e.message); }
+    try { await sendBudgetAlerts(); } catch (e) { console.error('Budget alert error:', e.message); }
   };
   runDaily();
   setInterval(runDaily, 24 * 60 * 60 * 1000);
+
+  // Separate, more frequent interval — external calendars need to catch newly-booked meetings
+  // well before a once-a-day pass would, but still cheap: only practitioners with a URL on file
+  // get fetched, and most practices will have a handful at most.
+  const runHourly = async () => {
+    try { await syncAllPractitionerCalendars(); } catch (e) { console.error('Calendar sync error:', e.message); }
+  };
+  runHourly();
+  setInterval(runHourly, 60 * 60 * 1000);
 });

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SettingsProvider } from './context/SettingsContext';
 import Sidebar from './components/layout/Sidebar';
@@ -26,6 +26,22 @@ import FormBuilder from './pages/FormBuilder';
 import SignAgreement from './pages/SignAgreement';
 import ReportView from './pages/ReportView';
 import ClientPortal from './pages/ClientPortal';
+
+// Pretty, emailable single-appointment link (/appointments/:id) — redirects into the calendar's
+// own ?appt= query param, which Calendar.jsx already knows how to open without remounting itself
+// (a plain path-param route pointing at the same element would remount Calendar on every open).
+function AppointmentRedirect() {
+  const { id } = useParams();
+  return <Navigate to={`/calendar?appt=${id}`} replace />;
+}
+
+// Preserves where an unauthenticated visit was actually headed (e.g. a shared /appointments/:id
+// link opened cold) so Login.jsx can send them there instead of always landing on /calendar.
+function RedirectToLogin() {
+  const location = useLocation();
+  const next = encodeURIComponent(location.pathname + location.search);
+  return <Navigate to={`/login?next=${next}`} replace />;
+}
 
 function AuthenticatedApp() {
   const { user, loading } = useAuth();
@@ -67,7 +83,7 @@ function AuthenticatedApp() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
+        <Route path="*" element={<RedirectToLogin />} />
       </Routes>
     );
   }
@@ -80,6 +96,7 @@ function AuthenticatedApp() {
       <main className="flex-1 overflow-y-auto p-6">
         <Routes>
           {p.calendar && <Route path="/calendar" element={<Calendar />} />}
+          {p.calendar && <Route path="/appointments/:id" element={<AppointmentRedirect />} />}
           {p.clients && <Route path="/clients" element={<Clients />} />}
           {p.clients && <Route path="/clients/:id" element={<ClientDetail />} />}
           {p.users && <Route path="/practitioners" element={<Practitioners />} />}

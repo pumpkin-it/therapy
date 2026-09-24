@@ -22,7 +22,7 @@ const ROLE_COLORS = {
   finance:      'bg-amber-100 text-amber-700',
 };
 
-const EMPTY = { first_name: '', last_name: '', title: '', email: '', phone: '', color: '#6366f1', provider_number: '', role: 'practitioner', gender: '', discipline_id: '', password: '', target_amount: '', target_period: 'fortnightly' };
+const EMPTY = { first_name: '', last_name: '', title: '', email: '', phone: '', color: '#6366f1', provider_number: '', role: 'practitioner', gender: '', discipline_id: '', password: '', target_amount: '', target_period: 'fortnightly', external_cal_url: '' };
 
 function UserModal({ user, onClose, onSaved }) {
   const { user: authUser } = useAuth();
@@ -34,7 +34,42 @@ function UserModal({ user, onClose, onSaved }) {
   const [created, setCreated] = useState(false);
   const [createdEmail, setCreatedEmail] = useState(null); // { sent, error } from the create response
   const [resetStatus, setResetStatus] = useState(null); // 'sending' | 'sent' | { error }
+  const [calSyncStatus, setCalSyncStatus] = useState(null); // 'syncing' | { created, updated, removed } | { error }
+  const [removingCal, setRemovingCal] = useState(false);
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  const syncCalendarNow = async () => {
+    setCalSyncStatus('syncing');
+    try {
+      // sync-calendar reads the URL from the saved DB row, not the in-progress form — so a URL
+      // just pasted and not yet saved would otherwise fail with "No external calendar URL set".
+      // Persist it first (same payload shape as the regular Save button) whenever it's changed,
+      // so Sync now works right after pasting without a separate save-then-reopen round trip.
+      if (form.external_cal_url !== user.external_cal_url) {
+        const payload = (isSelf || !form.email) ? form : { ...form, password: undefined };
+        const { data } = await api.patch(`/practitioners/${user.id}`, payload);
+        setForm(f => ({ ...f, ...data }));
+      }
+      const { data } = await api.post(`/practitioners/${user.id}/sync-calendar`);
+      setCalSyncStatus(data);
+      setForm(f => ({ ...f, external_cal_synced_at: data.external_cal_synced_at, external_cal_error: data.external_cal_error }));
+    } catch (e) {
+      setCalSyncStatus({ error: e.response?.data?.error || 'Sync failed' });
+    }
+  };
+  // One click, takes effect immediately — clears the URL and the blocks sync wrote, rather than
+  // making the user blank the field and separately hit Save.
+  const removeCalendar = async () => {
+    if (!confirm("Remove this user's external calendar sync? Previously synced busy times will be cleared.")) return;
+    setRemovingCal(true);
+    try {
+      const { data } = await api.post(`/practitioners/${user.id}/remove-calendar`);
+      setForm(f => ({ ...f, external_cal_url: data.external_cal_url, external_cal_synced_at: data.external_cal_synced_at, external_cal_error: data.external_cal_error }));
+      setCalSyncStatus(null);
+    } finally {
+      setRemovingCal(false);
+    }
+  };
   const dupTimer = useRef(null);
 
   useEffect(() => {
@@ -182,6 +217,37 @@ function UserModal({ user, onClose, onSaved }) {
           <label className="block text-sm font-medium text-gray-700">Calendar colour</label>
           <input type="color" value={form.color} onChange={e => set('color', e.target.value)}
             className="h-9 w-20 rounded border border-gray-300 p-1 cursor-pointer" />
+        </div>
+
+        <div className="space-y-1">
+          <label className="block text-sm font-medium text-gray-700">External calendar sync <span className="text-gray-400 font-normal">(optional)</span></label>
+          <input value={form.external_cal_url || ''} onChange={e => set('external_cal_url', e.target.value)}
+            placeholder="Paste a secret ICS/webcal link — Outlook, Google Calendar, iCloud, etc."
+            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono text-xs" />
+          <p className="text-xs text-gray-400">
+            Busy times from this calendar sync in automatically (about once an hour) as blocked time, so scheduling can flag a clash. Works with any calendar app that can publish a private ICS link — e.g. Outlook's "Publish a Calendar", Google Calendar's "Secret address in iCal format".
+          </p>
+          {user && form.external_cal_url && (
+            <div className="flex items-center gap-2 pt-1 flex-wrap">
+              <Button type="button" variant="secondary" size="sm" onClick={syncCalendarNow} disabled={calSyncStatus === 'syncing'}>
+                {calSyncStatus === 'syncing' ? 'Syncing…' : 'Sync now'}
+              </Button>
+              <Button type="button" variant="ghost" size="sm" onClick={removeCalendar} disabled={removingCal}
+                className="text-red-500 hover:text-red-700">
+                {removingCal ? 'Removing…' : 'Remove calendar'}
+              </Button>
+              {calSyncStatus && calSyncStatus !== 'syncing' && !calSyncStatus.error && (
+                <span className="text-xs text-green-600">✓ {calSyncStatus.created} added, {calSyncStatus.updated} updated, {calSyncStatus.removed} removed</span>
+              )}
+              {calSyncStatus?.error && <span className="text-xs text-red-600">{calSyncStatus.error}</span>}
+              {!calSyncStatus && form.external_cal_synced_at && (
+                <span className="text-xs text-gray-400">Last synced {new Date(form.external_cal_synced_at).toLocaleString('en-AU')}</span>
+              )}
+              {!calSyncStatus && form.external_cal_error && (
+                <span className="text-xs text-red-600">Last sync failed: {form.external_cal_error}</span>
+              )}
+            </div>
+          )}
         </div>
       </div>
       {duplicates.length > 0 && (

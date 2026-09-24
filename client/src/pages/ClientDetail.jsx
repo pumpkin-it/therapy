@@ -19,6 +19,7 @@ import SessionNoteEmailModal from '../components/SessionNoteEmailModal';
 import ReportNotifyModal from '../components/ReportNotifyModal';
 import FormFillModal from '../components/FormFillModal';
 import EntityAuditLog from '../components/EntityAuditLog';
+import BudgetModal from '../components/BudgetModal';
 import { buildFolderTree, sortedChildren, sortedItems, countItems } from '../lib/formFolders';
 
 const AGREEMENT_STATUS_COLOR = {
@@ -34,6 +35,7 @@ function AgreementsTab({ clientId }) {
   const [templates, setTemplates] = useState([]);
   const [showNew, setShowNew] = useState(false);
   const [newTemplateId, setNewTemplateId] = useState('');
+  const [newLabel, setNewLabel] = useState('');
   const [activeId, setActiveId] = useState(null);
   const [active, setActive] = useState(null);
   const [linkCopied, setLinkCopied] = useState(false);
@@ -46,15 +48,70 @@ function AgreementsTab({ clientId }) {
   const [spend, setSpend] = useState(null);
   const [reminderDurationDays, setReminderDurationDays] = useState(10);
   const [savingReminderEndDate, setSavingReminderEndDate] = useState(false);
+  const [clientBudgets, setClientBudgets] = useState([]);
+  const [linkBudgetId, setLinkBudgetId] = useState('');
+  const [showCreateBudgetModal, setShowCreateBudgetModal] = useState(false);
   const pricingTableRef = useRef();
 
   const load = () => api.get(`/agreements?client_id=${clientId}`).then(r => setAgreements(r.data));
+  const loadClientBudgets = () => api.get(`/budgets?client_id=${clientId}`).then(r => setClientBudgets(r.data)).catch(() => {});
   useEffect(() => {
     load();
     api.get('/templates?type=agreement').then(r => setTemplates(r.data));
     api.get(`/funding-periods?client_id=${clientId}`).then(r => setFundingPeriods(r.data)).catch(() => {});
     api.get('/settings').then(r => setReminderDurationDays(parseInt(r.data.agreement_reminder_duration_days || '10'))).catch(() => {});
+    loadClientBudgets();
   }, []);
+
+  // Agreement dates and budget dates are deliberately independent (an agreement can span
+  // several budgets across disciplines with different periods, and aged-care services often
+  // have no plan-period equivalent to sync to) — so linking only *suggests* a starting point by
+  // filling in whichever agreement date fields are still blank, never overwriting a value the
+  // practitioner already set.
+  const prefillDatesFromBudget = budget => {
+    if (!budget) return;
+    setMeta(m => ({
+      ...m,
+      start_date: m.start_date || budget.start_date || m.start_date,
+      end_date: m.end_date || budget.end_date || m.end_date,
+    }));
+  };
+
+  const linkBudget = async () => {
+    if (!linkBudgetId || !active) return;
+    const res = await api.post(`/agreements/${active.id}/budgets`, { budget_id: Number(linkBudgetId) });
+    setActive(res.data);
+    prefillDatesFromBudget(res.data.linked_budgets?.find(b => b.id === Number(linkBudgetId)));
+    setLinkBudgetId('');
+  };
+  const unlinkBudget = async budgetId => {
+    const res = await api.delete(`/agreements/${active.id}/budgets/${budgetId}`);
+    setActive(res.data);
+  };
+  // Explicit only — never automatic. A budget's rate indexation already updates live in place
+  // (current_total_amount) without touching this at all; this is purely for an actual revision
+  // (new session counts, new services, etc.), which the client needs to be made aware of before
+  // it changes what the agreement is tracked against. The old link is kept as history, not
+  // deleted — see the "Budget history" section below.
+  const [switchingBudgetId, setSwitchingBudgetId] = useState(null);
+  const switchBudget = async budgetId => {
+    setSwitchingBudgetId(budgetId);
+    try {
+      const res = await api.post(`/agreements/${active.id}/budgets/${budgetId}/switch`);
+      setActive(res.data);
+    } finally {
+      setSwitchingBudgetId(null);
+    }
+  };
+  // Create-then-link in one action — no need to leave the agreement screen to go build a
+  // budget in Billing first just to come straight back and link it.
+  const onBudgetCreatedFromAgreement = async budget => {
+    setShowCreateBudgetModal(false);
+    const res = await api.post(`/agreements/${active.id}/budgets`, { budget_id: budget.id });
+    setActive(res.data);
+    prefillDatesFromBudget(budget);
+    loadClientBudgets();
+  };
 
   useEffect(() => {
     if (activeId) api.get(`/agreements/${activeId}`).then(r => setActive(r.data));
@@ -86,6 +143,19 @@ function AgreementsTab({ clientId }) {
       return `This agreement's dates extend beyond the client's ${active.funding_type_name} funding period (${period.start_date} – ${period.end_date}).`;
     }
     return '';
+  })();
+
+  // Non-blocking — agreement dates and linked budget dates are allowed to differ on purpose
+  // (an agreement can span multiple budgets, and aged care has no plan period to align to), so
+  // this is purely a heads-up, not a validation error.
+  const budgetDateWarning = (() => {
+    if (!active?.linked_budgets?.length) return '';
+    const mismatched = active.linked_budgets.filter(b =>
+      (b.start_date || null) !== (meta.start_date || null) || (b.end_date || null) !== (meta.end_date || null)
+    );
+    if (!mismatched.length) return '';
+    const detail = mismatched.map(b => `${b.discipline_name || 'Unassigned'} (${b.start_date || '…'} – ${b.end_date || 'ongoing'})`).join(', ');
+    return `This agreement's dates don't match the linked budget: ${detail}. That's fine if intentional.`;
   })();
 
   const saveMeta = async () => {
@@ -125,8 +195,8 @@ function AgreementsTab({ clientId }) {
     if (!newTemplateId) return;
     setAgreementError('');
     try {
-      const res = await api.post('/agreements', { client_id: clientId, template_id: newTemplateId });
-      setShowNew(false); setNewTemplateId('');
+      const res = await api.post('/agreements', { client_id: clientId, template_id: newTemplateId, label: newLabel || undefined });
+      setShowNew(false); setNewTemplateId(''); setNewLabel('');
       await load();
       setActiveId(res.data.id);
     } catch (e) {
@@ -220,6 +290,9 @@ function AgreementsTab({ clientId }) {
                 <option value="">Select a template…</option>
                 {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
+              <input className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm"
+                value={newLabel} onChange={e => setNewLabel(e.target.value)}
+                placeholder="Label (optional) — defaults to template name" />
               <Button size="sm" onClick={createAgreement} disabled={!newTemplateId}>Create draft</Button>
             </div>
           )}
@@ -247,15 +320,9 @@ function AgreementsTab({ clientId }) {
 
           {active.status === 'draft' ? (
             <div className="rounded-lg border border-gray-200 p-3 space-y-3">
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <DateInput label="Start date" value={meta.start_date} onChange={v => setMeta(m => ({ ...m, start_date: v }))} />
                 <ClearableDateInput label="End date" value={meta.end_date} onChange={v => setMeta(m => ({ ...m, end_date: v }))} />
-                <div className="space-y-1">
-                  <label className="block text-sm font-medium text-gray-700">Budget <span className="text-gray-400">(optional)</span></label>
-                  <input type="number" step="0.01" placeholder={active.items?.length ? active.items.reduce((s, i) => s + Number(i.line_total || 0), 0).toFixed(2) : '0.00'}
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
-                    value={meta.budget_amount} onChange={e => setMeta(m => ({ ...m, budget_amount: e.target.value }))} />
-                </div>
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <ClearableDateInput label="Reminder end date" value={meta.reminder_end_date} onChange={v => setMeta(m => ({ ...m, reminder_end_date: v }))} />
@@ -266,8 +333,13 @@ function AgreementsTab({ clientId }) {
                   <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />{fundingWarning}
                 </div>
               )}
+              {budgetDateWarning && (
+                <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-700">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />{budgetDateWarning}
+                </div>
+              )}
               <div className="flex justify-end">
-                <Button size="sm" variant="secondary" onClick={saveMeta} disabled={savingMeta}>{savingMeta ? 'Saving…' : 'Save dates & budget'}</Button>
+                <Button size="sm" variant="secondary" onClick={saveMeta} disabled={savingMeta}>{savingMeta ? 'Saving…' : 'Save dates'}</Button>
               </div>
             </div>
           ) : (active.start_date || active.end_date || active.budget_amount) && (
@@ -297,7 +369,63 @@ function AgreementsTab({ clientId }) {
             <p className="text-sm text-gray-500">Spend to date: {currency(spend.total)} ({currency(spend.invoiced)} invoiced + {currency(spend.projected)} scheduled)</p>
           ) : null}
 
-          <AgreementPricingTable ref={pricingTableRef} agreement={active} onUpdate={setActive} />
+          <div className="rounded-lg border border-gray-200 p-3 space-y-2">
+            <span className="text-sm font-medium text-gray-700">Linked Budgets</span>
+            {(active.linked_budgets || []).length === 0 && (
+              <p className="text-xs text-gray-400">No budgets linked — link one below to track this agreement against a real Billing-tab budget.</p>
+            )}
+            {(active.linked_budgets || []).map(b => (
+              <div key={b.id} className="rounded border border-gray-100 bg-gray-50/60 px-2 py-1.5 text-sm space-y-1">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="font-medium text-gray-800">{b.discipline_name || 'Unassigned discipline'}</span>
+                    <span className="text-xs text-gray-400 ml-2">{b.start_date || '…'} – {b.end_date || 'ongoing'}</span>
+                    <span className="text-xs text-gray-400 ml-2">
+                      {currency(b.spend.total)} of {currency(b.spend.current_total_amount)} used ({Math.round(b.spend.pct_used || 0)}%)
+                    </span>
+                  </div>
+                  <button type="button" onClick={() => unlinkBudget(b.id)} className="text-xs text-red-500 hover:text-red-700">Unlink</button>
+                </div>
+                {b.superseded_by && (
+                  <div className="flex items-center justify-between gap-2 rounded bg-amber-50 border border-amber-200 px-2 py-1 text-xs text-amber-700">
+                    <span>This budget has been revised since it was linked.</span>
+                    <button type="button" onClick={() => switchBudget(b.id)} disabled={switchingBudgetId === b.id}
+                      className="shrink-0 font-medium underline hover:no-underline disabled:opacity-50">
+                      {switchingBudgetId === b.id ? 'Switching…' : 'Switch to current version'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+            <div className="flex gap-2">
+              <select className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm"
+                value={linkBudgetId} onChange={e => setLinkBudgetId(e.target.value)}>
+                <option value="">Link a budget…</option>
+                {clientBudgets
+                  .filter(b => b.status === 'active' && !(active.linked_budgets || []).some(lb => lb.id === b.id))
+                  .map(b => <option key={b.id} value={b.id}>{b.discipline_name || 'Unassigned discipline'} — {currency(b.total_amount)} ({b.start_date || '…'} – {b.end_date || 'ongoing'})</option>)}
+              </select>
+              <Button size="sm" variant="secondary" onClick={linkBudget} disabled={!linkBudgetId}>Link</Button>
+              <Button size="sm" variant="secondary" onClick={() => setShowCreateBudgetModal(true)}>+ Create budget</Button>
+            </div>
+          </div>
+
+          {showCreateBudgetModal && (
+            <BudgetModal
+              clientId={clientId}
+              revising={null}
+              onClose={() => setShowCreateBudgetModal(false)}
+              onSaved={onBudgetCreatedFromAgreement}
+            />
+          )}
+
+          {(active.linked_budgets || []).length > 0 ? (
+            <p className="text-xs text-gray-400 italic">
+              Pricing for this agreement is generated from the linked budget{(active.linked_budgets || []).length > 1 ? 's' : ''} above — unlink to enter pricing manually instead.
+            </p>
+          ) : (
+            <AgreementPricingTable ref={pricingTableRef} agreement={active} onUpdate={setActive} />
+          )}
 
           {signingUrl && (
             <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-800 space-y-2">
@@ -322,6 +450,23 @@ function AgreementsTab({ clientId }) {
             </div>
           )}
 
+          {(active.historical_budgets || []).length > 0 && (
+            <div className="rounded-lg border border-gray-200 p-3 space-y-2">
+              <span className="text-sm font-medium text-gray-700">Budget history</span>
+              <p className="text-xs text-gray-400">Budgets this agreement was previously tracked against, kept for the record — figures are frozen as of when each was switched out.</p>
+              {active.historical_budgets.map(b => (
+                <div key={b.id} className="rounded border border-gray-100 bg-gray-50/40 px-2 py-1.5 text-sm">
+                  <span className="font-medium text-gray-600">{b.discipline_name || 'Unassigned discipline'}</span>
+                  <span className="text-xs text-gray-400 ml-2">{b.start_date || '…'} – {b.end_date || 'ongoing'}</span>
+                  <span className="text-xs text-gray-400 ml-2">
+                    {currency(b.spend.total)} of {currency(b.spend.current_total_amount)} used ({Math.round(b.spend.pct_used || 0)}%)
+                  </span>
+                  <div className="text-xs text-gray-400">Superseded {fmtDateOnly(b.superseded_at, timezone)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="flex items-center gap-2">
             {active.status === 'draft' && (
               <>
@@ -330,9 +475,9 @@ function AgreementsTab({ clientId }) {
                 <Button size="sm" variant="ghost" onClick={voidAgreement}>Void</Button>
               </>
             )}
-            {active.items?.length > 0 && (
+            {(active.items?.length > 0 || active.linked_budgets?.length > 0) && (
               <Button size="sm" variant="secondary" onClick={downloadPdf}>
-                {active.status === 'draft' ? 'Preview PDF' : 'Download PDF'}
+                {active.status === 'draft' ? 'Download PDF (for manual sign)' : 'Download PDF'}
               </Button>
             )}
           </div>
@@ -600,6 +745,205 @@ function FundingTab({ clientId }) {
 }
 
 // ─── Billing summary tab ──────────────────────────────────────────────────────
+// Colour tiers match the 75/90/100% notification thresholds exactly, so a glance at the bar
+// tells you the same story the alert emails will — no separate mental mapping to keep in sync.
+function budgetTierColor(pct) {
+  if (pct >= 100) return { bar: 'bg-red-500', text: 'text-red-600' };
+  if (pct >= 90) return { bar: 'bg-orange-500', text: 'text-orange-600' };
+  if (pct >= 75) return { bar: 'bg-amber-500', text: 'text-amber-600' };
+  return { bar: 'bg-indigo-500', text: null };
+}
+
+function BudgetCard({ budget, compact = false, action, disciplines, onReload }) {
+  const spend = budget.spend;
+  const pct = spend?.pct_used ?? 0;
+  const tier = budgetTierColor(pct);
+  const [editingDiscipline, setEditingDiscipline] = useState(false);
+  const [disciplineDraft, setDisciplineDraft] = useState(budget.discipline_id || '');
+  const [savingDiscipline, setSavingDiscipline] = useState(false);
+  const [showItems, setShowItems] = useState(false);
+
+  const saveDiscipline = async () => {
+    if (!disciplineDraft) return;
+    setSavingDiscipline(true);
+    try {
+      await api.patch(`/budgets/${budget.id}`, { discipline_id: Number(disciplineDraft) });
+      setEditingDiscipline(false);
+      onReload?.();
+    } finally {
+      setSavingDiscipline(false);
+    }
+  };
+
+  return (
+    <div className={`rounded-lg border p-4 space-y-2 ${compact ? 'border-gray-100 bg-gray-50/60' : 'border-gray-200'}`}>
+      <div className="flex items-start justify-between">
+        <div>
+          {editingDiscipline ? (
+            <div className="flex items-center gap-2">
+              <select className="rounded border border-gray-300 px-2 py-1 text-sm" value={disciplineDraft} onChange={e => setDisciplineDraft(e.target.value)}>
+                <option value="">Select…</option>
+                {(disciplines || []).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
+              <Button size="sm" onClick={saveDiscipline} disabled={!disciplineDraft || savingDiscipline}>{savingDiscipline ? 'Saving…' : 'Save'}</Button>
+              <button type="button" onClick={() => setEditingDiscipline(false)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
+            </div>
+          ) : (
+            <p className="font-medium text-gray-900">
+              {budget.discipline_name || 'Unassigned discipline'}
+              {!compact && !budget.discipline_id && (
+                <button type="button" onClick={() => setEditingDiscipline(true)} className="ml-2 text-xs font-normal text-indigo-600 hover:text-indigo-800">
+                  Assign discipline
+                </button>
+              )}
+            </p>
+          )}
+          <p className="text-xs text-gray-400">
+            {budget.start_date || '…'} – {budget.end_date || 'ongoing'}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {action}
+          <Badge color={budget.status === 'active' ? 'green' : 'gray'}>
+            {budget.status === 'active' ? 'Active' : 'Superseded'}
+          </Badge>
+        </div>
+      </div>
+      {spend && (
+        <>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-gray-600">{currency(spend.total)} of {currency(spend.current_total_amount)} used ({Math.round(pct)}%)</span>
+          </div>
+          <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+            <div className={`h-full ${compact ? 'bg-gray-300' : tier.bar}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+          </div>
+          {!compact && tier.text && (
+            <p className={`text-xs ${tier.text}`}>
+              {pct >= 100 ? 'Budget exceeded.' : pct >= 90 ? 'Nearing budget limit.' : 'Approaching budget limit.'}
+            </p>
+          )}
+          {Math.abs(spend.current_total_amount - budget.total_amount) >= 0.01 && (
+            <p className="text-xs text-gray-400">
+              Quoted at {currency(budget.total_amount)} — rates have since changed.
+            </p>
+          )}
+        </>
+      )}
+      {budget.notes && <p className="text-xs text-gray-400 italic">{budget.notes}</p>}
+      {budget.items?.length > 0 && (
+        <div>
+          <button type="button" onClick={() => setShowItems(s => !s)} className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5">
+            {showItems ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            {showItems ? 'Hide' : 'Show'} services ({budget.items.length})
+          </button>
+          {showItems && (
+            <div className="mt-2 space-y-1">
+              {budget.items.map(it => (
+                <div key={it.id} className="flex items-center justify-between text-xs text-gray-600 rounded bg-gray-50/60 px-2 py-1">
+                  <span>{it.description} <span className="text-gray-400">({it.session_duration_min || 60} min × {it.sessions} sessions)</span></span>
+                  <span className="font-medium text-gray-700">{currency(it.line_total)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One card per revision chain, the head (whichever budget nothing else has superseded) as the
+// headline with every predecessor tucked behind a collapsible "Revision history" disclosure.
+// Deliberately keyed off the superseded_by chain rather than discipline+status — multiple
+// budgets can share a discipline without being revisions of each other (e.g. the legacy
+// migrated agreement budgets, which have no discipline assigned yet and never reference one
+// another), and grouping by discipline+"the one marked active" alone would silently hide every
+// budget past the first found instead of rendering each as its own card.
+function BudgetChainCard({ head, history, onRevise, disciplines, onReload }) {
+  const [showHistory, setShowHistory] = useState(false);
+  return (
+    <div className="space-y-2">
+      <BudgetCard budget={head} disciplines={disciplines} onReload={onReload} action={head.status === 'active' && (
+        <button type="button" onClick={() => onRevise(head)} className="text-xs text-indigo-600 hover:text-indigo-800">
+          Revise
+        </button>
+      )} />
+      {history.length > 0 && (
+        <div>
+          <button type="button" onClick={() => setShowHistory(s => !s)}
+            className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-0.5">
+            {showHistory ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            {showHistory ? 'Hide' : 'Show'} revision history ({history.length})
+          </button>
+          {showHistory && (
+            <div className="mt-2 space-y-2 pl-3 border-l-2 border-gray-100">
+              {history.map(b => <BudgetCard key={b.id} budget={b} compact />)}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BudgetsSection({ clientId }) {
+  const [budgets, setBudgets] = useState(null);
+  const [disciplines, setDisciplines] = useState([]);
+  const [modal, setModal] = useState(null); // null | 'new' | full budget-with-items object (revise)
+
+  const reload = () => api.get(`/budgets?client_id=${clientId}`).then(r => setBudgets(r.data));
+  useEffect(() => { reload(); api.get('/disciplines').then(r => setDisciplines(r.data)).catch(() => {}); }, [clientId]);
+
+  const openRevise = head => api.get(`/budgets/${head.id}`).then(r => setModal(r.data));
+  const closeModal = () => setModal(null);
+  const onSaved = () => { closeModal(); reload(); };
+
+  // A "head" is any budget nothing else supersedes — the current end of its own chain (or a
+  // standalone budget that was never revised at all). Every other budget hangs off exactly one
+  // head via its own superseded_by chain, walked here rather than assumed to be one level deep.
+  const heads = (budgets || []).filter(b => b.superseded_by == null);
+  const chains = heads.map(head => {
+    const history = [];
+    const visited = new Set([head.id]);
+    let frontier = [head.id];
+    while (frontier.length) {
+      const predecessors = budgets.filter(b => frontier.includes(b.superseded_by) && !visited.has(b.id));
+      predecessors.forEach(b => visited.add(b.id));
+      history.push(...predecessors);
+      frontier = predecessors.map(b => b.id);
+    }
+    history.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return { head, history };
+  });
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <Button size="sm" variant="secondary" onClick={() => setModal('new')}>
+          <Plus className="h-3.5 w-3.5" /> New budget
+        </Button>
+      </div>
+
+      {budgets === null ? null : budgets.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-gray-200 p-6 text-center text-sm text-gray-400">
+          No budgets set up for this client yet.
+        </div>
+      ) : (
+        chains.map(({ head, history }) => <BudgetChainCard key={head.id} head={head} history={history} onRevise={openRevise} disciplines={disciplines} onReload={reload} />)
+      )}
+
+      {modal && (
+        <BudgetModal
+          clientId={clientId}
+          revising={modal === 'new' ? null : modal}
+          onClose={closeModal}
+          onSaved={onSaved}
+        />
+      )}
+    </div>
+  );
+}
+
 function BillingSummaryTab({ clientId }) {
   const [range, setRange] = useState({ from: '', to: '' });
   const [spend, setSpend] = useState(null);
@@ -613,29 +957,37 @@ function BillingSummaryTab({ clientId }) {
   const applyRange = () => load(`from=${range.from}&to=${range.to}`);
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 max-w-sm">
-        <DateInput label="From" value={range.from} onChange={v => setRange(r => ({ ...r, from: v }))} />
-        <DateInput label="To" value={range.to} onChange={v => setRange(r => ({ ...r, to: v }))} />
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-sm font-semibold text-gray-700 mb-2">Budgets</h3>
+        <BudgetsSection clientId={clientId} />
       </div>
-      <Button size="sm" variant="secondary" onClick={applyRange}>Update range</Button>
 
-      {spend && (
-        <div className="grid grid-cols-3 gap-3">
-          <div className="rounded-lg border border-gray-200 p-4">
-            <p className="text-xs text-gray-400">Invoiced</p>
-            <p className="text-xl font-semibold text-gray-900">{currency(spend.invoiced)}</p>
-          </div>
-          <div className="rounded-lg border border-gray-200 p-4">
-            <p className="text-xs text-gray-400">Scheduled (not yet invoiced)</p>
-            <p className="text-xl font-semibold text-gray-900">{currency(spend.projected)}</p>
-          </div>
-          <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-4">
-            <p className="text-xs text-indigo-500">Total</p>
-            <p className="text-xl font-semibold text-indigo-900">{currency(spend.total)}</p>
-          </div>
+      <div className="space-y-4">
+        <h3 className="text-sm font-semibold text-gray-700">Billed period</h3>
+        <div className="grid grid-cols-2 gap-3 max-w-sm">
+          <DateInput label="From" value={range.from} onChange={v => setRange(r => ({ ...r, from: v }))} />
+          <DateInput label="To" value={range.to} onChange={v => setRange(r => ({ ...r, to: v }))} />
         </div>
-      )}
+        <Button size="sm" variant="secondary" onClick={applyRange}>Update range</Button>
+
+        {spend && (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-lg border border-gray-200 p-4">
+              <p className="text-xs text-gray-400">Invoiced</p>
+              <p className="text-xl font-semibold text-gray-900">{currency(spend.invoiced)}</p>
+            </div>
+            <div className="rounded-lg border border-gray-200 p-4">
+              <p className="text-xs text-gray-400">Scheduled (not yet invoiced)</p>
+              <p className="text-xl font-semibold text-gray-900">{currency(spend.projected)}</p>
+            </div>
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50/40 p-4">
+              <p className="text-xs text-indigo-500">Total</p>
+              <p className="text-xl font-semibold text-indigo-900">{currency(spend.total)}</p>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

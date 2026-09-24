@@ -3,7 +3,7 @@ import api from '../lib/api';
 import Modal from './ui/Modal';
 import Button from './ui/Button';
 import AddressAutocomplete from './AddressAutocomplete';
-import { Trash2, Plus, FileText, Pencil, RefreshCw, Mail, AlertCircle, CheckCircle, TriangleAlert, Paperclip, Upload, Download, File as FileIcon, X, CalendarOff } from 'lucide-react';
+import { Trash2, Plus, FileText, Pencil, RefreshCw, Mail, AlertCircle, CheckCircle, TriangleAlert, Paperclip, Upload, Download, File as FileIcon, X, CalendarOff, Link2 } from 'lucide-react';
 import { localToday, fmtDate, fmtDateTime, downloadFile, roundQty, cn, noteHtml } from '../lib/utils';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
@@ -802,6 +802,12 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
   const { timezone } = useSettings();
   const { user } = useAuth();
   const editing = !!appointment;
+  const [linkCopied, setLinkCopied] = useState(false);
+  const copyLink = () => {
+    navigator.clipboard.writeText(`${window.location.origin}/appointments/${appointment.id}`)
+      .then(() => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000); })
+      .catch(() => setLinkCopied('error'));
+  };
   const [practitioners, setPractitioners] = useState([]);
   const [clients, setClients] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -851,6 +857,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     items: [{ ...EMPTY_ITEM }],
     late_cancel_pct: '',
     late_cancel_billable: false,
+    exclude_from_budget: false,
   });
 
   const [recurrence, setRecurrence] = useState({ enabled: false, freq: 'weekly', days: [], endType: 'never', until: '', occurrences: '' });
@@ -902,6 +909,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
         notes:  appointment.notes  || '',
         late_cancel_pct:      appointment.late_cancel_pct ?? '',
         late_cancel_billable: appointment.late_cancel_billable ? true : false,
+        exclude_from_budget: !!appointment.exclude_from_budget,
         items: appointment.items?.length ? appointment.items.map(i => ({
           service_id:     i.service_id || '',
           description:    i.description,
@@ -1300,7 +1308,13 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
   const isHome = form.location_type === 'home' || form.location_type === 'other';
 
   return (
-    <Modal title={editing ? `Edit Appointment — APT-${String(appointment.id).padStart(5,'0')}` : 'New Appointment'} onClose={onClose} wide>
+    <Modal title={editing ? `Edit Appointment — APT-${String(appointment.id).padStart(5,'0')}` : 'New Appointment'} onClose={onClose} wide
+      headerExtra={editing && (
+        <button type="button" onClick={copyLink}
+          className="text-xs text-gray-500 hover:text-indigo-600 flex items-center gap-1">
+          <Link2 className="h-3.5 w-3.5" /> {linkCopied === 'error' ? 'Copy failed' : linkCopied ? 'Copied!' : 'Copy link'}
+        </button>
+      )}>
       {!editing && onSwitchToBlock && (
         <div className="flex justify-start -mt-1 mb-3">
           <button type="button"
@@ -1665,6 +1679,13 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
           <textarea rows={2} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-none"
             value={form.notes} onChange={e => setField('notes', e.target.value)} />
         </div>
+
+        <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer select-none">
+          <input type="checkbox" checked={!!form.exclude_from_budget}
+            onChange={e => setField('exclude_from_budget', e.target.checked)} />
+          Exclude from budget calculation
+          <span className="text-gray-400">(still billed as normal — just not counted against the client's budget)</span>
+        </label>
 
         {/* Late cancellation billing — shown when status is cancelled */}
         {form.status === 'cancelled' && editing && (

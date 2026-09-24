@@ -1,5 +1,6 @@
 const db = require('../database');
 const crypto = require('crypto');
+const { isUAT } = require('../lib/env');
 
 // ─── Graph API token cache ────────────────────────────────────────────────────
 
@@ -35,7 +36,33 @@ async function getGraphToken() {
   return _tokenCache.token;
 }
 
-async function graphSend({ from, to, cc, subject, html, text, attachments }) {
+// UAT shares real, live Graph credentials mirrored from production (see project memory) — every
+// send from here must redirect to one safe test inbox regardless of the real computed
+// recipients, never the client/staff addresses the code resolved. Fails CLOSED: if UAT_TEST_MAILBOX
+// isn't set, this refuses to send at all rather than silently falling through to a real send —
+// a repeat of that failure mode (a real alert going out to real staff during testing, discovered
+// 2026-09-16) is exactly what this exists to make structurally impossible, not just unlikely.
+// `debugRecipients` (optional, an array of labeled strings like "PRACTITIONER EMAIL - x@y.com")
+// lets a caller show who the real recipients actually would have been, in the redirected body.
+async function graphSend({ from, to, cc, subject, html, text, attachments, debugRecipients }) {
+  if (isUAT) {
+    const testInboxRaw = process.env.UAT_TEST_MAILBOX;
+    if (!testInboxRaw) throw new Error('UAT_TEST_MAILBOX not configured — refusing to send any email from UAT without a safe redirect target');
+    const testInboxes = testInboxRaw.split(',').map(s => s.trim()).filter(Boolean); // comma-separated — every UAT test send goes to all of them
+    const originalTo = (Array.isArray(to) ? to : [to]).filter(Boolean).join(', ');
+    const originalCc = cc ? (Array.isArray(cc) ? cc : [cc]).filter(Boolean).join(', ') : '';
+    const recipientLines = (debugRecipients?.length ? debugRecipients : [
+      originalTo && `TO - ${originalTo}`,
+      originalCc && `CC - ${originalCc}`,
+    ].filter(Boolean)).map(line => `<div>${line}</div>`).join('');
+    html = `<div style="background:#fff8dc;border:1px solid #d4a017;padding:10px;margin-bottom:14px;font-family:monospace;font-size:12px;">
+      <strong>UAT TEST EMAIL — redirected from real recipients:</strong>${recipientLines}
+    </div>${html || (text ? `<p>${text}</p>` : '')}`;
+    subject = `[UAT TEST] ${subject}`;
+    to = testInboxes;
+    cc = undefined;
+  }
+
   const rows = db.prepare("SELECT key,value FROM settings WHERE key LIKE 'graph_%'").all();
   const cfg = Object.fromEntries(rows.map(r => [r.key, r.value]));
   const mailbox = cfg.graph_mailbox;

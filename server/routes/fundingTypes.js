@@ -2,6 +2,7 @@ const router = require('express').Router();
 const db = require('../database');
 const auth = require('../middleware/auth');
 const audit = require('../services/audit');
+const { markBudgetRatesDirty } = require('../services/budgets');
 
 const OPEN_END_DATE = '9999-09-09';
 const RATE_FIELDS = ['code', 'rate', 'travel_code', 'travel_rate_per_hour', 'km_code', 'km_rate', 'notes_code', 'notes_rate', 'cancel_code', 'gst_type'];
@@ -122,6 +123,7 @@ router.post('/:id/rate-periods', auth, (req, res) => {
       return { periodId, updatedCount };
     })();
     audit.log('settings', Number(req.params.id), 'rate_period_created', `New rate period "${name}" from ${start_date}${updatedCount ? ` — resynced ${updatedCount} future appointment(s)` : ''}`);
+    markBudgetRatesDirty();
     res.status(201).json({ ...db.prepare('SELECT * FROM rate_periods WHERE id = ?').get(periodId), appointments_updated: updatedCount });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -148,6 +150,7 @@ router.patch('/:id/rate-periods/:periodId', auth, (req, res) => {
   if (name) db.prepare('UPDATE rate_periods SET name = ? WHERE id = ?').run(name, period.id);
 
   audit.log('settings', Number(req.params.id), 'rate_period_updated', `Rate period "${period.name}" updated`);
+  markBudgetRatesDirty();
   res.json(db.prepare('SELECT * FROM rate_periods WHERE id = ?').get(period.id));
 });
 
@@ -164,6 +167,7 @@ router.delete('/:id/rate-periods/:periodId', auth, (req, res) => {
     if (prevPeriod) db.prepare('UPDATE rate_periods SET end_date = ? WHERE id = ?').run(OPEN_END_DATE, prevPeriod.id);
   })();
   audit.log('settings', Number(req.params.id), 'rate_period_deleted', `Rate period "${period.name}" deleted`);
+  markBudgetRatesDirty();
   res.json({ ok: true });
 });
 
@@ -190,6 +194,7 @@ router.post('/:id/rate-periods/:periodId/rates', auth, (req, res) => {
   `).run(period.id, service_id, code || null, rate || 0, travel_code || null, travel_rate_per_hour || null,
     km_code || null, km_rate || null, notes_code || null, notes_rate || null, cancel_code || null, gst_type || 'GST');
   audit.log('settings', Number(req.params.id), 'service_rate_added', `Service added to rate period "${period.name}"`);
+  markBudgetRatesDirty();
   res.status(201).json(db.prepare('SELECT * FROM service_rates WHERE id = ?').get(result.lastInsertRowid));
 });
 
@@ -212,6 +217,7 @@ router.patch('/:id/rate-periods/:periodId/rates/:rateId', auth, (req, res) => {
     })();
   }
   audit.log('settings', Number(req.params.id), 'service_rate_updated', `Rate updated in period "${period.name}"${updatedCount ? ` — resynced ${updatedCount} appointment(s)` : ''}`);
+  markBudgetRatesDirty();
   res.json({ ...db.prepare('SELECT * FROM service_rates WHERE id = ?').get(existing.id), appointments_updated: updatedCount });
 });
 
@@ -220,6 +226,7 @@ router.delete('/:id/rate-periods/:periodId/rates/:rateId', auth, (req, res) => {
   if (!period) return res.status(404).json({ error: 'Not found' });
   db.prepare('DELETE FROM service_rates WHERE id = ? AND period_id = ?').run(req.params.rateId, period.id);
   audit.log('settings', Number(req.params.id), 'service_rate_removed', `Service removed from rate period "${period.name}"`);
+  markBudgetRatesDirty();
   res.json({ ok: true });
 });
 
@@ -235,6 +242,28 @@ router.get('/:id/service-rates', auth, (req, res) => {
     WHERE rp.funding_type_id = ? AND ? BETWEEN rp.start_date AND rp.end_date AND s.active = 1
     ORDER BY s.name
   `).all(req.params.id, d);
+  res.json(rows);
+});
+
+// Same lookup with no funding-type scoping at all — every service's currently-priced rate on a
+// given date, across every funding type at once. Used by budget quoting: a budget can span a
+// real funding change mid-period (NDIS runs out, the client starts privately paying), and the
+// service catalog is already funder-specific by name (e.g. "NDIS - OT Session"), so there's
+// nothing to gain by first resolving which of the client's funding periods is "active" — just
+// show every priced service and let the name itself carry which funder it's under.
+router.get('/service-rates', auth, (req, res) => {
+  const { date } = req.query;
+  const d = date || new Date().toISOString().slice(0, 10);
+  const rows = db.prepare(`
+    SELECT sr.*, s.name AS service_name, s.unit, s.default_duration, s.discipline_id,
+      ft.id AS funding_type_id, ft.name AS funding_type_name
+    FROM service_rates sr
+    JOIN rate_periods rp ON rp.id = sr.period_id
+    JOIN services s ON s.id = sr.service_id
+    JOIN funding_types ft ON ft.id = rp.funding_type_id
+    WHERE ? BETWEEN rp.start_date AND rp.end_date AND s.active = 1
+    ORDER BY s.name
+  `).all(d);
   res.json(rows);
 });
 
