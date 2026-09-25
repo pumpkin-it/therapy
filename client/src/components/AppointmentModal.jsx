@@ -49,7 +49,7 @@ function fmtNextAppt(isoStr) {
 // keystroke, no server involvement, cleared on successful save.
 const noteDraftKey = appointmentId => `therapy:session-note-draft:appointment:${appointmentId}`;
 
-function SessionNotesSection({ appointmentId, clientId, appointment }) {
+function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChanged }) {
   const { timezone } = useSettings();
   const { user } = useAuth();
   const [notes, setNotes] = useState([]);
@@ -218,11 +218,15 @@ function SessionNotesSection({ appointmentId, clientId, appointment }) {
         await api.post('/session-note-files', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       }
       setDraftPersist(''); setStagedFiles([]); load();
+      // The compose box is a Quill editor that only reads its content once, at mount — clearing
+      // the draft state alone leaves the saved text on screen, inviting a duplicate "Add note".
+      draftHtmlRef.current?.('');
+      onNotesChanged?.(); // calendar's note icon
     } finally { setSaving(false); }
   };
 
   const saveEdit = async id => { await api.patch(`/session-notes/${id}`, { note: editText }); setEditingId(null); load(); };
-  const remove   = async id => { if (!confirm('Delete this note?')) return; await api.delete(`/session-notes/${id}`); load(); };
+  const remove   = async id => { if (!confirm('Delete this note?')) return; await api.delete(`/session-notes/${id}`); load(); onNotesChanged?.(); };
 
   return (
     <div className="space-y-3">
@@ -1776,7 +1780,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
 
         {editing && (
           <div className="border-t border-gray-100 pt-4">
-            <SessionNotesSection appointmentId={appointment.id} clientId={appointment.client_id} appointment={appointment} />
+            <SessionNotesSection appointmentId={appointment.id} clientId={appointment.client_id} appointment={appointment} onNotesChanged={onRefresh} />
           </div>
         )}
 
