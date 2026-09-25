@@ -47,6 +47,7 @@ app.use('/api/session-note-files', perm('clients'), require('./routes/sessionNot
 app.use('/api/funding-periods', require('./routes/fundingPeriods')); // perm applied per-route inside
 app.use('/api/client-files',    perm('clients'), require('./routes/clientFiles'));
 app.use('/api/client-file-folders', perm('clients'), require('./routes/clientFileFolders'));
+app.use('/api/billable-reports', perm('clients'), require('./routes/billableReports'));
 app.use('/api/recurring-series', perm('calendar'), require('./routes/recurringSeries'));
 app.use('/api/disciplines',     perm('services'), require('./routes/disciplines'));
 app.use('/api/push',            require('./routes/push'));

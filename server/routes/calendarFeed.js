@@ -33,7 +33,7 @@ router.get('/:token.ics', (req, res) => {
     FROM appointments a
     JOIN clients c ON c.id = a.client_id
     LEFT JOIN locations l ON l.id = a.location_id
-    WHERE a.practitioner_id = ? AND a.status != 'cancelled'
+    WHERE a.practitioner_id = ? AND a.status != 'cancelled' AND a.billable_report_id IS NULL
       AND DATE(a.start_time) >= ? AND DATE(a.start_time) <= ?
     ORDER BY a.start_time
   `).all(prac.id, fromStr, toStr);

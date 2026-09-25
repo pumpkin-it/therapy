@@ -37,8 +37,8 @@ const WATERMARK_TILE_SVG = Buffer.from(`
 // Builds a watermarked, text-free preview PDF from an original PDF buffer. The first
 // `visiblePages` pages are rendered in full (still watermarked, so it can never pass for the
 // released copy) so the client can confirm the report is genuinely theirs and finished — every
-// remaining page is blurred. Always leaves at least one page blurred when there's more than one
-// page total, so a mistaken/too-high visiblePages value can never reveal the entire document.
+// remaining page is blurred. The practitioner picks how many; it's capped at half the pages
+// (see maxVisiblePages) so a mistaken/too-high value can never reveal most of the document.
 // Every page is rasterized to a bitmap first (via mupdf's WASM renderer) — this is what
 // guarantees the preview has no selectable/extractable text layer at all, regardless of how
 // the blur is applied. The blur itself is then a pixel transform (sharp), irreversible, not a
@@ -47,7 +47,7 @@ async function generateReportPreview(originalBuffer, visiblePages = 1) {
   const mupdf = await loadMupdf();
   const doc = mupdf.Document.openDocument(originalBuffer, 'application/pdf');
   const pageCount = doc.countPages();
-  const safeVisiblePages = Math.max(0, Math.min(visiblePages, pageCount > 1 ? pageCount - 1 : 0));
+  const safeVisiblePages = clampVisiblePages(visiblePages, pageCount);
   const watermarkTile = await sharp(WATERMARK_TILE_SVG).png().toBuffer();
 
   const scale = RENDER_DPI / 72;
@@ -84,7 +84,18 @@ async function generateReportPreview(originalBuffer, visiblePages = 1) {
     previewPage.drawImage(embeddedImage, { x: 0, y: 0, width: embeddedImage.width, height: embeddedImage.height });
   }
 
-  return Buffer.from(await previewDoc.save());
+  // pageCount/visiblePages are what was actually used, so callers store the real numbers rather
+  // than whatever was requested (asking for 10 on a 5-page report really shows 4).
+  return { buffer: Buffer.from(await previewDoc.save()), pageCount, visiblePages: safeVisiblePages };
+}
+
+// At most half the pages (rounded down — a 3-page report shows 1), and never more than 10.
+function maxVisiblePages(pageCount) {
+  return Math.min(10, Math.floor(pageCount / 2));
+}
+
+function clampVisiblePages(requested, pageCount) {
+  return Math.max(0, Math.min(parseInt(requested, 10) || 0, maxVisiblePages(pageCount)));
 }
 
 // Image sharing has no "pages" concept — a single photo/scan is either fully blurred (pending)
@@ -105,4 +116,4 @@ async function generateImagePreview(originalBuffer, mimeType) {
   return mimeType === 'image/png' ? blurred.png().toBuffer() : blurred.jpeg({ quality: 85 }).toBuffer();
 }
 
-module.exports = { generateReportPreview, generateImagePreview };
+module.exports = { generateReportPreview, generateImagePreview, clampVisiblePages, maxVisiblePages };

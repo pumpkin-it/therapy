@@ -169,6 +169,15 @@ Templates page — all four tabs (Email, Session Note, Agreement, Forms) load wi
 error, consistent full-page width. Settings page loads. Reports page loads and returns data for
 a normal date range.
 
+## 11. Report billing (client → Reports tab)
+Start a report on the QA client, log hours at a running total % (e.g. 50%), confirm the entry
+shows the right hours × rate amount and does NOT appear on the calendar. On UAT every email is
+redirected to the test mailbox, so billing a real entry is safe there — check the accounts email
+arrived with a MYOB CSV whose line note reads "Report: <title> — 50% complete". Confirm a lower
+% than the current total is rejected. Upload a PDF, confirm the Files tab shows it as a billed
+report with no "Mark as released"/delete controls, and that the client link shows the blurred
+draft. Void the entry (admin/finance) and delete the QA report data afterwards.
+
 ---
 
 ## Standing rules for whoever runs this (human or agent)

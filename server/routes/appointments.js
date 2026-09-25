@@ -55,9 +55,11 @@ const withItems = appt => {
 };
 
 router.get('/', auth, perm('calendar'), (req, res) => {
-  const { date, from, to, client_id, practitioner_id, series_id, status } = req.query;
+  const { date, from, to, client_id, practitioner_id, series_id, status, include_report_billing } = req.query;
 
-  let where = '1=1';
+  // Report billing entries (routes/billableReports.js) are appointments only so the billing
+  // pipeline handles them — they aren't time the practitioner was booked, so calendars skip them.
+  let where = include_report_billing ? '1=1' : 'a.billable_report_id IS NULL';
   const params = [];
 
   if (date) {
@@ -103,6 +105,14 @@ router.get('/', auth, perm('calendar'), (req, res) => {
 });
 
 // Check for scheduling conflicts
+// Report billing entries were emailed to accounts the moment they were saved — they're edited
+// only through the report (void), never through the appointment screens.
+function rejectIfReportEntry(req, res, next) {
+  const a = db.prepare('SELECT billable_report_id FROM appointments WHERE id = ?').get(req.params.id);
+  if (a?.billable_report_id) return res.status(409).json({ error: 'This is a report billing entry — manage it from the client’s Reports tab.' });
+  next();
+}
+
 router.get('/check-conflicts', auth, perm('calendar'), (req, res) => {
   const { practitioner_id, client_id, start_time, end_time, exclude_id, exclude_block_id } = req.query;
   if (!start_time || !end_time) return res.json({ conflicts: [] });
@@ -117,7 +127,7 @@ router.get('/check-conflicts', auth, perm('calendar'), (req, res) => {
     const rows = db.prepare(`
       SELECT c.first_name || ' ' || c.last_name AS client_name
       FROM appointments a JOIN clients c ON c.id = a.client_id
-      WHERE a.practitioner_id = ? AND a.status != 'cancelled' AND a.start_time < ? AND a.end_time > ? ${exclSQL}
+      WHERE a.practitioner_id = ? AND a.status != 'cancelled' AND a.billable_report_id IS NULL AND a.start_time < ? AND a.end_time > ? ${exclSQL}
     `).all(practitioner_id, end_time, start_time, ...excl);
     const pName = db.prepare("SELECT first_name || ' ' || last_name AS name FROM practitioners WHERE id=?").get(practitioner_id);
     for (const r of rows) conflicts.push({ type: 'practitioner', message: `${pName?.name} already has an appointment with ${r.client_name} at this time` });
@@ -131,7 +141,7 @@ router.get('/check-conflicts', auth, perm('calendar'), (req, res) => {
     const rows = db.prepare(`
       SELECT p.first_name || ' ' || p.last_name AS practitioner_name
       FROM appointments a JOIN practitioners p ON p.id = a.practitioner_id
-      WHERE a.client_id = ? AND a.status != 'cancelled' AND a.start_time < ? AND a.end_time > ? ${exclSQL}
+      WHERE a.client_id = ? AND a.status != 'cancelled' AND a.billable_report_id IS NULL AND a.start_time < ? AND a.end_time > ? ${exclSQL}
     `).all(client_id, end_time, start_time, ...excl);
     const cName = db.prepare("SELECT first_name || ' ' || last_name AS name FROM clients WHERE id=?").get(client_id);
     for (const r of rows) conflicts.push({ type: 'client', message: `${cName?.name} already has an appointment with ${r.practitioner_name} at this time` });
@@ -191,7 +201,7 @@ router.post('/', auth, perm('calendar'), (req, res) => {
   res.status(201).json(withItems(db.prepare(`${APPT_SELECT} WHERE a.id=?`).get(apptId)));
 });
 
-router.patch('/:id', auth, perm('calendar'), (req, res) => {
+router.patch('/:id', auth, perm('calendar'), rejectIfReportEntry, (req, res) => {
   const { practitioner_id, client_id, location_type, location_id, location_other, title, start_time, end_time, notes, status, items, late_cancel_pct, late_cancel_billable, funding_period_id, exclude_from_budget } = req.body;
   const { locationText, resolvedLocationId, locationOther } = resolveLocation(location_type, location_id, location_other);
   const before = db.prepare('SELECT * FROM appointments WHERE id=?').get(req.params.id);
@@ -269,7 +279,7 @@ router.patch('/:id', auth, perm('calendar'), (req, res) => {
 // service's own travel_rate_per_hour/notes_rate, then the item's raw unit_rate — when left null).
 // These are deliberately separate: changing the session rate must never silently change what
 // travel/notes bill at, and vice versa.
-router.patch('/:id/items/:itemId/billing', auth, perm('invoices'), (req, res) => {
+router.patch('/:id/items/:itemId/billing', auth, perm('invoices'), rejectIfReportEntry, (req, res) => {
   const { billed_quantity, billed_unit_rate, billed_travel_rate, billed_notes_rate, billed_km_rate, apply_to_future } = req.body;
   const item = db.prepare('SELECT * FROM appointment_items WHERE id = ? AND appointment_id = ?').get(req.params.itemId, req.params.id);
   if (!item) return res.status(404).json({ error: 'Not found' });
@@ -310,7 +320,7 @@ router.patch('/:id/items/:itemId/billing', auth, perm('invoices'), (req, res) =>
   res.json({ ...updated, propagated });
 });
 
-router.patch('/:id/items/:itemId/notes', auth, perm('invoices'), (req, res) => {
+router.patch('/:id/items/:itemId/notes', auth, perm('invoices'), rejectIfReportEntry, (req, res) => {
   const { item_notes } = req.body;
   const item = db.prepare('SELECT * FROM appointment_items WHERE id = ? AND appointment_id = ?').get(req.params.itemId, req.params.id);
   if (!item) return res.status(404).json({ error: 'Not found' });
@@ -327,7 +337,7 @@ router.patch('/:id/items/:itemId/notes', auth, perm('invoices'), (req, res) => {
   res.json(updated);
 });
 
-router.patch('/:id/status', auth, perm('calendar'), (req, res) => {
+router.patch('/:id/status', auth, perm('calendar'), rejectIfReportEntry, (req, res) => {
   const { status, late_cancel_pct, late_cancel_billable } = req.body;
   const before = db.prepare('SELECT status FROM appointments WHERE id=?').get(req.params.id);
   db.prepare('UPDATE appointments SET status=?, late_cancel_pct=?, late_cancel_billable=? WHERE id=?')

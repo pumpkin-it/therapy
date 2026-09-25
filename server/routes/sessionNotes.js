@@ -2,7 +2,7 @@ const router = require('express').Router();
 const db = require('../database');
 const auth = require('../middleware/auth');
 const { generateSessionNotePdf } = require('../services/pdf');
-const { graphSend, renderTemplate, getTemplate } = require('../services/mailer');
+const { graphSend, renderTemplate, getTemplate, plainTextToHtml } = require('../services/mailer');
 
 function loadNotesWithClient(noteIds) {
   if (!Array.isArray(noteIds) || !noteIds.length) return { client: null, notes: [] };
@@ -153,7 +153,7 @@ router.post('/email', auth, async (req, res, next) => {
 
     const tpl = getTemplate('session_note_email');
     const finalSubject = subject || (tpl ? renderTemplate(tpl.subject, vars) : `Session notes for ${clientName}`);
-    const finalBody = body || (tpl ? renderTemplate(tpl.body, vars) : `<p>Please find attached the session notes for ${clientName} covering ${dateRange}.</p>`);
+    const finalBody = plainTextToHtml(body) || (tpl ? renderTemplate(tpl.body, vars) : `<p>Please find attached the session notes for ${clientName} covering ${dateRange}.</p>`);
 
     const pdf = await generateSessionNotePdf({ client_name: clientName, notes });
     const filename = `SessionNotes_${client.last_name}_${dateRange.replace(/[^a-z0-9]+/gi, '_')}.pdf`;

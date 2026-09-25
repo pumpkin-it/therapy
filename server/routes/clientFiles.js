@@ -1,16 +1,20 @@
 const router = require('express').Router();
-const crypto = require('crypto');
 const db = require('../database');
 const auth = require('../middleware/auth');
 const audit = require('../services/audit');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { generateReportPreview, generateImagePreview } = require('../services/reportRedact');
-const { graphSend, getTemplate, renderTemplate } = require('../services/mailer');
+const { generateReportPreview } = require('../services/reportRedact');
+const { createReportShare, ShareError } = require('../services/reportShare');
+const { releasePaidReportsInBackground } = require('../services/reportRelease');
 
-const SHAREABLE_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
-const PREVIEW_EXT = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' };
+// A file that's the uploaded copy of a billed report (routes/billableReports.js) is held back until
+// its invoices are paid — so it can't be released, un-shared or deleted from the Files tab the
+// way an ordinary shared file can, or the payment gate would be trivially bypassed.
+const getLinkedBillableReport = fileId => db.prepare('SELECT * FROM billable_reports WHERE client_file_id = ?').get(fileId);
+const LINKED_REPORT_MSG = 'This file is a billed report — manage it from the client’s Reports tab.';
+const { graphSend, getTemplate, renderTemplate, plainTextToHtml } = require('../services/mailer');
 
 const UPLOAD_DIR = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -26,7 +30,8 @@ const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
 
 const FILE_WITH_REPORT_SELECT = `
   SELECT cf.*, cfr.status AS report_status, cfr.view_token AS report_view_token,
-    cfr.visible_pages AS report_visible_pages, cfr.released_at AS report_released_at
+    cfr.visible_pages AS report_visible_pages, cfr.page_count AS report_page_count, cfr.released_at AS report_released_at,
+    (SELECT br.id FROM billable_reports br WHERE br.client_file_id = cf.id) AS billable_report_id
   FROM client_files cf
   LEFT JOIN client_file_reports cfr ON cfr.client_file_id = cf.id
 `;
@@ -41,7 +46,8 @@ router.get('/', auth, (req, res) => {
   if (shared === '1') {
     const files = db.prepare(`
       SELECT cf.*, cff.name AS folder_name, cfr.status AS report_status, cfr.view_token AS report_view_token,
-        cfr.visible_pages AS report_visible_pages, cfr.released_at AS report_released_at
+        cfr.visible_pages AS report_visible_pages, cfr.page_count AS report_page_count, cfr.released_at AS report_released_at,
+        (SELECT br.id FROM billable_reports br WHERE br.client_file_id = cf.id) AS billable_report_id
       FROM client_files cf
       JOIN client_file_reports cfr ON cfr.client_file_id = cf.id
       LEFT JOIN client_file_folders cff ON cff.id = cf.folder_id
@@ -104,40 +110,11 @@ router.get('/:id/download', auth, (req, res) => {
 router.post('/:id/share-report', auth, async (req, res) => {
   const file = db.prepare('SELECT * FROM client_files WHERE id = ?').get(req.params.id);
   if (!file) return res.status(404).json({ error: 'Not found' });
-  if (!SHAREABLE_MIME_TYPES.includes(file.mime_type)) {
-    return res.status(400).json({ error: 'Only PDF and image (JPG/PNG) files can be shared.' });
-  }
-  const existing = db.prepare('SELECT 1 FROM client_file_reports WHERE client_file_id = ?').get(file.id);
-  if (existing) return res.status(409).json({ error: 'This file is already shared.' });
-
-  // Images have no "pages" — visible_pages is meaningless there and always stored as 0.
-  const isPdf = file.mime_type === 'application/pdf';
-  const visiblePages = isPdf ? Math.max(0, Math.min(10, parseInt(req.body.visible_pages, 10) || 0)) : 0;
-  let previewBuffer;
   try {
-    const original = fs.readFileSync(path.join(UPLOAD_DIR, file.filename));
-    previewBuffer = isPdf
-      ? await generateReportPreview(original, visiblePages)
-      : await generateImagePreview(original, file.mime_type);
+    await createReportShare(file, req.body.visible_pages);
   } catch (e) {
-    console.error('Report preview generation failed:', e);
-    return res.status(400).json({ error: `Could not process this file — it may be corrupt${isPdf ? ' or password-protected' : ''}.` });
-  }
-
-  const previewFilename = `${Date.now()}-${Math.round(Math.random() * 1e9)}-preview.${PREVIEW_EXT[file.mime_type]}`;
-  fs.writeFileSync(path.join(UPLOAD_DIR, previewFilename), previewBuffer);
-  const viewToken = crypto.randomBytes(24).toString('hex');
-  try {
-    db.prepare(`
-      INSERT INTO client_file_reports (client_file_id, view_token, preview_filename, visible_pages)
-      VALUES (?, ?, ?, ?)
-    `).run(file.id, viewToken, previewFilename, visiblePages);
-  } catch (e) {
-    // Preview generation isn't instant — a double-click can fire this route twice before the
-    // first request's INSERT lands, both passing the "not already shared" check above. The
-    // client_file_id primary key turns the second one into a clean conflict instead of a crash.
-    try { fs.unlinkSync(path.join(UPLOAD_DIR, previewFilename)); } catch {}
-    return res.status(409).json({ error: 'This file is already shared.' });
+    if (e instanceof ShareError) return res.status(e.status).json({ error: e.message });
+    throw e;
   }
 
   audit.log('client_file', file.id, 'updated', `Shared "${file.label || file.original_name}" as a draft report`);
@@ -150,6 +127,7 @@ router.post('/:id/share-report', auth, async (req, res) => {
 router.delete('/:id/share-report', auth, (req, res) => {
   const report = db.prepare('SELECT * FROM client_file_reports WHERE client_file_id = ?').get(req.params.id);
   if (!report) return res.status(404).json({ error: 'Not found' });
+  if (getLinkedBillableReport(req.params.id)) return res.status(409).json({ error: LINKED_REPORT_MSG });
   try { fs.unlinkSync(path.join(UPLOAD_DIR, report.preview_filename)); } catch {}
   db.prepare('DELETE FROM client_file_reports WHERE client_file_id = ?').run(req.params.id);
   const file = db.prepare('SELECT * FROM client_files WHERE id = ?').get(req.params.id);
@@ -162,9 +140,15 @@ router.patch('/:id/report-status', auth, (req, res) => {
   if (!report) return res.status(404).json({ error: 'Not found' });
   const { status } = req.body;
   if (!['pending', 'released'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
+  const billable = getLinkedBillableReport(req.params.id);
+  if (billable && !['owner', 'admin'].includes(req.user.role)) return res.status(403).json({ error: LINKED_REPORT_MSG });
 
   const releasedAt = status === 'released' ? new Date().toISOString() : null;
   db.prepare('UPDATE client_file_reports SET status = ?, released_at = ? WHERE client_file_id = ?').run(status, releasedAt, req.params.id);
+  if (billable) {
+    db.prepare('UPDATE billable_reports SET status = ?, released_at = ? WHERE id = ?')
+      .run(status === 'released' ? 'released' : (billable.notify_to ? 'draft_sent' : 'uploaded'), releasedAt, billable.id);
+  }
   const file = db.prepare('SELECT * FROM client_files WHERE id = ?').get(req.params.id);
   audit.log('client_file', file.id, status === 'released' ? 'released' : 'unreleased',
     status === 'released' ? `Released "${file.label || file.original_name}" to client` : `Reverted "${file.label || file.original_name}" to draft`);
@@ -199,7 +183,7 @@ router.post('/:id/notify-report', auth, async (req, res) => {
   const templateCode = report.status === 'released' ? 'report_released' : 'report_shared_draft';
   const tpl = getTemplate(templateCode);
   const finalSubject = subject || (tpl ? renderTemplate(tpl.subject, vars) : `Your ${reportTitle} is ready`);
-  const finalBody = body || (tpl ? renderTemplate(tpl.body, vars) : `<p>You can view "${reportTitle}" using the link below.</p><p><a href="${reportLink}">${reportLink}</a></p>`);
+  const finalBody = plainTextToHtml(body) || (tpl ? renderTemplate(tpl.body, vars) : `<p>You can view "${reportTitle}" using the link below.</p><p><a href="${reportLink}">${reportLink}</a></p>`);
 
   try {
     await graphSend({ to, cc: cc?.length ? cc : undefined, subject: finalSubject, html: finalBody });
@@ -209,6 +193,17 @@ router.post('/:id/notify-report', auth, async (req, res) => {
 
   audit.log('client_file', file.id, 'updated',
     `Notified client about "${reportTitle}" (${report.status === 'released' ? 'released' : 'draft'})`);
+
+  // For a billed report, the draft email is what starts the payment wait — remember who got it so
+  // the automatic release email goes to the same people, then check straight away in case every
+  // invoice is already paid.
+  const billable = getLinkedBillableReport(file.id);
+  if (billable && report.status !== 'released' && billable.status !== 'released') {
+    db.prepare("UPDATE billable_reports SET status = 'draft_sent', notify_to = ?, notify_cc = ? WHERE id = ?")
+      .run(JSON.stringify(to), JSON.stringify(cc?.length ? cc : []), billable.id);
+    audit.log('billable_report', billable.id, 'updated', `Draft sent to ${to.join(', ')} — waiting for payment before release`);
+    releasePaidReportsInBackground([billable.id]);
+  }
   res.json({ ok: true });
 });
 
@@ -218,19 +213,17 @@ router.patch('/:id/report-visible-pages', auth, async (req, res) => {
   const report = db.prepare('SELECT * FROM client_file_reports WHERE client_file_id = ?').get(req.params.id);
   if (!report) return res.status(404).json({ error: 'Not found' });
   if (file.mime_type !== 'application/pdf') return res.status(400).json({ error: 'Visible pages only applies to PDF reports.' });
-  const visiblePages = Math.max(0, Math.min(10, parseInt(req.body.visible_pages, 10) || 0));
-
-  let previewBuffer;
+  let previewBuffer, visiblePages, pageCount;
   try {
     const original = fs.readFileSync(path.join(UPLOAD_DIR, file.filename));
-    previewBuffer = await generateReportPreview(original, visiblePages);
+    ({ buffer: previewBuffer, visiblePages, pageCount } = await generateReportPreview(original, req.body.visible_pages));
   } catch (e) {
     console.error('Report preview regeneration failed:', e);
     return res.status(400).json({ error: 'Could not regenerate the preview for this report.' });
   }
   fs.writeFileSync(path.join(UPLOAD_DIR, report.preview_filename), previewBuffer);
 
-  db.prepare('UPDATE client_file_reports SET visible_pages = ? WHERE client_file_id = ?').run(visiblePages, req.params.id);
+  db.prepare('UPDATE client_file_reports SET visible_pages = ?, page_count = ? WHERE client_file_id = ?').run(visiblePages, pageCount, req.params.id);
   audit.log('client_file', file.id, 'updated', `Changed visible pages to ${visiblePages} for "${file.label || file.original_name}"`);
   res.json(db.prepare(`${FILE_WITH_REPORT_SELECT} WHERE cf.id = ?`).get(req.params.id));
 });
@@ -238,6 +231,7 @@ router.patch('/:id/report-visible-pages', auth, async (req, res) => {
 router.delete('/:id', auth, (req, res) => {
   const file = db.prepare('SELECT * FROM client_files WHERE id = ?').get(req.params.id);
   if (!file) return res.status(404).json({ error: 'Not found' });
+  if (getLinkedBillableReport(file.id)) return res.status(409).json({ error: LINKED_REPORT_MSG });
   const report = db.prepare('SELECT * FROM client_file_reports WHERE client_file_id = ?').get(req.params.id);
   if (report) { try { fs.unlinkSync(path.join(UPLOAD_DIR, report.preview_filename)); } catch {} }
   try { fs.unlinkSync(path.join(UPLOAD_DIR, file.filename)); } catch {}

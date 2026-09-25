@@ -62,8 +62,10 @@ export default function ReportNotifyModal({ client, file, onClose, onSent }) {
   const templateCode = isReleased ? 'report_released' : 'report_shared_draft';
 
   useEffect(() => {
-    api.get('/templates?type=email').then(r => {
-      const tpl = (r.data || []).find(t => t.code === templateCode);
+    // /templates needs the settings permission, which practitioners don't have — fall back to the
+    // built-in wording rather than leaving the subject and message blank.
+    const fill = templates => {
+      const tpl = templates.find(t => t.code === templateCode);
       const reportTitle = file.label || file.original_name;
       const vars = {
         client_name: `${client?.first_name || ''} ${client?.last_name || ''}`.trim(),
@@ -77,10 +79,11 @@ export default function ReportNotifyModal({ client, file, onClose, onSent }) {
         ? `<p>Hi {{client_first_name}},</p><p>Your <strong>${reportTitle}</strong> is now finalised and ready to download using the link below.</p><p><a href="{{report_link}}">{{report_link}}</a></p><p>Regards,<br>{{practitioner_name}}</p>`
         : `<p>Hi {{client_first_name}},</p><p>A draft of your <strong>${reportTitle}</strong> is ready for you to look over. You can preview it using the link below — this is a preview version, and the same link will automatically show the finished report once it's released.</p><p><a href="{{report_link}}">{{report_link}}</a></p><p>Regards,<br>{{practitioner_name}}</p>`;
       const plain = (tpl?.body || fallbackBody)
-        .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<[^>]+>/g, '').trim();
+        .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n').replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim();
       setSubject(substituteVars(tpl?.subject || fallbackSubject, vars));
       setBody(substituteVars(plain, vars));
-    });
+    };
+    api.get('/templates?type=email').then(r => fill(r.data || [])).catch(() => fill([]));
   }, []);
 
   const send = async () => {

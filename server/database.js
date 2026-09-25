@@ -1288,4 +1288,42 @@ try {
   `).run();
 } catch {}
 
+// Page count of a shared PDF, stored when its preview is generated, so the "pages shown in full"
+// choice can be capped at what the document actually has. NULL for images and for shares made
+// before this existed (filled in the next time their visible pages are edited).
+try { db.exec(`ALTER TABLE client_file_reports ADD COLUMN page_count INTEGER`); } catch {}
+
+// Report billing — a report the practitioner bills progressively while writing it. Each "log
+// hours" entry is a real completed appointment (appointments.billable_report_id) so the existing
+// MYOB export, TBSALE invoice linking, invoice-status sync and budget spend all handle it with no
+// special cases; this table only holds what's report-level. Named billable_reports because
+// client_reports is already taken by the old, unmounted clinical-report-writer tables above.
+// status: in_progress → uploaded (file attached, client not yet emailed) → draft_sent (client has
+// the blurred preview link) → released. notify_to/notify_cc (JSON arrays) remember who the draft
+// email went to, so the automatic release email goes to the same people.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS billable_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    practitioner_id INTEGER NOT NULL REFERENCES practitioners(id),
+    funding_period_id INTEGER REFERENCES funding_periods(id),
+    service_id INTEGER NOT NULL REFERENCES services(id),
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'in_progress',
+    client_file_id INTEGER REFERENCES client_files(id) ON DELETE SET NULL,
+    notify_to TEXT,
+    notify_cc TEXT,
+    released_at TEXT,
+    created_by INTEGER REFERENCES practitioners(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec(`CREATE INDEX idx_billable_reports_client ON billable_reports(client_id)`); } catch {}
+try { db.exec(`ALTER TABLE appointments ADD COLUMN billable_report_id INTEGER REFERENCES billable_reports(id)`); } catch {}
+// Cumulative — "the report is now 80% done", not "this entry was 30% of it".
+try { db.exec(`ALTER TABLE appointments ADD COLUMN report_progress_pct INTEGER`); } catch {}
+try { db.exec(`CREATE INDEX idx_appointments_billable_report ON appointments(billable_report_id)`); } catch {}
+// Where each report billing entry's MYOB CSV is emailed. Comma-separated, may be several.
+try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('accounts_email', '')").run(); } catch {}
+
 module.exports = db;

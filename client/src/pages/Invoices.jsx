@@ -187,7 +187,10 @@ function ToSendTab({ mode }) {
                           {a.practitioner_name}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-600">{(a.items || []).map(i => i.service_name || i.description).join(', ') || '—'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600">
+                        {(a.items || []).map(i => i.service_name || i.description).join(', ') || '—'}
+                        {a.billable_report_id && <span className="ml-1.5"><Badge color="teal" title="Billed from the client's Reports tab">Report · {a.report_progress_pct}%</Badge></span>}
+                      </td>
                       <td className="px-4 py-3 text-sm text-gray-600">{dur}</td>
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">{currency(total)}</td>
                       <td className="px-4 py-3 text-sm text-gray-500">{a.funds_manager_name || <span className="text-gray-300">—</span>}</td>

@@ -237,6 +237,11 @@ export default function Settings() {
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
         <h2 className="font-semibold text-gray-900">Invoice Settings</h2>
 
+        <div className="space-y-1">
+          {field('Accounts email', 'accounts_email')}
+          <p className="text-xs text-gray-400">Report billing is emailed here as a MYOB import file the moment a practitioner logs hours on a report. Separate several addresses with commas.</p>
+        </div>
+
         <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-700">How does your practice manage invoices?</label>
           <div className="grid grid-cols-2 gap-3">

@@ -50,9 +50,12 @@ function computeSpend(clientId, startDate, endDate, disciplineId = null, { forBu
   // myob_amount_due: that's MYOB's outstanding balance on the whole invoice, so it drops to $0
   // once paid (a status sync would make every paid session vanish from its budget) and, while
   // unpaid, repeats the full invoice balance on every appointment sharing that invoice.
+  // A voided report billing entry (routes/billableReports.js) was exported but then credited back
+  // in MYOB, so it's no longer money billed anywhere — left out of every total, not just budgets.
   const exportedAppts = db.prepare(`
     SELECT a.id FROM appointments a
     WHERE a.client_id = ? AND a.myob_exported_at IS NOT NULL AND DATE(a.start_time) BETWEEN ? AND ? ${excludeFilterA}
+      AND NOT (a.billable_report_id IS NOT NULL AND a.status = 'cancelled')
   `).all(clientId, from, to);
   let exportedTotal = 0;
   for (const appt of exportedAppts) exportedTotal += computeAppointmentTotal(appt.id, disciplineId);

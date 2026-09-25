@@ -102,7 +102,7 @@ export default function SessionNoteEmailModal({ clientId, client, noteIds, notes
         note_count: (notes || []).length,
       };
       const plain = (tpl?.body || '<p>Hi {{recipient_name}},</p><p>Please find attached the session notes for {{client_name}} covering {{date_range}}.</p><p>Regards,<br>{{practitioner_name}}</p>')
-        .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n').replace(/<[^>]+>/g, '').trim();
+        .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n').replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim();
       setSubject(substituteVars(tpl?.subject || `Session notes for ${clientName}`, vars));
       setBody(substituteVars(plain, vars));
     });

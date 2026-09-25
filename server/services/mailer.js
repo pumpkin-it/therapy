@@ -108,6 +108,20 @@ function renderTemplate(text, vars) {
   return text.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
 }
 
+// The "email preview" popups (report notify, session notes) show the template as plain text in a
+// textarea so it's easy to edit, and send back exactly what was typed. Sent as-is into an HTML
+// email body, every line break collapses into one run-on paragraph — so rebuild the HTML here:
+// blank lines become paragraphs, single line breaks become <br>, and bare URLs become links.
+// Anything that already contains HTML tags (a template fallback) is passed through untouched.
+function plainTextToHtml(text) {
+  if (!text) return '';
+  if (/<(p|br|div|a|strong|table)\b/i.test(text)) return text;
+  const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return text.replace(/\r\n/g, '\n').trim().split(/\n{2,}/).map(para =>
+    `<p>${esc(para).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>').replace(/\n/g, '<br>')}</p>`
+  ).join('');
+}
+
 function getTemplate(code) {
   return db.prepare('SELECT * FROM templates WHERE code = ? AND active = 1').get(code);
 }
@@ -371,4 +385,4 @@ async function sendReminderEmail(toEmail, invoiceNumber, total, dueDate) {
   await graphSend({ to: toEmail, subject, html });
 }
 
-module.exports = { sendInvoiceEmail, sendAppointmentNotification, sendTestEmail, sendReminderEmail, sendSetPasswordEmail, graphSend, renderTemplate, getTemplate };
+module.exports = { sendInvoiceEmail, sendAppointmentNotification, sendTestEmail, sendReminderEmail, sendSetPasswordEmail, graphSend, renderTemplate, getTemplate, plainTextToHtml };

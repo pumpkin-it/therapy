@@ -4,6 +4,7 @@ const ExcelJS = require('exceljs');
 const db = require('../database');
 const auth = require('../middleware/auth');
 const audit = require('../services/audit');
+const { releasePaidReportsInBackground } = require('../services/reportRelease');
 const { roundQty, computeApptItemAmounts } = require('../lib/billing');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -174,6 +175,7 @@ router.post('/apply-tbsale', auth, (req, res) => {
     }
   });
   tx();
+  releasePaidReportsInBackground();
   res.json({ linked: links.length });
 });
 
@@ -236,6 +238,8 @@ router.post('/apply-status', auth, (req, res) => {
     }
   });
   tx();
+  // Any report whose last unpaid invoice just closed is released to the client right away.
+  releasePaidReportsInBackground();
   res.json({ invoicesUpdated: updates.length, appointmentsUpdated: apptsUpdated });
 });
 

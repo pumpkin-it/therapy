@@ -17,6 +17,7 @@ import { useSettings } from '../context/SettingsContext';
 import AgreementPricingTable from '../components/AgreementPricingTable';
 import SessionNoteEmailModal from '../components/SessionNoteEmailModal';
 import ReportNotifyModal from '../components/ReportNotifyModal';
+import ReportsTab from '../components/ReportsTab';
 import FormFillModal from '../components/FormFillModal';
 import EntityAuditLog from '../components/EntityAuditLog';
 import BudgetModal from '../components/BudgetModal';
@@ -1003,6 +1004,10 @@ const REPORT_STATUS_COLOR = { pending: 'bg-amber-100 text-amber-700', released: 
 const SHAREABLE_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
 
 // ─── Files tab ────────────────────────────────────────────────────────────────
+// Same cap the server applies when generating the preview: half the pages, rounded down, max 10.
+// report_page_count is NULL for shares made before page counts were stored — fall back to 10.
+const maxShownPages = pageCount => (pageCount == null ? 10 : Math.min(10, Math.floor(pageCount / 2)));
+
 function FilesTab({ clientId, client }) {
   const { timezone } = useSettings();
   const [view, setView] = useState('folder'); // 'folder' | 'shared' — shared flattens every shared file across all folders
@@ -1267,7 +1272,7 @@ function FilesTab({ clientId, client }) {
               <p className="text-xs text-gray-400 truncate">
                 {view === 'shared' && `in ${f.folder_name || 'Files (root)'} · `}
                 {f.label ? `${f.original_name} · ` : ''}{fmt(f.size)} · {fmtDateOnly(f.created_at, timezone)}
-                {f.report_status && f.mime_type === 'application/pdf' && ` · ${f.report_visible_pages || 0} page${f.report_visible_pages === 1 ? '' : 's'} shown in full`}
+                {f.report_status && f.mime_type === 'application/pdf' && ` · ${f.report_visible_pages || 0}${f.report_page_count ? ` of ${f.report_page_count}` : ''} page${(f.report_page_count || f.report_visible_pages) === 1 ? '' : 's'} shown in full`}
               </p>
             </div>
             {f.report_status && (
@@ -1288,7 +1293,9 @@ function FilesTab({ clientId, client }) {
               </Button>
             )}
             <button onClick={() => download(f.id)} className="text-indigo-500 hover:text-indigo-700 p-1"><Download className="h-4 w-4" /></button>
-            <button onClick={() => remove(f.id)} className="text-red-300 hover:text-red-500 p-1"><Trash2 className="h-4 w-4" /></button>
+            {!f.billable_report_id && (
+              <button onClick={() => remove(f.id)} className="text-red-300 hover:text-red-500 p-1"><Trash2 className="h-4 w-4" /></button>
+            )}
           </div>
 
           {f.report_status && (
@@ -1300,19 +1307,27 @@ function FilesTab({ clientId, client }) {
               {f.mime_type === 'application/pdf' && (
                 <Button size="sm" variant="ghost" onClick={() => startEditPages(f)}>Edit pages shown</Button>
               )}
-              <Button size="sm" variant={f.report_status === 'released' ? 'ghost' : 'secondary'} onClick={() => toggleReportStatus(f)}>
-                {f.report_status === 'released' ? 'Revert to draft' : 'Mark as released'}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => stopSharing(f)} className="ml-auto text-gray-400">Stop sharing</Button>
+              {f.billable_report_id ? (
+                // Held back until its invoices are paid — released from the Reports tab, not here.
+                <span className="ml-auto text-xs text-gray-400">Billed report · released from the Reports tab once paid</span>
+              ) : (
+                <>
+                  <Button size="sm" variant={f.report_status === 'released' ? 'ghost' : 'secondary'} onClick={() => toggleReportStatus(f)}>
+                    {f.report_status === 'released' ? 'Revert to draft' : 'Mark as released'}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => stopSharing(f)} className="ml-auto text-gray-400">Stop sharing</Button>
+                </>
+              )}
             </div>
           )}
 
           {editingPagesId === f.id && (
             <div className="flex items-center gap-2 rounded-lg bg-gray-50 border border-gray-200 p-2">
               <label className="text-xs font-medium text-gray-600">Pages to show in full</label>
-              <input type="number" min={0} max={10} value={editVisiblePages}
-                onChange={e => setEditVisiblePages(Math.max(0, Math.min(10, parseInt(e.target.value, 10) || 0)))}
+              <input type="number" min={0} max={maxShownPages(f.report_page_count)} value={editVisiblePages}
+                onChange={e => setEditVisiblePages(Math.max(0, Math.min(maxShownPages(f.report_page_count), parseInt(e.target.value, 10) || 0)))}
                 className="w-20 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+              {f.report_page_count && <span className="text-xs text-gray-500">of {f.report_page_count} (up to {maxShownPages(f.report_page_count)})</span>}
               <Button size="sm" variant="ghost" onClick={() => setEditingPagesId(null)}>Cancel</Button>
               <Button size="sm" onClick={() => saveVisiblePages(f)} disabled={savingPages}>{savingPages ? 'Saving…' : 'Save'}</Button>
             </div>
@@ -2082,7 +2097,7 @@ export default function ClientDetail() {
 
   const TABS = [
     ['details', 'Details'], ['funding', 'Funding'], ['medical', 'Medical'],
-    ['notes', 'Session Notes'], ['agreements', 'Agreements'], ['forms', 'Forms'], ['billing', 'Billing'], ['files', 'Files'], ['calendar', 'Calendar'], ['history', 'History'],
+    ['notes', 'Session Notes'], ['agreements', 'Agreements'], ['forms', 'Forms'], ['billing', 'Billing'], ['reports', 'Reports'], ['files', 'Files'], ['calendar', 'Calendar'], ['history', 'History'],
   ];
 
   return (
@@ -2237,6 +2252,7 @@ export default function ClientDetail() {
         {tab === 'agreements' && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to create agreements.</p> : <AgreementsTab clientId={id} />)}
         {tab === 'forms'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to fill in forms.</p> : <FormsTab clientId={id} client={client} />)}
         {tab === 'billing'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view billing.</p> : <BillingSummaryTab clientId={id} />)}
+        {tab === 'reports'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to start a report.</p> : <ReportsTab clientId={id} client={client} />)}
         {tab === 'files'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to upload files.</p> : <FilesTab     clientId={id} client={client} />)}
         {tab === 'calendar'  && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view calendar.</p> : <EmbeddedCalendar clientId={id} />)}
         {tab === 'history'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view history.</p> : (
