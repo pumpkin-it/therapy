@@ -21,6 +21,7 @@ export const FIELD_GROUPS = [
     { key: 'funding_number', label: 'NDIS / funding number' },
     { key: 'plan_start', label: 'Plan start date' },
     { key: 'plan_end', label: 'Plan end date' },
+    { key: 'plan_dates', label: 'Plan dates (start – end)' },
   ] },
   { label: 'Practitioner', fields: [
     { key: 'practitioner_name', label: 'Practitioner name' },
@@ -35,6 +36,7 @@ export const FIELD_GROUPS = [
     { key: 'practice_phone', label: 'Practice phone' },
     { key: 'practice_email', label: 'Practice email' },
     { key: 'practice_abn', label: 'Practice ABN' },
+    { key: 'practice_contact', label: 'Practice contact line (name · phone · email)' },
   ] },
   { label: 'Report', fields: [
     { key: 'report_title', label: 'Report title' },

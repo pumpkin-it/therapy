@@ -422,6 +422,8 @@ function fieldValues({ c = {}, p = {}, fp = null, practice = {}, title = '', tod
     funding_number: fp?.client_identifier || c.ndis_number || '',
     plan_start: fmtDMY(realDate(fp?.start_date) || realDate(c.plan_start_date)),
     plan_end: fmtDMY(realDate(fp?.end_date) || realDate(c.plan_end_date)),
+    // "start – end"; the dash only when both dates are known.
+    plan_dates: [fmtDMY(realDate(fp?.start_date) || realDate(c.plan_start_date)), fmtDMY(realDate(fp?.end_date) || realDate(c.plan_end_date))].filter(Boolean).join(' – '),
     practitioner_name: [p.first_name, p.last_name].filter(Boolean).join(' '),
     practitioner_title: p.title || '',
     provider_number: p.provider_number || '',
@@ -432,6 +434,8 @@ function fieldValues({ c = {}, p = {}, fp = null, practice = {}, title = '', tod
     practice_phone: practice.practice_phone || '',
     practice_email: practice.practice_email || '',
     practice_abn: practice.practice_abn || '',
+    // Name · phone · email with blanks left out, so there are no stray separators.
+    practice_contact: [practice.practice_name, practice.practice_phone, practice.practice_email].filter(Boolean).join(' · '),
     report_title: title,
     today: fmtDMY(today),
   };

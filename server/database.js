@@ -1383,13 +1383,13 @@ try {
         row('Client name', [field('client_name')]),
         row('Date of birth', [field('client_dob')]),
         row('NDIS number', [field('funding_number')]),
-        row('Plan dates', [field('plan_start'), text(' – '), field('plan_end')]),
+        row('Plan dates', [field('plan_dates')]),
         row('Report date', [field('today')]),
         row('Prepared by', [field('practitioner_name')]),
         row('Position', [field('practitioner_title')]),
         row('Provider number', [field('provider_number')]),
       ] },
-      para([field('practice_name'), text(' · '), field('practice_phone'), text(' · '), field('practice_email')], 'center'),
+      para([field('practice_contact')], 'center'),
       { type: 'pageBreak' },
       h(2, 'Background'), para(),
       h(2, 'Assessment'), para(),
@@ -1413,6 +1413,24 @@ try {
     db.prepare('UPDATE report_doc_templates SET content = ? WHERE id = ?').run(t.content.split(oldRow).join(newRows), t.id);
   }
 } catch (e) { console.error('Updating report template failed:', e.message); }
+// The first seed's contact line was "name · phone · email" typed around three fields — stray
+// separators when the phone or email isn't set. Swap in the practice_contact field (which leaves
+// blanks out), only where that line is still exactly as seeded.
+try {
+  const text = t => ({ type: 'text', text: t });
+  const field = key => ({ type: 'clientField', attrs: { key } });
+  const para = (content, textAlign) => ({ type: 'paragraph', attrs: { textAlign }, content });
+  const oldLine = JSON.stringify(para([field('practice_name'), text(' · '), field('practice_phone'), text(' · '), field('practice_email')], 'center'));
+  const newLine = JSON.stringify(para([field('practice_contact')], 'center'));
+  // Same for "Plan dates: start – end" — a lone dash when the funding period has no dates.
+  const oldDates = JSON.stringify([field('plan_start'), text(' – '), field('plan_end')]);
+  const newDates = JSON.stringify([field('plan_dates')]);
+  for (const [from, to] of [[oldLine, newLine], [oldDates, newDates]]) {
+    for (const t of db.prepare('SELECT id, content FROM report_doc_templates WHERE instr(content, ?) > 0').all(from)) {
+      db.prepare('UPDATE report_doc_templates SET content = ? WHERE id = ?').run(t.content.split(from).join(to), t.id);
+    }
+  }
+} catch (e) { console.error('Updating report template contact line failed:', e.message); }
 // Committed versions of written reports. Committing freezes the text AND the field values
 // (client name, DOB, …) as they were at that moment, makes the PDF (stored as a client file) and
 // locks the report; unlocking to revise records who, when and why on the version being revised.
