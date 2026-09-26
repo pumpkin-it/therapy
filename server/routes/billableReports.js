@@ -315,14 +315,20 @@ router.post('/:id/entries/:apptId/void', auth, (req, res) => {
 // replaces (which stays in the client's Files), and puts the report back to "client not emailed
 // yet" — the client needs the new link. Used by both a manual upload and committing a written
 // version. Throws ShareError for anything the user should see.
+// The client keeps ONE link for the life of the report: a new version takes over the previous
+// version's link (view_token), so the link in an earlier email always shows the latest committed
+// version — blurred draft or, once released, the full report — instead of going dead.
 async function attachReportFile(report, file, visiblePages, how) {
   await createReportShare(file, visiblePages);
-  if (report.client_file_id) {
+  if (report.client_file_id && report.client_file_id !== file.id) {
     const old = db.prepare('SELECT * FROM client_file_reports WHERE client_file_id = ?').get(report.client_file_id);
     if (old) {
       try { fs.unlinkSync(path.join(UPLOAD_DIR, old.preview_filename)); } catch {}
-      db.prepare('DELETE FROM client_file_reports WHERE client_file_id = ?').run(report.client_file_id);
-      audit.log('client_file', report.client_file_id, 'updated', `Stopped sharing — replaced by a newer version of report "${report.title}"`);
+      db.transaction(() => {
+        db.prepare('DELETE FROM client_file_reports WHERE client_file_id = ?').run(report.client_file_id);
+        db.prepare('UPDATE client_file_reports SET view_token = ? WHERE client_file_id = ?').run(old.view_token, file.id);
+      })();
+      audit.log('client_file', report.client_file_id, 'updated', `Replaced by a newer version of report "${report.title}" — the client's link now shows the new version`);
     }
   }
   // A revision of a report already released goes back to a blurred draft until it's released

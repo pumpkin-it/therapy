@@ -235,7 +235,8 @@ export default function ReportEditor() {
     const { data } = await api.post(`/billable-reports/${reportId}/commit`, { base_revision: revisionRef.current, visible_pages: visiblePages });
     for (const c of readAllLocal(reportId)) removeKey(c.key);
     dirtyRef.current = false;
-    // Straight to the report card with the draft email open — the client needs the new link.
+    // Straight to the report card with the draft email open — the client's link (the same one for
+    // every version) now shows this version.
     navigate(`/clients/${clientId}?tab=reports&notify=${reportId}&committed=${data.version}`);
   };
 
@@ -377,7 +378,7 @@ function CommitModal({ nextVersion, pages, revising, defaultShown, onClose, onCo
         <ul className="list-disc space-y-1 pl-5">
           <li>make the PDF (about {pages} page{pages === 1 ? '' : 's'}) with a footer of client name, report title and page numbers;</li>
           <li>freeze the client details shown in the report as they are now;</li>
-          <li>{revising ? 'replace the client’s link with this version as a blurred draft — it releases again once all invoices for the report are paid;' : 'share it with the client as a blurred draft — it’s released once all invoices for the report are paid;'}</li>
+          <li>{revising ? 'show this version at the client’s existing link, as a blurred draft — links already sent keep working, and it releases again once all invoices for the report are paid;' : 'share it with the client as a blurred draft — it’s released once all invoices for the report are paid;'}</li>
           <li>lock the report. You or an admin can unlock it later to make changes (with a reason).</li>
         </ul>
         <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2">
@@ -387,7 +388,7 @@ function CommitModal({ nextVersion, pages, revising, defaultShown, onClose, onCo
             className="w-16 rounded border border-gray-300 px-2 py-1" />
           <span className="text-xs text-gray-500">of about {pages} — up to {maxShown} (half)</span>
         </div>
-        <p>Next you’ll be asked to email the draft link to the client.</p>
+        <p>{revising ? 'Next you can let the client know there’s a revised version (optional — their link already shows it).' : 'Next you’ll be asked to email the draft link to the client.'}</p>
         {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-red-700">{error}</p>}
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" size="sm" onClick={onClose} disabled={busy}>Cancel</Button>
