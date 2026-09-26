@@ -201,7 +201,7 @@ export default function Reports() {
       </div>
 
       <p className="text-xs text-gray-400">
-        $ Booked is projected from scheduled appointments in range; $ Invoiced is based on each session's date, not when the invoice was issued — so a late invoice for an August session still counts toward August.
+        $ Booked is projected from scheduled appointments in range. $ Invoiced is work on an invoice created here or exported to MYOB (including report hours), counted once and by each session's date, not when it was invoiced — so a late invoice for an August session still counts toward August.
         {showTargetCols && ' % of target compares $ Booked against each practitioner’s target, prorated to the selected date range.'}
       </p>
     </div>

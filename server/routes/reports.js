@@ -38,7 +38,7 @@ function queryBooked({ from, to, practitionerIds, clientIds, serviceIds }) {
   where += inClause('ai.service_id', serviceIds, params);
 
   return db.prepare(`
-    SELECT ai.quantity, ai.unit_rate, ai.billed_quantity, ai.billed_unit_rate, ai.billed_travel_rate, ai.billed_notes_rate, ai.billed_km_rate, ai.travel_time_to, ai.travel_time_from, ai.travel_km, ai.notes_min,
+    SELECT ai.id AS item_id, a.myob_exported_at, ai.quantity, ai.unit_rate, ai.billed_quantity, ai.billed_unit_rate, ai.billed_travel_rate, ai.billed_notes_rate, ai.billed_km_rate, ai.travel_time_to, ai.travel_time_from, ai.travel_km, ai.notes_min,
       a.practitioner_id, a.client_id, a.status, a.late_cancel_billable, a.late_cancel_pct,
       ai.service_id, s.name AS service_name,
       sr.travel_rate_per_hour, sr.km_rate, sr.notes_rate
@@ -75,6 +75,15 @@ function queryInvoiced({ from, to, practitionerIds, clientIds, serviceIds }) {
   `).all(...params);
 }
 
+// Appointment items already on an in-system invoice (not voided), whatever that invoice's date —
+// so work that was both invoiced here and exported to MYOB is only counted once.
+function invoicedItemIds() {
+  return new Set(db.prepare(`
+    SELECT DISTINCT ii.appointment_item_id AS id FROM invoice_items ii JOIN invoices i ON i.id = ii.invoice_id
+    WHERE i.status != 'void' AND ii.appointment_item_id IS NOT NULL
+  `).all().map(r => r.id));
+}
+
 function bucketKey(groupBy, row) {
   if (groupBy === 'client') return row.client_id ?? 'unassigned';
   if (groupBy === 'service') return row.service_id ?? 'unassigned';
@@ -88,30 +97,40 @@ function buildReport({ from, to, practitionerIds, clientIds, serviceIds, groupBy
   const buckets = {};
   const get = key => (buckets[key] ??= { key, hours: 0, travelMin: 0, km: 0, notesMin: 0, booked: 0, invoiced: 0 });
 
+  // $ Invoiced counts each piece of work by what actually happened to it, not by the practice's
+  // current invoicing mode (a practice can switch between the two part-way through): on an
+  // in-system invoice (queryInvoiced, at the invoice's own amounts) OR exported to MYOB — an
+  // appointment export file, or a report entry's emailed file — at the value below, which is the
+  // same one invoices would be generated at. Work on both is counted once, as the invoice.
+  const onInvoice = invoicedItemIds();
+
   for (const r of bookedRows) {
     const bucket = get(bucketKey(groupBy, r));
+    let value = 0;
     if (r.status === 'cancelled' && r.late_cancel_billable && r.late_cancel_pct) {
       // Session bills as a percentage fee (no real session happened); travel/km/notes below
       // still count and bill in full — they reflect real activity already incurred (e.g. the
       // practitioner already drove to the client's home before the cancellation).
-      bucket.booked += roundQty(r.quantity) * r.unit_rate * (r.late_cancel_pct / 100);
+      value += roundQty(r.quantity) * r.unit_rate * (r.late_cancel_pct / 100);
     } else {
       bucket.hours += r.quantity;
-      bucket.booked += roundQty(r.billed_quantity ?? r.quantity) * (r.billed_unit_rate ?? r.unit_rate);
+      value += roundQty(r.billed_quantity ?? r.quantity) * (r.billed_unit_rate ?? r.unit_rate);
     }
     const travelMin = (r.travel_time_to || 0) + (r.travel_time_from || 0);
     if (travelMin) {
       bucket.travelMin += travelMin;
-      bucket.booked += roundQty(travelMin / 60) * (r.billed_travel_rate ?? r.travel_rate_per_hour ?? r.unit_rate);
+      value += roundQty(travelMin / 60) * (r.billed_travel_rate ?? r.travel_rate_per_hour ?? r.unit_rate);
     }
     if (r.travel_km && r.km_rate) {
       bucket.km += r.travel_km;
-      bucket.booked += roundQty(r.travel_km) * (r.billed_km_rate ?? r.km_rate);
+      value += roundQty(r.travel_km) * (r.billed_km_rate ?? r.km_rate);
     }
     if (r.notes_min) {
       bucket.notesMin += r.notes_min;
-      bucket.booked += roundQty(r.notes_min / 60) * (r.billed_notes_rate ?? r.notes_rate ?? r.unit_rate);
+      value += roundQty(r.notes_min / 60) * (r.billed_notes_rate ?? r.notes_rate ?? r.unit_rate);
     }
+    bucket.booked += value;
+    if (r.myob_exported_at && !onInvoice.has(r.item_id)) bucket.invoiced += value;
   }
 
   for (const r of invoicedRows) {
