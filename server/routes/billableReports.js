@@ -10,6 +10,9 @@ const { roundQty, computeAppointmentTotal } = require('../lib/billing');
 const { buildAppointmentsMyobCsv, markAppointmentsExported } = require('../lib/myobExport');
 const { createReportShare, ShareError, SHAREABLE_MIME_TYPES, UPLOAD_DIR } = require('../services/reportShare');
 const { getReportInstalments, releaseBlocker, releaseReport, releasePaidReportsInBackground } = require('../services/reportRelease');
+const { acceptImage, discardUpload } = require('./reportImages');
+const { renderReportPdf } = require('../services/docPdf');
+const crypto = require('crypto');
 
 // Report billing: a practitioner bills a report in chunks as they write it ("5 hrs today, the
 // report is now 50% done"). Each chunk is a real completed appointment linked by
@@ -107,6 +110,11 @@ function reportWithDetails(report) {
     total_hours: live.reduce((s, e) => s + (e.hours || 0), 0),
     total_amount: live.reduce((s, e) => s + e.amount, 0),
     release_blocker: report.status === 'released' ? null : releaseBlocker(report.id),
+    versions: getVersions(report.id),
+    draft: db.prepare(`
+      SELECT d.revision, d.word_count, d.updated_at, p.first_name || ' ' || p.last_name AS updated_by_name
+      FROM report_drafts d LEFT JOIN practitioners p ON p.id = d.updated_by WHERE d.billable_report_id = ?
+    `).get(report.id) || null,
   };
 }
 
@@ -150,16 +158,26 @@ router.get('/', auth, (req, res) => {
 });
 
 router.post('/', auth, (req, res) => {
-  const { client_id, funding_period_id, service_id, title } = req.body;
+  const { client_id, funding_period_id, service_id, title, template_id } = req.body;
   if (!client_id || !service_id || !title?.trim()) return res.status(400).json({ error: 'Client, service and title are required' });
   if (!funding_period_id) return res.status(400).json({ error: 'Choose which funding this report is billed to' });
   // Practitioners always create reports as themselves; owner/admin can raise one for anyone.
   const practitionerId = isAdmin(req.user) && req.body.practitioner_id ? Number(req.body.practitioner_id) : req.user.id;
-  const r = db.prepare(`
-    INSERT INTO billable_reports (client_id, practitioner_id, funding_period_id, service_id, title, created_by)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(client_id, practitionerId, funding_period_id, service_id, title.trim(), req.user.id);
-  audit.log('billable_report', r.lastInsertRowid, 'created', `Started report "${title.trim()}"`);
+  const template = template_id ? db.prepare('SELECT * FROM report_doc_templates WHERE id = ? AND active = 1').get(template_id) : null;
+  if (template_id && !template) return res.status(400).json({ error: 'That report template is no longer available.' });
+  const r = db.transaction(() => {
+    const ins = db.prepare(`
+      INSERT INTO billable_reports (client_id, practitioner_id, funding_period_id, service_id, title, created_by, template_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(client_id, practitionerId, funding_period_id, service_id, title.trim(), req.user.id, template?.id || null);
+    // The report gets its own copy of the template — later template changes never alter it.
+    if (template) {
+      db.prepare('INSERT INTO report_drafts (billable_report_id, content, revision, word_count, updated_by, updated_at) VALUES (?, ?, 1, 0, ?, ?)')
+        .run(ins.lastInsertRowid, template.content, req.user.id, new Date().toISOString());
+    }
+    return ins;
+  })();
+  audit.log('billable_report', r.lastInsertRowid, 'created', `Started report "${title.trim()}"${template ? ` from template "${template.name}"` : ''}`);
   res.status(201).json(reportWithDetails(getReport(r.lastInsertRowid)));
 });
 
@@ -182,7 +200,7 @@ router.delete('/:id', auth, (req, res) => {
   if (!canManage(req.user, report)) return res.status(403).json({ error: 'You can only delete your own reports' });
   const count = db.prepare('SELECT COUNT(*) AS c FROM appointments WHERE billable_report_id = ?').get(report.id).c;
   if (count) return res.status(409).json({ error: 'This report already has billed hours, so it can’t be deleted.' });
-  db.prepare('DELETE FROM billable_reports WHERE id = ?').run(report.id);
+  db.prepare('DELETE FROM billable_reports WHERE id = ?').run(report.id); // drafts/history cascade
   audit.log('billable_report', report.id, 'deleted', `Deleted report "${report.title}"`);
   res.status(204).send();
 });
@@ -293,6 +311,26 @@ router.post('/:id/entries/:apptId/void', auth, (req, res) => {
 // Uploads the finished report into the client's Files and shares it as a blurred draft. Replacing
 // an earlier upload keeps the old file in Files but stops sharing it, so the client's new link is
 // the only live one. The client isn't emailed here — the practitioner reviews that email first.
+// Makes `file` the report's current file: shares it as a blurred draft, stops sharing the file it
+// replaces (which stays in the client's Files), and puts the report back to "client not emailed
+// yet" — the client needs the new link. Used by both a manual upload and committing a written
+// version. Throws ShareError for anything the user should see.
+async function attachReportFile(report, file, visiblePages, how) {
+  await createReportShare(file, visiblePages);
+  if (report.client_file_id) {
+    const old = db.prepare('SELECT * FROM client_file_reports WHERE client_file_id = ?').get(report.client_file_id);
+    if (old) {
+      try { fs.unlinkSync(path.join(UPLOAD_DIR, old.preview_filename)); } catch {}
+      db.prepare('DELETE FROM client_file_reports WHERE client_file_id = ?').run(report.client_file_id);
+      audit.log('client_file', report.client_file_id, 'updated', `Stopped sharing — replaced by a newer version of report "${report.title}"`);
+    }
+  }
+  // A revision of a report already released goes back to a blurred draft until it's released
+  // again (decided 2026-09-25) — the same state as any new file.
+  db.prepare("UPDATE billable_reports SET client_file_id = ?, status = 'uploaded', released_at = NULL WHERE id = ?").run(file.id, report.id);
+  audit.log('billable_report', report.id, 'updated', how);
+}
+
 router.post('/:id/upload', auth, (req, res, next) => {
   upload.single('file')(req, res, err => {
     if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') return res.status(400).json({ error: 'File is too large — the maximum upload size is 20MB.' });
@@ -315,7 +353,7 @@ router.post('/:id/upload', auth, (req, res, next) => {
   const file = db.prepare('SELECT * FROM client_files WHERE id = ?').get(ins.lastInsertRowid);
   try {
     // Same 0–10 "pages shown in full" choice as sharing from the Files tab; defaults to 1.
-    await createReportShare(file, req.body.visible_pages ?? 1);
+    await attachReportFile(report, file, req.body.visible_pages ?? 1, `${report.client_file_id ? 'Replaced' : 'Uploaded'} the report file`);
   } catch (e) {
     db.prepare('DELETE FROM client_files WHERE id = ?').run(file.id);
     cleanup();
@@ -323,18 +361,6 @@ router.post('/:id/upload', auth, (req, res, next) => {
     throw e;
   }
   audit.log('client_file', file.id, 'uploaded', `Uploaded "${req.file.originalname}" for report "${report.title}" and shared as a draft`);
-
-  if (report.client_file_id) {
-    const old = db.prepare('SELECT * FROM client_file_reports WHERE client_file_id = ?').get(report.client_file_id);
-    if (old) {
-      try { fs.unlinkSync(path.join(UPLOAD_DIR, old.preview_filename)); } catch {}
-      db.prepare('DELETE FROM client_file_reports WHERE client_file_id = ?').run(report.client_file_id);
-      audit.log('client_file', report.client_file_id, 'updated', `Stopped sharing — replaced by a newer upload for report "${report.title}"`);
-    }
-  }
-  // A replacement needs the client told about the new link again, so it goes back to 'uploaded'.
-  db.prepare("UPDATE billable_reports SET client_file_id = ?, status = 'uploaded' WHERE id = ?").run(file.id, report.id);
-  audit.log('billable_report', report.id, 'updated', `${report.client_file_id ? 'Replaced' : 'Uploaded'} the report file`);
   res.status(201).json(reportWithDetails(getReport(report.id)));
 });
 
@@ -346,6 +372,268 @@ router.post('/:id/release', auth, async (req, res) => {
   if (report.status === 'released') return res.status(400).json({ error: 'Already released.' });
   const who = db.prepare('SELECT first_name, last_name FROM practitioners WHERE id = ?').get(req.user.id);
   await releaseReport(report.id, { manualBy: who ? `${who.first_name} ${who.last_name}` : `user ${req.user.id}` });
+  res.json(reportWithDetails(getReport(report.id)));
+});
+
+// ─── Writing the report in the system (prototype) ───────────────────────────────────────────
+// The editor (client/src/pages/ReportEditor.jsx) autosaves the whole document as TipTap JSON.
+// Commit/lock, versions and PDF generation come later; for now this is the working draft only.
+
+const SNAPSHOT_EVERY_MS = 10 * 60 * 1000;
+const SNAPSHOTS_KEPT = 30;
+// Written reports are locked once committed; unlocking (author or owner/admin, with a reason) is
+// what re-opens them — including a report already released, whose revision goes back to a
+// blurred draft when it's committed again.
+const canEditDraft = (user, report) => canManage(user, report) && !report.doc_locked;
+const fmtDMY = d => (d ? String(d).slice(0, 10).split('-').reverse().join('/') : '');
+
+// Values for the "Insert client field" menu. The document stores only the field key; these are
+// shown live while drafting and will be frozen into the document when it's committed.
+// Funding periods use 1111-01-01 / 9999-09-09 as "no start/end date" placeholders — never show those.
+const realDate = d => (d && /^\d{4}-\d{2}-\d{2}/.test(d) && d.slice(0, 4) > '1900' && d.slice(0, 4) < '2100' ? d : null);
+function ageOn(dob, today) {
+  if (!realDate(dob)) return '';
+  const [y, m, d] = dob.slice(0, 10).split('-').map(Number);
+  const [ty, tm, td] = today.split('-').map(Number);
+  return String(ty - y - (tm < m || (tm === m && td < d) ? 1 : 0));
+}
+function reportFields(report) {
+  const c = db.prepare('SELECT * FROM clients WHERE id = ?').get(report.client_id) || {};
+  const p = db.prepare('SELECT first_name, last_name, title, provider_number, email, phone FROM practitioners WHERE id = ?').get(report.practitioner_id) || {};
+  const fp = report.funding_period_id ? db.prepare('SELECT funding_type, client_identifier, start_date, end_date FROM funding_periods WHERE id = ?').get(report.funding_period_id) : null;
+  const practice = Object.fromEntries(db.prepare(
+    "SELECT key, value FROM settings WHERE key IN ('practice_name','practice_address','practice_phone','practice_email','practice_abn')"
+  ).all().map(r => [r.key, r.value]));
+  const today = localToday();
+  return fieldValues({ c, p, fp, practice, title: report.title, today });
+}
+// The keys here must match CLIENT_FIELDS in client/src/components/reportEditor/extensions.jsx.
+function fieldValues({ c = {}, p = {}, fp = null, practice = {}, title = '', today }) {
+  return {
+    client_name: [c.first_name, c.last_name].filter(Boolean).join(' '),
+    client_first_name: c.first_name || '',
+    client_last_name: c.last_name || '',
+    client_dob: fmtDMY(realDate(c.date_of_birth)),
+    client_age: ageOn(c.date_of_birth, today),
+    client_address: c.address || '',
+    client_phone: c.phone || '',
+    client_email: c.email || '',
+    funding_type: fp?.funding_type || '',
+    funding_number: fp?.client_identifier || c.ndis_number || '',
+    plan_start: fmtDMY(realDate(fp?.start_date) || realDate(c.plan_start_date)),
+    plan_end: fmtDMY(realDate(fp?.end_date) || realDate(c.plan_end_date)),
+    practitioner_name: [p.first_name, p.last_name].filter(Boolean).join(' '),
+    practitioner_title: p.title || '',
+    provider_number: p.provider_number || '',
+    practitioner_email: p.email || '',
+    practitioner_phone: p.phone || '',
+    practice_name: practice.practice_name || '',
+    practice_address: practice.practice_address || '',
+    practice_phone: practice.practice_phone || '',
+    practice_email: practice.practice_email || '',
+    practice_abn: practice.practice_abn || '',
+    report_title: title,
+    today: fmtDMY(today),
+  };
+}
+
+function getDraft(reportId) {
+  return db.prepare(`
+    SELECT d.*, p.first_name || ' ' || p.last_name AS updated_by_name
+    FROM report_drafts d LEFT JOIN practitioners p ON p.id = d.updated_by WHERE d.billable_report_id = ?
+  `).get(reportId);
+}
+
+router.get('/:id/draft', auth, (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+  const d = getDraft(report.id);
+  const client = db.prepare('SELECT first_name, last_name FROM clients WHERE id = ?').get(report.client_id);
+  res.json({
+    report: { id: report.id, title: report.title, status: report.status, client_id: report.client_id,
+      client_name: client ? `${client.first_name} ${client.last_name}` : '' },
+    content: d ? JSON.parse(d.content) : null,
+    revision: d?.revision || 0,
+    word_count: d?.word_count || 0,
+    updated_at: d?.updated_at || null,
+    updated_by_name: d?.updated_by_name || null,
+    fields: reportFields(report),
+    can_edit: canEditDraft(req.user, report),
+    locked: !!report.doc_locked,
+    can_unlock: !!report.doc_locked && canManage(req.user, report),
+    can_commit: !report.doc_locked && canManage(req.user, report),
+    visible_pages: report.client_file_id
+      ? db.prepare('SELECT visible_pages FROM client_file_reports WHERE client_file_id = ?').get(report.client_file_id)?.visible_pages ?? null
+      : null,
+    versions: getVersions(report.id),
+  });
+});
+
+router.put('/:id/draft', auth, (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+  if (!canEditDraft(req.user, report)) {
+    return res.status(403).json({ error: report.doc_locked ? 'This report is committed and locked. Unlock it to make changes.' : 'You can only write your own reports.' });
+  }
+  const { content, base_revision, word_count } = req.body;
+  if (!content || content.type !== 'doc' || !Array.isArray(content.content)) return res.status(400).json({ error: 'Invalid document' });
+  const json = JSON.stringify(content);
+  const now = new Date().toISOString();
+
+  const result = db.transaction(() => {
+    const current = getDraft(report.id);
+    // Saved elsewhere since this editor loaded — refuse rather than overwrite the other copy.
+    if (current && current.revision !== Number(base_revision)) return { conflict: current };
+    const revision = (current?.revision || 0) + 1;
+    db.prepare(`
+      INSERT INTO report_drafts (billable_report_id, content, revision, word_count, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(billable_report_id) DO UPDATE SET content = excluded.content, revision = excluded.revision,
+        word_count = excluded.word_count, updated_by = excluded.updated_by, updated_at = excluded.updated_at
+    `).run(report.id, json, revision, Number(word_count) || 0, req.user.id, now);
+    const last = db.prepare('SELECT saved_at FROM report_draft_snapshots WHERE billable_report_id = ? ORDER BY saved_at DESC LIMIT 1').get(report.id);
+    // force_snapshot: the editor sends it just before restoring an older snapshot, so the text
+    // being replaced is itself kept in the history and the restore can be undone.
+    if (req.body.force_snapshot || !last || Date.parse(now) - Date.parse(last.saved_at) >= SNAPSHOT_EVERY_MS) {
+      db.prepare('INSERT INTO report_draft_snapshots (billable_report_id, content, revision, word_count, saved_by, saved_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(report.id, json, revision, Number(word_count) || 0, req.user.id, now);
+      db.prepare(`DELETE FROM report_draft_snapshots WHERE billable_report_id = ? AND id NOT IN (
+        SELECT id FROM report_draft_snapshots WHERE billable_report_id = ? ORDER BY saved_at DESC LIMIT ?)`).run(report.id, report.id, SNAPSHOTS_KEPT);
+    }
+    return { revision, first: !current };
+  })();
+
+  if (result.conflict) {
+    return res.status(409).json({
+      error: 'This report was saved from another window or device since you opened it.',
+      revision: result.conflict.revision, updated_at: result.conflict.updated_at, updated_by_name: result.conflict.updated_by_name,
+    });
+  }
+  if (result.first) audit.log('billable_report', report.id, 'updated', `Started writing report "${report.title}" in the system`);
+  res.json({ revision: result.revision, updated_at: now });
+});
+
+router.get('/:id/draft/snapshots', auth, (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+  res.json(db.prepare(`
+    SELECT s.id, s.revision, s.word_count, s.saved_at, p.first_name || ' ' || p.last_name AS saved_by_name
+    FROM report_draft_snapshots s LEFT JOIN practitioners p ON p.id = s.saved_by
+    WHERE s.billable_report_id = ? ORDER BY s.saved_at DESC
+  `).all(report.id));
+});
+
+router.get('/:id/draft/snapshots/:sid', auth, (req, res) => {
+  const snap = db.prepare('SELECT * FROM report_draft_snapshots WHERE id = ? AND billable_report_id = ?').get(req.params.sid, req.params.id);
+  if (!snap) return res.status(404).json({ error: 'Not found' });
+  res.json({ ...snap, content: JSON.parse(snap.content) });
+});
+
+router.post('/:id/images', auth, acceptImage, (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) { discardUpload(req); return res.status(404).json({ error: 'Not found' }); }
+  if (!canEditDraft(req.user, report)) { discardUpload(req); return res.status(403).json({ error: 'You can’t edit this report.' }); }
+  if (!req.file) return res.status(400).json({ error: 'Upload a PNG, JPG, GIF or WebP image.' });
+  res.status(201).json({ url: `/api/report-images/${req.file.filename}` });
+});
+
+// ─── Commit, lock and versions ─────────────────────────────────────────────────────────────
+function getVersions(reportId) {
+  return db.prepare(`
+    SELECT v.id, v.version, v.word_count, v.page_count, v.client_file_id, v.committed_at, v.unlocked_at, v.unlock_reason,
+      cp.first_name || ' ' || cp.last_name AS committed_by_name, up.first_name || ' ' || up.last_name AS unlocked_by_name
+    FROM report_versions v
+    LEFT JOIN practitioners cp ON cp.id = v.committed_by
+    LEFT JOIN practitioners up ON up.id = v.unlocked_by
+    WHERE v.billable_report_id = ? ORDER BY v.version DESC
+  `).all(reportId);
+}
+
+router.get('/:id/versions', auth, (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+  res.json(getVersions(report.id));
+});
+
+// One committed version exactly as it was frozen — its text and its field values — for comparing.
+router.get('/:id/versions/:version', auth, (req, res) => {
+  const v = db.prepare('SELECT version, content, fields, committed_at FROM report_versions WHERE billable_report_id = ? AND version = ?').get(req.params.id, req.params.version);
+  if (!v) return res.status(404).json({ error: 'Not found' });
+  res.json({ version: v.version, committed_at: v.committed_at, content: JSON.parse(v.content), fields: JSON.parse(v.fields) });
+});
+
+// Commits exactly what's on screen: the editor saves first and sends the revision it saved, and a
+// mismatch (saved elsewhere since) is refused rather than committing something the author hasn't
+// seen. Field values (client name, DOB, …) are frozen into the version, so later profile changes
+// never alter a committed report.
+router.post('/:id/commit', auth, async (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+  if (!canManage(req.user, report)) return res.status(403).json({ error: 'You can only commit your own reports' });
+  if (report.doc_locked) return res.status(409).json({ error: 'This report is already committed.' });
+  const draft = getDraft(report.id);
+  if (!draft) return res.status(400).json({ error: 'Nothing has been written yet.' });
+  if (Number(req.body.base_revision) !== draft.revision) {
+    return res.status(409).json({ error: 'The report changed since this window last saved (possibly in another window). Reload and check it before committing.' });
+  }
+  const doc = JSON.parse(draft.content);
+  const fields = reportFields(report);
+  const client = db.prepare('SELECT first_name, last_name FROM clients WHERE id = ?').get(report.client_id);
+  const version = (db.prepare('SELECT MAX(version) AS v FROM report_versions WHERE billable_report_id = ?').get(report.id).v || 0) + 1;
+
+  let pdf;
+  try {
+    pdf = await renderReportPdf({ doc, fields, footer: { clientName: `${client.first_name} ${client.last_name}`, title: report.title } });
+  } catch (e) {
+    console.error('Report PDF failed:', e);
+    return res.status(500).json({ error: 'The PDF couldn’t be made — nothing was committed. Try again in a minute.' });
+  }
+  const { PDFDocument } = require('pdf-lib');
+  const pageCount = (await PDFDocument.load(pdf)).getPageCount();
+
+  const filename = `${crypto.randomBytes(16).toString('hex')}.pdf`;
+  fs.writeFileSync(path.join(UPLOAD_DIR, filename), pdf);
+  const safeTitle = report.title.replace(/[\\/:*?"<>|]+/g, '-');
+  const ins = db.prepare(`
+    INSERT INTO client_files (client_id, filename, original_name, size, mime_type, label)
+    VALUES (?, ?, ?, ?, 'application/pdf', ?)
+  `).run(report.client_id, filename, `${safeTitle} v${version}.pdf`, pdf.length, `${report.title} (version ${version})`);
+  const file = db.prepare('SELECT * FROM client_files WHERE id = ?').get(ins.lastInsertRowid);
+
+  // Pages shown in full: chosen in the commit dialog, else what the previous version used, else 1
+  // (capped at half the pages when the preview is made — reportRedact.js).
+  const prevPages = report.client_file_id
+    ? db.prepare('SELECT visible_pages FROM client_file_reports WHERE client_file_id = ?').get(report.client_file_id)?.visible_pages
+    : null;
+  const visiblePages = req.body.visible_pages ?? prevPages ?? 1;
+  try {
+    await attachReportFile(report, file, visiblePages, `Committed version ${version} (${pageCount} pages)`);
+  } catch (e) {
+    db.prepare('DELETE FROM client_files WHERE id = ?').run(file.id);
+    try { fs.unlinkSync(path.join(UPLOAD_DIR, filename)); } catch {}
+    if (e instanceof ShareError) return res.status(e.status).json({ error: e.message });
+    throw e;
+  }
+  db.prepare(`INSERT INTO report_versions (billable_report_id, version, content, fields, word_count, page_count, client_file_id, committed_by, committed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(report.id, version, draft.content, JSON.stringify(fields), draft.word_count || 0, pageCount, file.id, req.user.id, new Date().toISOString());
+  db.prepare('UPDATE billable_reports SET doc_locked = 1 WHERE id = ?').run(report.id);
+  audit.log('client_file', file.id, 'uploaded', `Version ${version} of report "${report.title}" made from the written report and shared as a draft`);
+  res.status(201).json({ report: reportWithDetails(getReport(report.id)), version, page_count: pageCount });
+});
+
+router.post('/:id/unlock', auth, (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+  // The author, or an owner/admin.
+  if (!canManage(req.user, report)) return res.status(403).json({ error: 'Only the report’s author or an admin can unlock it' });
+  if (!report.doc_locked) return res.status(409).json({ error: 'This report isn’t locked.' });
+  const reason = req.body.reason?.trim();
+  if (!reason) return res.status(400).json({ error: 'Enter why the report is being unlocked' });
+  const latest = db.prepare('SELECT id, version FROM report_versions WHERE billable_report_id = ? ORDER BY version DESC LIMIT 1').get(report.id);
+  db.prepare('UPDATE billable_reports SET doc_locked = 0 WHERE id = ?').run(report.id);
+  if (latest) db.prepare('UPDATE report_versions SET unlocked_by = ?, unlocked_at = ?, unlock_reason = ? WHERE id = ?').run(req.user.id, new Date().toISOString(), reason, latest.id);
+  audit.log('billable_report', report.id, 'updated', `Unlocked version ${latest?.version ?? '?'} of "${report.title}" to revise it: ${reason}`);
   res.json(reportWithDetails(getReport(report.id)));
 });
 

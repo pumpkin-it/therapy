@@ -1,6 +1,8 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useParams, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SettingsProvider } from './context/SettingsContext';
+import { ConfirmProvider } from './components/ui/ConfirmDialog';
 import Sidebar from './components/layout/Sidebar';
 import UatWatermark from './components/layout/UatWatermark';
 import { isUAT } from './lib/env';
@@ -16,6 +18,9 @@ import Services from './pages/Services';
 import ServiceDetail from './pages/ServiceDetail';
 import Invoices from './pages/Invoices';
 import Reports from './pages/Reports';
+// The report editor pulls in TipTap/ProseMirror — loaded only when someone opens it.
+const ReportEditor = lazy(() => import('./pages/ReportEditor'));
+const ReportTemplateEditor = lazy(() => import('./pages/ReportTemplateEditor'));
 import Settings from './pages/Settings';
 import FundingTypeRates from './pages/FundingTypeRates';
 import AuditLog from './pages/AuditLog';
@@ -89,6 +94,7 @@ function AuthenticatedApp() {
   }
 
   const p = user.permissions || {};
+  const isAdmin = ['owner', 'admin'].includes(user.role);
 
   return (
     <div className={`flex h-screen overflow-hidden ${isUAT ? 'bg-purple-50/50' : 'bg-gray-50'}`}>
@@ -99,6 +105,9 @@ function AuthenticatedApp() {
           {p.calendar && <Route path="/appointments/:id" element={<AppointmentRedirect />} />}
           {p.clients && <Route path="/clients" element={<Clients />} />}
           {p.clients && <Route path="/clients/:id" element={<ClientDetail />} />}
+          {isAdmin && <Route path="/report-templates" element={<Navigate to="/templates" state={{ tab: 'reports' }} replace />} />}
+          {isAdmin && <Route path="/report-templates/:id" element={<Suspense fallback={<div className="p-6 text-sm text-gray-400">Loading editor…</div>}><ReportTemplateEditor /></Suspense>} />}
+          {p.clients && <Route path="/clients/:id/reports/:reportId/write" element={<Suspense fallback={<div className="p-6 text-sm text-gray-400">Loading editor…</div>}><ReportEditor /></Suspense>} />}
           {p.users && <Route path="/practitioners" element={<Practitioners />} />}
           {p.funds_managers && <Route path="/funds-managers" element={<FundsManagers />} />}
           {p.locations && <Route path="/locations" element={<Locations />} />}
@@ -108,7 +117,7 @@ function AuthenticatedApp() {
           {p.calendar && <Route path="/recurring-series/:id" element={<RecurringSeriesDetail />} />}
           {p.invoices && <Route path="/invoices" element={<Invoices />} />}
           {p.reports && <Route path="/reports" element={<Reports />} />}
-          {p.settings && <Route path="/templates" element={<Templates />} />}
+          {(p.settings || isAdmin) && <Route path="/templates" element={<Templates />} />}
           {p.settings && <Route path="/templates/forms/:id" element={<FormBuilder />} />}
           <Route path="/audit-log" element={<AuditLog />} />
           {p.settings && <Route path="/settings" element={<Settings />} />}
@@ -124,11 +133,13 @@ export default function App() {
   return (
     <BrowserRouter>
       <UatWatermark />
-      <AuthProvider>
-        <SettingsProvider>
-          <AuthenticatedApp />
-        </SettingsProvider>
-      </AuthProvider>
+      <ConfirmProvider>
+        <AuthProvider>
+          <SettingsProvider>
+            <AuthenticatedApp />
+          </SettingsProvider>
+        </AuthProvider>
+      </ConfirmProvider>
     </BrowserRouter>
   );
 }

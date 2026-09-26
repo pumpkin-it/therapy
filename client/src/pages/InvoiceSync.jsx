@@ -4,6 +4,7 @@ import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import { currency, fmtDate } from '../lib/utils';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 
 const STATUS_ICON = {
   matched: <CheckCircle2 className="h-4 w-4 text-green-600" />,
@@ -12,6 +13,7 @@ const STATUS_ICON = {
 };
 
 function LinkInvoicesSection() {
+  const confirm = useConfirm();
   const [preview, setPreview] = useState(null);
   const [choices, setChoices] = useState({}); // key: `${invoiceNo}|${cardId}|${detailDate}` -> Set of appointmentIds
   const [loading, setLoading] = useState(false);
@@ -37,7 +39,7 @@ function LinkInvoicesSection() {
       }
       setChoices(initial);
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to read file');
+      confirm({ title: 'Couldn’t read the file', message: err.response?.data?.error || 'Failed to read file', alert: true });
     } finally {
       setLoading(false);
       e.target.value = '';
@@ -150,6 +152,7 @@ function LinkInvoicesSection() {
 }
 
 function StatusUpdateSection() {
+  const confirm = useConfirm();
   const [rows, setRows] = useState(null);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -165,7 +168,7 @@ function StatusUpdateSection() {
       const { data } = await api.post('/myob-sync/preview-status', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       setRows(data.rows);
     } catch (err) {
-      alert(err.response?.data?.error || 'Failed to read file');
+      confirm({ title: 'Couldn’t read the file', message: err.response?.data?.error || 'Failed to read file', alert: true });
     } finally {
       setLoading(false);
       e.target.value = '';

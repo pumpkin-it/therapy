@@ -14,7 +14,9 @@ const nav = [
   { to: '/services',        label: 'Services',   icon: Layers,       perm: 'services' },
   { to: '/invoices',        label: 'Invoices',   icon: FileText,     perm: 'invoices' },
   { to: '/reports',         label: 'Reports',    icon: BarChart3,    perm: 'reports' },
-  { to: '/templates',        label: 'Templates',  icon: ClipboardList, perm: 'settings' },
+  // Owners/admins always see Templates (for its Report Templates tab); the other tabs still need
+  // the Settings permission (see pages/Templates.jsx).
+  { to: '/templates',        label: 'Templates',  icon: ClipboardList, perm: 'settings', orRoles: ['owner', 'admin'] },
   { to: '/audit-log',       label: 'Audit Log',  icon: ScrollText,   perm: null },
   { to: '/settings',        label: 'Settings',   icon: Settings,     perm: 'settings' },
 ];
@@ -23,7 +25,7 @@ export default function Sidebar() {
   const { user, logout } = useAuth();
   const perms = user?.permissions || {};
 
-  const visibleNav = nav.filter(n => !n.perm || perms[n.perm]);
+  const visibleNav = nav.filter(n => !n.perm || perms[n.perm] || n.orRoles?.includes(user?.role));
 
   return (
     <aside className={cn(

@@ -126,8 +126,8 @@ export default function FormFillModal({ clientId, client, formTemplate, response
       )}
 
       {error && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+        <Modal title="Please check" size="sm" onClose={() => setError('')}>
+          <div className="space-y-4">
             <div className="flex items-start gap-3">
               <TriangleAlert className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
               <p className="text-sm text-gray-700">{error}</p>
@@ -136,7 +136,7 @@ export default function FormFillModal({ clientId, client, formTemplate, response
               <Button size="sm" onClick={() => setError('')}>OK</Button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </Modal>
   );

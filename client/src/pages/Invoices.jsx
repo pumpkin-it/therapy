@@ -9,6 +9,7 @@ import InvoiceSync from './InvoiceSync';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
 import { currency, fmtDate, localToday, downloadFile, roundQty } from '../lib/utils';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 
 const STATUS_COLOR = { draft:'gray', sent:'blue', paid:'green', void:'gray' };
 
@@ -259,6 +260,7 @@ function ToSendTab({ mode }) {
 
 // ─── Invoice list tab (sent / paid) ──────────────────────────────────────────
 function InvoiceListTab({ status, emptyMsg }) {
+  const confirm = useConfirm();
   const [invoices, setInvoices] = useState([]);
   const [sending, setSending] = useState(null);
   const [selected, setSelected] = useState([]);
@@ -282,7 +284,7 @@ function InvoiceListTab({ status, emptyMsg }) {
       await api.post(`/invoices/${id}/send`);
       load();
     } catch (e) {
-      alert(e.response?.data?.error || 'Failed to send');
+      confirm({ title: 'Couldn’t send', message: e.response?.data?.error || 'Failed to send', alert: true });
     } finally { setSending(null); }
   };
 
@@ -292,7 +294,7 @@ function InvoiceListTab({ status, emptyMsg }) {
   };
 
   const voidInv = async id => {
-    if (!confirm('Void this invoice? The appointment will become available for re-invoicing.')) return;
+    if (!await confirm({ title: 'Void invoice', message: 'Void this invoice? The appointment will become available for re-invoicing.', confirmLabel: 'Void invoice', danger: true })) return;
     await api.patch(`/invoices/${id}/void`);
     load();
   };

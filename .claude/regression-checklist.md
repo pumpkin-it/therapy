@@ -178,6 +178,28 @@ arrived with a MYOB CSV whose line note reads "Report: <title> — 50% complete"
 report with no "Mark as released"/delete controls, and that the client link shows the blurred
 draft. Void the entry (admin/finance) and delete the QA report data afterwards.
 
+## 12. Report writing and report templates (UAT only until released)
+Added 2026-09-25. Report templates (sidebar, owner/admin) → open "Standard report" → fields show
+as green labels, logo shows, Save stays greyed until something changes. Client → Reports → Start
+report with a template → Continue writing → every field on the cover page shows the client's real
+values (missing ones in amber), the footer shows words · pages, and "Saved <time>" appears a few
+seconds after typing stops. **Insert field mid-sentence and keep typing** — the typed text must
+land AFTER the inserted field (found broken 2026-09-25: the field menu stole focus). History opens
+and lists saved copies. Page guides ("Page 2" etc.) appear when the text passes an A4 page.
+
+**Commit / lock / versions** (added 2026-09-26): click Commit → the dialog offers "pages shown in
+full" (max half the pages) → Commit → lands on the client's Reports tab with the draft email open
+(don't send unless asked). The card shows "version 1 committed, locked"; Files has "<title>
+(version 1)"; the client link shows the blurred draft. Open the report → "Locked" banner, no
+toolbar. Unlock to revise → a reason is required → edit → Commit again → version 2; the old
+version's link stops working and the new one is a blurred draft. History → version 2 → Changes
+shows the edit (added green/underlined, removed red/struck through); PDF buttons download each
+version.
+
+**Forms note (2026-09-25):** UAT's current form templates have no required fields and no folders
+(the LEFS form was lost in an earlier UAT data refresh), so item 8's "blocked with missing fields"
+and folder-picker checks can't be exercised on UAT until such a template exists there again.
+
 ---
 
 ## Standing rules for whoever runs this (human or agent)

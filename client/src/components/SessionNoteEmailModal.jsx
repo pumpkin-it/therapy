@@ -5,6 +5,7 @@ import { substituteVars } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import Button from './ui/Button';
+import Modal from './ui/Modal';
 
 // Mirrors server/routes/sessionNotes.js's sessionDateOf/dateRangeLabel exactly — this modal
 // pre-fills its own editable preview of the email body client-side (the user can tweak it before
@@ -123,12 +124,8 @@ export default function SessionNoteEmailModal({ clientId, client, noteIds, notes
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl p-6 max-w-lg w-full mx-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900">Email session notes</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="h-4 w-4" /></button>
-        </div>
+    <Modal title="Email session notes" onClose={onClose} size="lg">
+      <div className="space-y-4">
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
@@ -153,6 +150,6 @@ export default function SessionNoteEmailModal({ clientId, client, noteIds, notes
           <Button size="sm" onClick={send} disabled={sending || !to.length}>{sending ? 'Sending…' : 'Send'}</Button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

@@ -7,6 +7,7 @@ import Input from '../components/ui/Input';
 import DisciplinePicker from '../components/DisciplinePicker';
 import { EmbeddedCalendar } from '../components/CalendarViews';
 import { useAuth } from '../context/AuthContext';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 
 const ROLES = [
   { value: 'owner',        label: 'Owner',        desc: 'Full access' },
@@ -25,6 +26,7 @@ const ROLE_COLORS = {
 const EMPTY = { first_name: '', last_name: '', title: '', email: '', phone: '', color: '#6366f1', provider_number: '', role: 'practitioner', gender: '', discipline_id: '', password: '', target_amount: '', target_period: 'fortnightly', external_cal_url: '' };
 
 function UserModal({ user, onClose, onSaved }) {
+  const confirm = useConfirm();
   const { user: authUser } = useAuth();
   const isSelf = !!(user && authUser && Number(user.id) === Number(authUser.id));
   const [form, setForm] = useState(user || EMPTY);
@@ -60,7 +62,7 @@ function UserModal({ user, onClose, onSaved }) {
   // One click, takes effect immediately — clears the URL and the blocks sync wrote, rather than
   // making the user blank the field and separately hit Save.
   const removeCalendar = async () => {
-    if (!confirm("Remove this user's external calendar sync? Previously synced busy times will be cleared.")) return;
+    if (!await confirm({ title: 'Remove calendar sync', message: "Remove this user's external calendar sync? Previously synced busy times will be cleared.", confirmLabel: 'Remove', danger: true })) return;
     setRemovingCal(true);
     try {
       const { data } = await api.post(`/practitioners/${user.id}/remove-calendar`);
@@ -263,9 +265,8 @@ function UserModal({ user, onClose, onSaved }) {
       </div>
 
       {created && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
-            <h3 className="font-semibold text-gray-900">User created</h3>
+        <Modal title="User created" size="sm" onClose={onSaved}>
+          <div className="space-y-4">
             <p className="text-sm text-gray-600">{form.first_name} {form.last_name} has been added successfully.</p>
             {createdEmail?.sent && (
               <p className="text-sm text-green-600">✓ A set-password email was sent to {form.email}.</p>
@@ -275,7 +276,7 @@ function UserModal({ user, onClose, onSaved }) {
             )}
             <Button onClick={onSaved} className="w-full justify-center">Close</Button>
           </div>
-        </div>
+        </Modal>
       )}
     </Modal>
   );
@@ -372,8 +373,8 @@ export default function Users() {
                         <Link2 className="h-3.5 w-3.5 text-green-500" />
                       </Button>
                     )}
-                    <Button variant="ghost" size="sm" onClick={() => setModal(u)}>
-                      <Pencil className="h-3.5 w-3.5" />
+                    <Button variant="secondary" size="sm" onClick={() => setModal(u)}>
+                      <Pencil className="h-3.5 w-3.5" /> Edit
                     </Button>
                     <Button variant="ghost" size="sm" title={u.active ? 'Deactivate' : 'Reactivate'}
                       onClick={async () => { await api.patch(`/practitioners/${u.id}/active`, { active: !u.active }); load(); }}>

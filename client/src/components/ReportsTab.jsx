@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Upload, Clock, Mail, Unlock, Trash2, RotateCw, Ban, FileText, Download, Link2, Check } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Plus, Upload, Clock, Mail, Unlock, Trash2, RotateCw, Ban, FileText, Download, Link2, Check, PenLine, Lock } from 'lucide-react';
 import api from '../lib/api';
 import Button from './ui/Button';
 import Badge from './ui/Badge';
@@ -8,6 +9,7 @@ import Modal from './ui/Modal';
 import ReportNotifyModal from './ReportNotifyModal';
 import { useAuth } from '../context/AuthContext';
 import { currency, localToday, downloadFile } from '../lib/utils';
+import { useConfirm } from './ui/ConfirmDialog';
 
 // Client → Reports tab: bill a report in chunks while writing it, upload the finished copy, and
 // let the system hold it back (blurred draft) until every invoice for it is paid.
@@ -53,6 +55,8 @@ function NewReportModal({ clientId, onClose, onCreated }) {
   const [serviceId, setServiceId] = useState('');
   const [practitioners, setPractitioners] = useState([]);
   const [practitionerId, setPractitionerId] = useState(user?.id || '');
+  const [templates, setTemplates] = useState([]);
+  const [templateId, setTemplateId] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -66,6 +70,7 @@ function NewReportModal({ clientId, onClose, onCreated }) {
       else if (fps.length === 1) setFundingPeriodId(String(fps[0].id));
     }).catch(() => {});
     api.get('/funding-types').then(r => setFundingTypes(r.data || [])).catch(() => {});
+    api.get('/report-doc-templates').then(r => setTemplates(r.data || [])).catch(() => {});
     if (isAdmin(user)) api.get('/practitioners?role=practitioner').then(r => setPractitioners(r.data || [])).catch(() => {});
   }, []);
 
@@ -93,6 +98,7 @@ function NewReportModal({ clientId, onClose, onCreated }) {
       const { data } = await api.post('/billable-reports', {
         client_id: clientId, title: title.trim(), funding_period_id: Number(fundingPeriodId),
         service_id: Number(serviceId), practitioner_id: isAdmin(user) ? Number(practitionerId) || undefined : undefined,
+        template_id: templateId ? Number(templateId) : undefined,
       });
       onCreated(data);
     } catch (e) {
@@ -133,6 +139,17 @@ function NewReportModal({ clientId, onClose, onCreated }) {
             <option value="">Choose…</option>
             {services.map(s => <option key={s.service_id} value={s.service_id}>{s.service_name} — {currency(s.rate)}/{s.unit || 'hr'}</option>)}
           </select>
+        </div>
+        <div className="space-y-1">
+          <label className="block text-sm font-medium text-gray-700">Write it in the system using</label>
+          <select className={selectCls} value={templateId} onChange={e => setTemplateId(e.target.value)}>
+            <option value="">Blank page</option>
+            {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          {templateId && templates.find(t => String(t.id) === templateId)?.description && (
+            <p className="text-xs text-gray-500">{templates.find(t => String(t.id) === templateId).description}</p>
+          )}
+          <p className="text-xs text-gray-500">You can still upload a finished report file instead.</p>
         </div>
         <p className="text-xs text-gray-500">Nothing is billed yet. Use “Log hours” on the report each time you work on it.</p>
         <div className="flex justify-end gap-2">
@@ -250,10 +267,18 @@ function InvoiceNumberCell({ report, entry, onChanged }) {
   );
 }
 
-function ReportCard({ report, client, onChanged, onDeleted }) {
+function ReportCard({ report, client, onChanged, onDeleted, justCommitted }) {
+  const confirm = useConfirm();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [logging, setLogging] = useState(false);
   const [notifying, setNotifying] = useState(false);
+  // Arriving from the editor right after a commit: the client needs the new version's link.
+  useEffect(() => {
+    if (!justCommitted || !report.file) return;
+    setMessage({ type: 'ok', text: `Version ${justCommitted} committed and shared as a blurred draft. Email the client the link.` });
+    setNotifying(true);
+  }, [justCommitted]);
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(null); // { type: 'error'|'warn'|'ok', text }
   const fileRef = useRef();
@@ -329,26 +354,30 @@ function ReportCard({ report, client, onChanged, onDeleted }) {
     setMessage({ type: 'ok', text: `${entry.ref} emailed to accounts` });
   });
 
-  const voidEntry = entry => {
-    const reason = prompt(`Void ${entry.ref} (${entry.hours} hrs, ${currency(entry.amount)})?\n\nIf it's already invoiced in MYOB, raise a credit note there too. Reason:`);
-    if (!reason?.trim()) return;
+  const voidEntry = async entry => {
+    const reason = await confirm({ title: 'Void entry', message: `Void ${entry.ref} (${entry.hours} hrs, ${currency(entry.amount)})?\n\nIf it's already invoiced in MYOB, raise a credit note there too.`, input: { label: 'Reason', required: true, multiline: true }, confirmLabel: 'Void entry', danger: true });
+    if (!reason) return;
     act(`void-${entry.id}`, async () => {
       const { data } = await api.post(`/billable-reports/${report.id}/entries/${entry.id}/void`, { reason });
       onChanged(data);
     });
   };
 
-  const releaseNow = () => {
+  const releaseNow = async () => {
     const warn = report.release_blocker ? `\n\nNot ready yet: ${report.release_blocker}.` : '';
-    if (!confirm(`Release "${report.title}" to the client now?${warn}\n\nThe client's link will show the full report${report.notify_to.length ? ' and they will be emailed' : ''}.`)) return;
+    if (!await confirm({ title: 'Release report', message: `Release "${report.title}" to the client now?${warn}\n\nThe client's link will show the full report${report.notify_to.length ? ' and they will be emailed' : ''}.`, confirmLabel: 'Release' })) return;
     act('release', async () => {
       const { data } = await api.post(`/billable-reports/${report.id}/release`);
       onChanged(data);
     });
   };
 
-  const remove = () => {
-    if (!confirm(`Delete "${report.title}"? Nothing has been billed on it yet.`)) return;
+  const remove = async () => {
+    // A report started from a template (or written in) has a draft that goes with it.
+    const written = report.draft
+      ? `\n\nThe report written in the system${report.draft.word_count ? ` (${report.draft.word_count.toLocaleString()} words)` : ''} will be deleted too and can't be recovered.`
+      : '';
+    if (!await confirm({ title: 'Delete report', message: `Delete "${report.title}"? Nothing has been billed on it yet.${written}`, confirmLabel: 'Delete', danger: true })) return;
     act('delete', async () => { await api.delete(`/billable-reports/${report.id}`); onDeleted(report.id); });
   };
 
@@ -466,7 +495,31 @@ function ReportCard({ report, client, onChanged, onDeleted }) {
         </div>
       )}
 
+      {report.draft && (
+        <button onClick={() => navigate(`/clients/${report.client_id}/reports/${report.id}/write`)}
+          className="flex w-full items-center gap-3 rounded-lg bg-indigo-50/60 px-3 py-2 text-left text-sm hover:bg-indigo-50">
+          {report.doc_locked ? <Lock className="h-4 w-4 text-indigo-500 shrink-0" /> : <PenLine className="h-4 w-4 text-indigo-500 shrink-0" />}
+          <span className="flex-1 text-gray-800">
+            Written in the system · {(report.draft.word_count || 0).toLocaleString()} words
+            {report.versions?.[0] && (report.doc_locked
+              ? ` · version ${report.versions[0].version} committed, locked`
+              : ` · revising version ${report.versions[0].version}`)}
+          </span>
+          <span className="text-xs text-gray-500">
+            {report.doc_locked && report.versions?.[0]
+              ? `committed ${new Date(report.versions[0].committed_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}`
+              : `last saved ${new Date(report.draft.updated_at).toLocaleString('en-AU', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}${report.draft.updated_by_name ? ` by ${report.draft.updated_by_name}` : ''}`}
+          </span>
+        </button>
+      )}
+
       <div className="flex flex-wrap gap-2">
+        {/* A written report stays reachable after release — unlocking it there is how it's revised. */}
+        {mine && (report.draft || !released) && (
+          <Button size="sm" variant="secondary" onClick={() => navigate(`/clients/${report.client_id}/reports/${report.id}/write`)}>
+            <PenLine className="h-3.5 w-3.5" /> {report.doc_locked ? 'Open report' : report.draft ? 'Continue writing' : 'Write report'}
+          </Button>
+        )}
         {mine && !released && report.progress_pct < 100 && (
           <Button size="sm" onClick={() => setLogging(true)}><Clock className="h-3.5 w-3.5" /> Log hours</Button>
         )}
@@ -541,6 +594,16 @@ export default function ReportsTab({ clientId, client }) {
 
   const replace = updated => setReports(rs => rs.map(r => (r.id === updated.id ? updated : r)));
 
+  // ?notify=<report id>&committed=<version> — set by the editor after a commit.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const notifyId = Number(searchParams.get('notify')) || null;
+  const committedVersion = searchParams.get('committed');
+  useEffect(() => {
+    if (!notifyId || !reports) return;
+    const next = new URLSearchParams(searchParams); next.delete('notify'); next.delete('committed');
+    setSearchParams(next, { replace: true }); // don't reopen on refresh
+  }, [notifyId, reports]);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -552,7 +615,8 @@ export default function ReportsTab({ clientId, client }) {
       ) : reports.length === 0 ? (
         <p className="text-sm text-gray-400 py-8 text-center">No reports yet.</p>
       ) : (
-        reports.map(r => <ReportCard key={r.id} report={r} client={client} onChanged={replace} onDeleted={id => setReports(rs => rs.filter(x => x.id !== id))} />)
+        reports.map(r => <ReportCard key={r.id} report={r} client={client} onChanged={replace} onDeleted={id => setReports(rs => rs.filter(x => x.id !== id))}
+          justCommitted={r.id === notifyId ? committedVersion : null} />)
       )}
       {creating && (
         <NewReportModal clientId={clientId} onClose={() => setCreating(false)} onCreated={r => { setCreating(false); setReports(rs => [r, ...(rs || [])]); }} />

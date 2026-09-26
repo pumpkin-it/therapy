@@ -1,268 +1,101 @@
-import { useState, useEffect, useRef } from 'react';
-import { Plus, Pencil, Trash2, GripVertical, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Pencil, Copy, Trash2 } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
+import Badge from '../components/ui/Badge';
 import Input from '../components/ui/Input';
+import Modal from '../components/ui/Modal';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 
-const VARIABLES = [
-  { label: 'Client full name',   value: '{{client_name}}' },
-  { label: 'Client first name',  value: '{{client_first_name}}' },
-  { label: 'Client last name',   value: '{{client_last_name}}' },
-  { label: 'Date of birth',      value: '{{client_dob}}' },
-  { label: 'Client address',     value: '{{client_address}}' },
-  { label: 'Practitioner name',  value: '{{practitioner_name}}' },
-  { label: 'Today\'s date',      value: '{{date}}' },
-  { label: 'Practice name',      value: '{{practice_name}}' },
-];
+// Report templates for writing reports in the system (owner/admin). Each is written in the same
+// editor as a report; a report started from one gets its own copy (server/routes/reportDocTemplates.js).
+// (Replaces an earlier, never-routed ReportTemplates.jsx for the old clinical-report feature.)
 
-function VarChips({ onInsert }) {
-  return (
-    <div className="flex flex-wrap gap-1.5 pt-1">
-      <span className="text-xs text-gray-400 self-center mr-1">Insert variable:</span>
-      {VARIABLES.map(v => (
-        <button
-          key={v.value}
-          type="button"
-          onClick={() => onInsert(v.value)}
-          className="rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-100 font-mono transition-colors"
-          title={v.label}
-        >
-          {v.value}
-        </button>
-      ))}
-    </div>
-  );
-}
+const fmt = iso => (iso ? new Date(iso.endsWith('Z') ? iso : iso.replace(' ', 'T') + 'Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 
-function SectionEditor({ section, index, onChange, onRemove }) {
-  const contentRef = useRef();
+export default function ReportTemplates({ embedded = false }) {
+  const confirm = useConfirm();
+  const navigate = useNavigate();
+  const [templates, setTemplates] = useState(null);
+  const [creating, setCreating] = useState(null); // { copy_from, name }
+  const [error, setError] = useState('');
 
-  const insertVar = (varStr) => {
-    const el = contentRef.current;
-    if (!el) return;
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-    const newVal = section.content.slice(0, start) + varStr + section.content.slice(end);
-    onChange('content', newVal);
-    // restore cursor after variable
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(start + varStr.length, start + varStr.length);
-    });
-  };
-
-  return (
-    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-2">
-      <div className="flex gap-2 items-start">
-        <GripVertical className="h-4 w-4 mt-2 text-gray-300 shrink-0" />
-        <div className="flex-1 space-y-2">
-          <input
-            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            placeholder="Section title (e.g. Presenting Concerns)"
-            value={section.title}
-            onChange={e => onChange('title', e.target.value)}
-          />
-        </div>
-        <button onClick={onRemove} className="mt-1 text-gray-400 hover:text-red-500 shrink-0">
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div className="pl-6 space-y-2">
-        <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-500">
-            Static content <span className="font-normal text-gray-400">(pre-fills the report — can include variables)</span>
-          </label>
-          <textarea
-            ref={contentRef}
-            rows={4}
-            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm resize-y focus:border-indigo-500 focus:outline-none font-normal"
-            placeholder="Write the default wording for this section. Use variables like {{client_name}} to insert dynamic data."
-            value={section.content || ''}
-            onChange={e => onChange('content', e.target.value)}
-          />
-          <VarChips onInsert={insertVar} />
-        </div>
-
-        <div className="space-y-1">
-          <label className="block text-xs font-medium text-gray-500">
-            Guidance note <span className="font-normal text-gray-400">(shown as placeholder if content is empty)</span>
-          </label>
-          <input
-            className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-indigo-500 focus:outline-none"
-            placeholder="e.g. Describe the client's reason for referral…"
-            value={section.placeholder || ''}
-            onChange={e => onChange('placeholder', e.target.value)}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TemplateEditor({ template, onSave, onCancel }) {
-  const [name, setName] = useState(template?.name || '');
-  const [description, setDescription] = useState(template?.description || '');
-  const [sections, setSections] = useState(
-    template?.sections?.length
-      ? template.sections
-      : [{ title: '', placeholder: '', content: '' }]
-  );
-  const [saving, setSaving] = useState(false);
-
-  const addSection = () => setSections(s => [...s, { title: '', placeholder: '', content: '' }]);
-  const removeSection = i => setSections(s => s.filter((_, idx) => idx !== i));
-  const updateSection = (i, key, val) =>
-    setSections(s => s.map((sec, idx) => idx === i ? { ...sec, [key]: val } : sec));
-
-  const save = async () => {
-    if (!name.trim()) return;
-    setSaving(true);
-    try {
-      await onSave({ name: name.trim(), description: description.trim(), sections });
-    } finally { setSaving(false); }
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <Input label="Template name" value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Initial Assessment" />
-        <Input label="Description (optional)" value={description} onChange={e => setDescription(e.target.value)} placeholder="Brief description" />
-      </div>
-
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-gray-700">Sections</p>
-        {sections.map((sec, i) => (
-          <SectionEditor
-            key={i}
-            section={sec}
-            index={i}
-            onChange={(key, val) => updateSection(i, key, val)}
-            onRemove={() => removeSection(i)}
-          />
-        ))}
-        <button
-          onClick={addSection}
-          className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-700 font-medium"
-        >
-          <Plus className="h-3.5 w-3.5" /> Add section
-        </button>
-      </div>
-
-      <div className="flex gap-2 justify-end pt-2 border-t border-gray-100">
-        <Button variant="secondary" onClick={onCancel}>Cancel</Button>
-        <Button onClick={save} disabled={saving || !name.trim()}>
-          {saving ? 'Saving…' : 'Save template'}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-export default function ReportTemplates() {
-  const [templates, setTemplates] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(null);
-  const [deleting, setDeleting] = useState(null);
-
-  const load = () => {
-    setLoading(true);
-    api.get('/report-templates').then(r => setTemplates(r.data)).finally(() => setLoading(false));
-  };
-
+  const load = () => api.get('/report-doc-templates?all=1').then(r => setTemplates(r.data)).catch(() => setTemplates([]));
   useEffect(() => { load(); }, []);
 
-  const handleSave = async (data) => {
-    if (editing === 'new') {
-      await api.post('/report-templates', data);
-    } else {
-      await api.put(`/report-templates/${editing.id}`, data);
-    }
-    setEditing(null);
-    load();
+  const create = async () => {
+    setError('');
+    if (!creating.name?.trim()) return setError('Enter a template name');
+    try {
+      const { data } = await api.post('/report-doc-templates', { name: creating.name.trim(), description: creating.description, copy_from: creating.copy_from || undefined });
+      navigate(`/report-templates/${data.id}`);
+    } catch (e) { setError(e.response?.data?.error || 'Failed to create template'); }
   };
 
-  const handleDelete = async (id) => {
-    await api.delete(`/report-templates/${id}`);
-    setDeleting(null);
+  const toggle = async t => { await api.put(`/report-doc-templates/${t.id}`, { active: !t.active }); load(); };
+  const remove = async t => {
+    if (!await confirm({ title: 'Delete template', message: `Delete the template "${t.name}"? Reports already started from it keep their own copy.`, confirmLabel: 'Delete', danger: true })) return;
+    await api.delete(`/report-doc-templates/${t.id}`);
     load();
   };
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="max-w-4xl space-y-6">
+      <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-xl font-semibold text-gray-900">Report Templates</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Pre-structured templates for client assessment reports</p>
+          {!embedded && <h1 className="text-2xl font-semibold">Report templates</h1>}
+          <p className="text-sm text-gray-500">Starting points for reports written in the system. Therapists pick one (or a blank page) when they start a report.</p>
         </div>
-        {!editing && (
-          <Button onClick={() => setEditing('new')}>
-            <Plus className="h-4 w-4 mr-1" /> New template
-          </Button>
-        )}
+        <Button onClick={() => { setError(''); setCreating({ name: '', description: '', copy_from: '' }); }}><Plus className="h-4 w-4" /> New template</Button>
       </div>
 
-      {editing && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-          <h2 className="text-base font-semibold text-gray-900 mb-4">
-            {editing === 'new' ? 'New template' : `Edit: ${editing.name}`}
-          </h2>
-          <TemplateEditor
-            template={editing === 'new' ? null : editing}
-            onSave={handleSave}
-            onCancel={() => setEditing(null)}
-          />
-        </div>
-      )}
-
-      {loading ? (
-        <p className="text-sm text-gray-400">Loading…</p>
-      ) : templates.length === 0 && !editing ? (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-12 text-center">
-          <p className="text-sm text-gray-500">No templates yet. Create one to get started.</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {templates.map(t => (
-            <div key={t.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-gray-900">{t.name}</p>
-                  {t.description && <p className="text-sm text-gray-500 mt-0.5">{t.description}</p>}
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {t.sections.map((sec, i) => (
-                      <span key={i} className="inline-block rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600">
-                        {sec.title || `Section ${i + 1}`}
-                      </span>
-                    ))}
-                    {t.sections.length === 0 && <span className="text-xs text-gray-400">No sections</span>}
+      <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
+        {templates === null ? <p className="p-8 text-center text-sm text-gray-400">Loading…</p>
+          : !templates.length ? <p className="p-8 text-center text-sm text-gray-400">No templates yet.</p>
+          : (
+            <ul className="divide-y divide-gray-100">
+              {templates.map(t => (
+                <li key={t.id} className="flex items-center gap-4 px-5 py-3.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <button className="font-medium text-gray-900 hover:text-indigo-700" onClick={() => navigate(`/report-templates/${t.id}`)}>{t.name}</button>
+                      {!t.active && <Badge color="gray">Off</Badge>}
+                    </div>
+                    {t.description && <p className="truncate text-sm text-gray-500">{t.description}</p>}
+                    <p className="text-xs text-gray-400">Updated {fmt(t.updated_at)}{t.updated_by_name ? ` by ${t.updated_by_name}` : ''}</p>
                   </div>
-                </div>
-                <div className="flex gap-1 shrink-0">
-                  <button onClick={() => setEditing(t)} className="p-1.5 text-gray-400 hover:text-indigo-600 rounded">
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                  <button onClick={() => setDeleting(t)} className="p-1.5 text-gray-400 hover:text-red-500 rounded">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+                  <Button size="sm" variant="secondary" onClick={() => navigate(`/report-templates/${t.id}`)}><Pencil className="h-3.5 w-3.5" /> Edit</Button>
+                  <Button size="sm" variant="ghost" title="Make a copy" onClick={() => { setError(''); setCreating({ name: `${t.name} (copy)`, description: t.description || '', copy_from: t.id }); }}><Copy className="h-3.5 w-3.5" /></Button>
+                  <Button size="sm" variant="ghost" onClick={() => toggle(t)} title={t.active ? 'Hide from the template list when starting a report' : 'Show in the template list again'}>{t.active ? 'Turn off' : 'Turn on'}</Button>
+                  <button className="p-1 text-red-300 hover:text-red-500" title="Delete" onClick={() => remove(t)}><Trash2 className="h-4 w-4" /></button>
+                </li>
+              ))}
+            </ul>
+          )}
+      </div>
 
-      {deleting && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
-            <p className="font-semibold text-gray-900">Delete "{deleting.name}"?</p>
-            <p className="text-sm text-gray-500">This will hide the template from new reports. Existing reports are not affected.</p>
+      {creating && (
+        <Modal title={creating.copy_from ? 'Copy template' : 'New template'} onClose={() => setCreating(null)}>
+          <div className="space-y-4">
+            {error && <p className="text-sm text-red-600">{error}</p>}
+            <Input label="Name" value={creating.name} autoFocus onChange={e => setCreating(c => ({ ...c, name: e.target.value }))} placeholder="Functional capacity assessment" />
+            <Input label="Description (optional)" value={creating.description} onChange={e => setCreating(c => ({ ...c, description: e.target.value }))} placeholder="When to use this template" />
+            {!creating.copy_from && templates?.length > 0 && (
+              <div className="space-y-1">
+                <label className="block text-sm font-medium text-gray-700">Start from</label>
+                <select className="block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" value={creating.copy_from} onChange={e => setCreating(c => ({ ...c, copy_from: e.target.value }))}>
+                  <option value="">Blank page</option>
+                  {templates.map(t => <option key={t.id} value={t.id}>Copy of “{t.name}”</option>)}
+                </select>
+              </div>
+            )}
             <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => setDeleting(null)}>Cancel</Button>
-              <Button variant="danger" onClick={() => handleDelete(deleting.id)}>Delete</Button>
+              <Button variant="secondary" size="sm" onClick={() => setCreating(null)}>Cancel</Button>
+              <Button size="sm" onClick={create}>Create and edit</Button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

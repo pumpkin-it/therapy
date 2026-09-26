@@ -1323,6 +1323,118 @@ try { db.exec(`ALTER TABLE appointments ADD COLUMN billable_report_id INTEGER RE
 // Cumulative — "the report is now 80% done", not "this entry was 30% of it".
 try { db.exec(`ALTER TABLE appointments ADD COLUMN report_progress_pct INTEGER`); } catch {}
 try { db.exec(`CREATE INDEX idx_appointments_billable_report ON appointments(billable_report_id)`); } catch {}
+// In-system report writing (prototype, 2026-09-25). One working draft per report, saved whole by
+// the editor's autosave. `revision` goes up on every save; a save must name the revision it
+// started from, so two open copies can't silently overwrite each other. Snapshots are a rolling
+// history (at most one per 10 minutes, last 30 kept) to get back text that was deleted by mistake.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS report_drafts (
+    billable_report_id INTEGER PRIMARY KEY REFERENCES billable_reports(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    revision INTEGER NOT NULL DEFAULT 1,
+    word_count INTEGER,
+    updated_by INTEGER REFERENCES practitioners(id),
+    updated_at TEXT NOT NULL
+  )
+`); } catch {}
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS report_draft_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    billable_report_id INTEGER NOT NULL REFERENCES billable_reports(id) ON DELETE CASCADE,
+    content TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    word_count INTEGER,
+    saved_by INTEGER REFERENCES practitioners(id),
+    saved_at TEXT NOT NULL
+  )
+`); } catch {}
+try { db.exec(`CREATE INDEX idx_report_draft_snapshots_report ON report_draft_snapshots(billable_report_id, saved_at)`); } catch {}
+// Report templates for in-system writing (TipTap JSON, same format as report_drafts.content).
+// Named report_doc_templates because report_templates is the old, unmounted clinical-report table.
+// A new report started from a template gets a copy of its content as its first draft.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS report_doc_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    description TEXT,
+    content TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_by INTEGER REFERENCES practitioners(id),
+    updated_by INTEGER REFERENCES practitioners(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`); } catch {}
+try { db.exec(`ALTER TABLE billable_reports ADD COLUMN template_id INTEGER REFERENCES report_doc_templates(id)`); } catch {}
+// One starter template so there's something to pick (and copy) straight away.
+try {
+  if (!db.prepare('SELECT 1 FROM report_doc_templates LIMIT 1').get()) {
+    const text = t => ({ type: 'text', text: t });
+    const field = key => ({ type: 'clientField', attrs: { key } });
+    const para = (content = [], textAlign = null) => ({ type: 'paragraph', attrs: { textAlign }, content });
+    const cell = content => ({ type: 'tableCell', attrs: { colspan: 1, rowspan: 1, colwidth: null }, content: [para(content)] });
+    const row = (label, value) => ({ type: 'tableRow', content: [cell([{ ...text(label), marks: [{ type: 'bold' }] }]), cell(value)] });
+    const h = (level, t, textAlign = null) => ({ type: 'heading', attrs: { level, textAlign }, content: [text(t)] });
+    const doc = { type: 'doc', content: [
+      para([{ type: 'practiceLogo' }], 'center'),
+      { type: 'heading', attrs: { level: 1, textAlign: 'center' }, content: [field('report_title')] },
+      para([],'center'),
+      { type: 'table', content: [
+        row('Client name', [field('client_name')]),
+        row('Date of birth', [field('client_dob')]),
+        row('NDIS number', [field('funding_number')]),
+        row('Plan dates', [field('plan_start'), text(' – '), field('plan_end')]),
+        row('Report date', [field('today')]),
+        row('Prepared by', [field('practitioner_name')]),
+        row('Position', [field('practitioner_title')]),
+        row('Provider number', [field('provider_number')]),
+      ] },
+      para([field('practice_name'), text(' · '), field('practice_phone'), text(' · '), field('practice_email')], 'center'),
+      { type: 'pageBreak' },
+      h(2, 'Background'), para(),
+      h(2, 'Assessment'), para(),
+      h(2, 'Recommendations'), para(),
+    ] };
+    db.prepare('INSERT INTO report_doc_templates (name, description, content) VALUES (?, ?, ?)')
+      .run('Standard report', 'Cover page with logo, title and client details, then Background / Assessment / Recommendations.', JSON.stringify(doc));
+  }
+} catch (e) { console.error('Seeding report template failed:', e.message); }
+// The first seed had "Prepared by: <name>, <title>" — a stray comma when the practitioner has no
+// title. Split into its own Position row, only where that row is still exactly as seeded.
+try {
+  const text = t => ({ type: 'text', text: t });
+  const field = key => ({ type: 'clientField', attrs: { key } });
+  const para = content => ({ type: 'paragraph', attrs: { textAlign: null }, content });
+  const cell = content => ({ type: 'tableCell', attrs: { colspan: 1, rowspan: 1, colwidth: null }, content: [para(content)] });
+  const row = (label, value) => ({ type: 'tableRow', content: [cell([{ ...text(label), marks: [{ type: 'bold' }] }]), cell(value)] });
+  const oldRow = JSON.stringify(row('Prepared by', [field('practitioner_name'), text(', '), field('practitioner_title')]));
+  const newRows = JSON.stringify(row('Prepared by', [field('practitioner_name')])) + ',' + JSON.stringify(row('Position', [field('practitioner_title')]));
+  for (const t of db.prepare('SELECT id, content FROM report_doc_templates WHERE instr(content, ?) > 0').all(oldRow)) {
+    db.prepare('UPDATE report_doc_templates SET content = ? WHERE id = ?').run(t.content.split(oldRow).join(newRows), t.id);
+  }
+} catch (e) { console.error('Updating report template failed:', e.message); }
+// Committed versions of written reports. Committing freezes the text AND the field values
+// (client name, DOB, …) as they were at that moment, makes the PDF (stored as a client file) and
+// locks the report; unlocking to revise records who, when and why on the version being revised.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS report_versions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    billable_report_id INTEGER NOT NULL REFERENCES billable_reports(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    fields TEXT NOT NULL,
+    word_count INTEGER,
+    page_count INTEGER,
+    client_file_id INTEGER REFERENCES client_files(id) ON DELETE SET NULL,
+    committed_by INTEGER REFERENCES practitioners(id),
+    committed_at TEXT NOT NULL,
+    unlocked_by INTEGER REFERENCES practitioners(id),
+    unlocked_at TEXT,
+    unlock_reason TEXT,
+    UNIQUE (billable_report_id, version)
+  )
+`); } catch {}
+try { db.exec(`ALTER TABLE billable_reports ADD COLUMN doc_locked INTEGER NOT NULL DEFAULT 0`); } catch {}
 // Where each report billing entry's MYOB CSV is emailed. Comma-separated, may be several.
 try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('accounts_email', '')").run(); } catch {}
 

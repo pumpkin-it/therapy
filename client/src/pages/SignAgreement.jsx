@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 
 export default function SignAgreement() {
+  const confirm = useConfirm();
   const { token } = useParams();
   const [agreement, setAgreement] = useState(null);
   const [notFound, setNotFound] = useState(false);
@@ -24,7 +26,7 @@ export default function SignAgreement() {
   };
 
   const decline = async () => {
-    if (!confirm('Decline this agreement?')) return;
+    if (!await confirm({ title: 'Decline agreement', message: 'Decline this agreement?', confirmLabel: 'Decline', danger: true })) return;
     await api.post(`/sign/${token}/decline`);
     setResult('declined');
   };

@@ -5,6 +5,7 @@ import api from '../lib/api';
 import Button from '../components/ui/Button';
 import { SMART_FIELDS, CUSTOM_FIELD_CATEGORIES, fieldTypeMeta, makeField, makeSection } from '../lib/formFieldTypes';
 import { folderPaths } from '../lib/formFolders';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 
 function move(arr, index, dir) {
   const target = index + dir;
@@ -247,6 +248,7 @@ function Palette({ onAddSection, onAddField }) {
 
 // ─── Page ───────────────────────────────────────────────────────────────────
 export default function FormBuilder() {
+  const confirm = useConfirm();
   const { id } = useParams();
   const navigate = useNavigate();
   const isNew = id === 'new';
@@ -293,8 +295,8 @@ export default function FormBuilder() {
 
   const updateSection = (idx, updated) => setSections(prev => prev.map((s, i) => i === idx ? updated : s));
   const removeSection = idx => {
-    if (!confirm('Delete this section and all its fields?')) return;
-    setSections(prev => prev.filter((_, i) => i !== idx));
+    confirm({ title: 'Delete section', message: 'Delete this section and all its fields?', confirmLabel: 'Delete', danger: true })
+      .then(ok => ok && setSections(prev => prev.filter((_, i) => i !== idx)));
   };
   const duplicateSection = idx => {
     setSections(prev => {
@@ -308,7 +310,7 @@ export default function FormBuilder() {
   const allFields = sections.flatMap(s => s.fields);
 
   const save = async () => {
-    if (!name.trim()) return alert('Give this form a name first.');
+    if (!name.trim()) return confirm({ title: 'Name needed', message: 'Give this form a name first.', alert: true });
     setSaving(true);
     try {
       const payload = { name, folder: folder.trim(), schema: { sections } };
@@ -327,7 +329,7 @@ export default function FormBuilder() {
     <div className="max-w-6xl mx-auto space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold text-gray-900">{isNew ? 'New form template' : 'Edit form template'}</h1>
+          <h1 className="text-2xl font-semibold">{isNew ? 'New form template' : 'Edit form template'}</h1>
           <p className="text-sm text-gray-500">Not yet sendable — this builds the template only.</p>
         </div>
         <div className="flex gap-2">

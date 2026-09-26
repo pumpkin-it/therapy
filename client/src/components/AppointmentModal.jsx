@@ -10,6 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import SessionNoteEmailModal from './SessionNoteEmailModal';
 import DateTimeStepper from './DateTimeStepper';
 import RichEditor from './RichEditor';
+import { useConfirm } from './ui/ConfirmDialog';
 
 const EMPTY_ITEM = { service_id: '', description: '', quantity: 1, unit_rate: 0, travel_time_to: '', travel_time_from: '', travel_km: '', notes_min: '', item_notes: '' };
 
@@ -50,6 +51,7 @@ function fmtNextAppt(isoStr) {
 const noteDraftKey = appointmentId => `therapy:session-note-draft:appointment:${appointmentId}`;
 
 function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChanged }) {
+  const confirm = useConfirm();
   const { timezone } = useSettings();
   const { user } = useAuth();
   const [notes, setNotes] = useState([]);
@@ -144,7 +146,7 @@ function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChan
   };
 
   const removeFile = async (noteId, fileId) => {
-    if (!confirm('Delete this file?')) return;
+    if (!await confirm({ title: 'Delete file', message: 'Delete this file?', confirmLabel: 'Delete', danger: true })) return;
     await api.delete(`/session-note-files/${fileId}`);
     loadNoteFiles(noteId);
   };
@@ -226,7 +228,7 @@ function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChan
   };
 
   const saveEdit = async id => { await api.patch(`/session-notes/${id}`, { note: editText }); setEditingId(null); load(); };
-  const remove   = async id => { if (!confirm('Delete this note?')) return; await api.delete(`/session-notes/${id}`); load(); onNotesChanged?.(); };
+  const remove   = async id => { if (!await confirm({ title: 'Delete note', message: 'Delete this note?', confirmLabel: 'Delete', danger: true })) return; await api.delete(`/session-notes/${id}`); load(); onNotesChanged?.(); };
 
   return (
     <div className="space-y-3">
@@ -513,6 +515,7 @@ function BillingOverrideSummary({ item }) {
 // travel rate, KM rate and notes rate are each independently overridable; unedited fields fall
 // back to the item's normal rate resolution (see resolveOriginalRates).
 function BillingAdjustmentTab({ items, appointmentId, seriesId, scopedServices, canEdit, onUpdated }) {
+  const confirm = useConfirm();
   const [drafts, setDrafts] = useState({});
   const [saving, setSaving] = useState(false);
   const [seriesPrompt, setSeriesPrompt] = useState(false);
@@ -582,7 +585,7 @@ function BillingAdjustmentTab({ items, appointmentId, seriesId, scopedServices, 
   };
 
   const revertAll = async () => {
-    if (!confirm('Revert all billing adjustments on this appointment back to the original rates?')) return;
+    if (!await confirm({ title: 'Revert billing adjustments', message: 'Revert all billing adjustments on this appointment back to the original rates?', confirmLabel: 'Revert' })) return;
     setSaving(true); setError('');
     try {
       let last = null;
@@ -803,6 +806,7 @@ export function NotifyBtn({ label, target, status, onClick }) {
 }
 
 export default function AppointmentModal({ appointment, defaultDate, defaultTime, defaultPractitioner, defaultClient, onClose, onSaved, onRefresh, onSwitchToBlock }) {
+  const confirm = useConfirm();
   const { timezone } = useSettings();
   const { user } = useAuth();
   const editing = !!appointment;
@@ -1148,7 +1152,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     if (data.tier) {
       setLateCancelConfirm(data);
     } else {
-      if (!confirm('Cancel this appointment?')) return;
+      if (!await confirm({ title: 'Cancel appointment', message: 'Cancel this appointment?', confirmLabel: 'Cancel appointment', cancelLabel: 'Keep it', danger: true })) return;
       await api.patch(`/appointments/${appointment.id}/status`, { status: 'cancelled', late_cancel_pct: null, late_cancel_billable: 0 });
       setField('status', 'cancelled');
       setLastSeriesScope('this_only');
@@ -1796,8 +1800,8 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
       {/* Error popup — validation failures and save/API errors alike, always front-and-center
           rather than an easy-to-miss inline message at the bottom of a scrollable form. */}
       {error && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+        <Modal title="Please check" size="sm" onClose={() => setError('')}>
+          <div className="space-y-4">
             <div className="flex items-start gap-3">
               <TriangleAlert className="h-5 w-5 text-red-500 shrink-0 mt-0.5" />
               <p className="text-sm text-gray-700">{error}</p>
@@ -1806,14 +1810,13 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
               <Button size="sm" onClick={() => setError('')}>OK</Button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Series edit prompt — this only or all future */}
       {seriesEditPrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
-            <h3 className="font-semibold text-gray-900">This is a recurring appointment</h3>
+        <Modal title="This is a recurring appointment" size="sm" onClose={() => setSeriesEditPrompt(null)}>
+          <div className="space-y-4">
             <p className="text-sm text-gray-600">Do you want to update just this appointment, or apply changes to all future appointments in this series?</p>
             <div className="flex flex-col gap-2">
               <Button onClick={saveSeriesThis} disabled={saving} className="w-full justify-center">
@@ -1827,16 +1830,15 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
               </Button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Series cancel prompt */}
       {seriesEndPrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+        <Modal title={seriesEndPrompt.step === 'choose' ? 'This is a recurring appointment' : 'End recurring series'} size="sm" onClose={() => setSeriesEndPrompt(null)}>
+          <div className="space-y-4">
             {seriesEndPrompt.step === 'choose' ? (
               <>
-                <h3 className="font-semibold text-gray-900">This is a recurring appointment</h3>
                 <div className="flex flex-col gap-2">
                   <Button onClick={cancelSingleFromSeries} className="w-full justify-center">
                     Cancel this appointment only
@@ -1851,7 +1853,6 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
               </>
             ) : (
               <>
-                <h3 className="font-semibold text-gray-900">End recurring series</h3>
                 <p className="text-sm text-gray-600">All scheduled appointments from this date onwards will be cancelled. The series will stop generating new ones.</p>
                 <div className="space-y-1">
                   <label className="text-sm text-gray-700">Cancel from:</label>
@@ -1870,17 +1871,16 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
               </>
             )}
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Series late cancellation policy — shown after ending a series */}
       {seriesLateCancelInfo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+        <Modal title="Late cancellation policy" size="sm">
+          <div className="space-y-4">
             <div className="flex items-start gap-3">
               <TriangleAlert className="h-6 w-6 text-amber-500 shrink-0 mt-0.5" />
               <div>
-                <h3 className="font-semibold text-gray-900">Late Cancellation Policy</h3>
                 <p className="text-sm text-gray-600 mt-1">
                   Some cancelled appointments fall within your late cancellation policy
                   (<span className="font-medium text-amber-700">{seriesLateCancelInfo.tier.percent}%</span> within{' '}
@@ -1912,14 +1912,13 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
               </Button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Post-cancellation notify prompt */}
       {cancelledConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
-            <h3 className="font-semibold text-gray-900">Appointment cancelled</h3>
+        <Modal title="Appointment cancelled" size="sm" onClose={onSaved}>
+          <div className="space-y-4">
             <p className="text-sm text-gray-600">Send a notification about this cancellation?</p>
             <div className="flex items-center gap-2">
               <NotifyBtn label="Notify Practitioner" target="practitioner" status={notifyStatus.practitioner} onClick={() => notify('practitioner')} />
@@ -1927,17 +1926,16 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
             </div>
             <Button variant="secondary" onClick={onSaved} className="w-full justify-center">Done</Button>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* Late cancellation policy confirmation */}
       {lateCancelConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
+        <Modal title="Late cancellation" size="sm" onClose={() => setLateCancelConfirm(null)}>
+          <div className="space-y-4">
             <div className="flex items-start gap-3">
               <TriangleAlert className="h-6 w-6 text-amber-500 shrink-0 mt-0.5" />
               <div>
-                <h3 className="font-semibold text-gray-900">Late Cancellation</h3>
                 <p className="text-sm text-gray-600 mt-1">
                   This appointment is <span className="font-medium">{lateCancelConfirm.daysUntil <= 0 ? 'today or in the past' : `${lateCancelConfirm.daysUntil} business day${lateCancelConfirm.daysUntil === 1 ? '' : 's'} away`}</span>.
                   Your policy charges <span className="font-medium text-amber-700">{lateCancelConfirm.tier.percent}%</span> for cancellations within{' '}
@@ -1957,7 +1955,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
               </Button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {modalTab === 'details' && (

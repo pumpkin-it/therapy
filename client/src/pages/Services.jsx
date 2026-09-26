@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Plus, Trash2, Pencil, DollarSign } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 
 const FT_COLOR_CLASSES = {
   blue: 'bg-blue-100 text-blue-700', green: 'bg-green-100 text-green-700', purple: 'bg-purple-100 text-purple-700',
@@ -12,6 +13,7 @@ const FT_COLOR_CLASSES = {
 };
 
 function ServicesTab() {
+  const confirm = useConfirm();
   const [services, setServices] = useState([]);
   const [disciplines, setDisciplines] = useState([]);
   const navigate = useNavigate();
@@ -23,7 +25,7 @@ function ServicesTab() {
 
   const remove = async (id, e) => {
     e.stopPropagation();
-    if (!confirm('Remove this service?')) return;
+    if (!await confirm({ title: 'Remove service', message: 'Remove this service?', confirmLabel: 'Remove', danger: true })) return;
     await api.delete(`/services/${id}`);
     load();
   };
@@ -106,7 +108,7 @@ function FundingTypesTab() {
               <span className="text-xs text-gray-400">"{ft.identifier_label || 'Client ID'}"{ft.show_period_dates ? '' : ' · no dates'}</span>
               <div className="ml-auto flex gap-1">
                 <button onClick={() => navigate(`/funding-types/${ft.id}/rates`)} className="text-gray-400 hover:text-gray-600" title="Manage rates"><DollarSign className="h-3.5 w-3.5" /></button>
-                <button onClick={() => setFtEdit({ id: ft.id, name: ft.name, color: ft.color, has_ndis_management: ft.has_ndis_management, identifier_label: ft.identifier_label || '', show_period_dates: ft.show_period_dates !== 0 })} className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
+                <button onClick={() => setFtEdit({ id: ft.id, name: ft.name, color: ft.color, has_ndis_management: ft.has_ndis_management, identifier_label: ft.identifier_label || '', show_period_dates: ft.show_period_dates !== 0 })} className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2 py-0.5 text-xs font-medium text-gray-700 hover:bg-gray-50"><Pencil className="h-3 w-3" /> Edit</button>
                 <button onClick={() => deleteFT(ft.id)} className="text-red-300 hover:text-red-500"><Trash2 className="h-3.5 w-3.5" /></button>
               </div>
             </div>

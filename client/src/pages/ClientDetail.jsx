@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
 import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, Folder, FolderPlus, Paperclip, X, UserX, UserCheck, Search, ChevronDown, ChevronRight, Link2 } from 'lucide-react';
 import api from '../lib/api';
@@ -22,6 +22,7 @@ import FormFillModal from '../components/FormFillModal';
 import EntityAuditLog from '../components/EntityAuditLog';
 import BudgetModal from '../components/BudgetModal';
 import { buildFolderTree, sortedChildren, sortedItems, countItems } from '../lib/formFolders';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 
 const AGREEMENT_STATUS_COLOR = {
   draft: 'bg-gray-100 text-gray-600', sent: 'bg-blue-100 text-blue-700', viewed: 'bg-amber-100 text-amber-700',
@@ -29,6 +30,7 @@ const AGREEMENT_STATUS_COLOR = {
 };
 
 function AgreementsTab({ clientId }) {
+  const confirm = useConfirm();
   const { user } = useAuth();
   const canCreateAgreement = !!user?.permissions?.clients;
   const { timezone } = useSettings();
@@ -260,7 +262,7 @@ function AgreementsTab({ clientId }) {
   };
 
   const voidAgreement = async () => {
-    if (!confirm('Void this agreement?')) return;
+    if (!await confirm({ title: 'Void agreement', message: 'Void this agreement?', confirmLabel: 'Void agreement', danger: true })) return;
     setAgreementError('');
     try {
       await api.post(`/agreements/${activeId}/void`);
@@ -577,6 +579,7 @@ function AddFundsManagerInline({ initialName, onClose, onSaved }) {
 const EMPTY_PERIOD = { funding_type: '', funds_manager_id: '', client_identifier: '', start_date: '', end_date: '', ndis_management: '', self_managed_email: '' };
 
 function FundingTab({ clientId }) {
+  const confirm = useConfirm();
   const { user } = useAuth();
   const canEdit = !!user?.permissions?.funding_periods;
   const canAddFunder = !!user?.permissions?.funds_managers;
@@ -611,7 +614,7 @@ function FundingTab({ clientId }) {
     }
     const payload = { ...form, funds_manager_id: form.funds_manager_id || null };
     if (!payload.start_date || !payload.end_date) {
-      if (!confirm('No period dates defined — this will save as an indefinite period. Continue?')) return;
+      if (!await confirm({ title: 'No period dates', message: 'No period dates defined — this will save as an indefinite period. Continue?', confirmLabel: 'Save anyway' })) return;
       if (!payload.start_date) payload.start_date = '1111-01-01';
       if (!payload.end_date) payload.end_date = '9999-09-09';
     }
@@ -626,7 +629,7 @@ function FundingTab({ clientId }) {
   };
 
   const remove = async id => {
-    if (!confirm('Delete this funding period?')) return;
+    if (!await confirm({ title: 'Delete funding period', message: 'Delete this funding period?', confirmLabel: 'Delete', danger: true })) return;
     await api.delete(`/funding-periods/${id}`); loadPeriods();
   };
 
@@ -1009,6 +1012,7 @@ const SHAREABLE_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
 const maxShownPages = pageCount => (pageCount == null ? 10 : Math.min(10, Math.floor(pageCount / 2)));
 
 function FilesTab({ clientId, client }) {
+  const confirm = useConfirm();
   const { timezone } = useSettings();
   const [view, setView] = useState('folder'); // 'folder' | 'shared' — shared flattens every shared file across all folders
   const [folders, setFolders] = useState([]);
@@ -1077,7 +1081,7 @@ function FilesTab({ clientId, client }) {
   };
 
   const remove = async id => {
-    if (!confirm('Delete this file?')) return;
+    if (!await confirm({ title: 'Delete file', message: 'Delete this file?', confirmLabel: 'Delete', danger: true })) return;
     await api.delete(`/client-files/${id}`);
     refreshCurrentView();
     loadFolders();
@@ -1109,7 +1113,7 @@ function FilesTab({ clientId, client }) {
   };
 
   const deleteFolder = async f => {
-    if (!confirm(`Delete folder "${f.name}"?`)) return;
+    if (!await confirm({ title: 'Delete folder', message: `Delete folder "${f.name}"?`, confirmLabel: 'Delete', danger: true })) return;
     try {
       await api.delete(`/client-file-folders/${f.id}`);
       setFolders(fs => fs.filter(x => x.id !== f.id));
@@ -1135,14 +1139,14 @@ function FilesTab({ clientId, client }) {
   };
 
   const stopSharing = async f => {
-    if (!confirm(`Stop sharing "${f.label || f.original_name}"? Its link will no longer work.`)) return;
+    if (!await confirm({ title: 'Stop sharing', message: `Stop sharing "${f.label || f.original_name}"? Its link will no longer work.`, confirmLabel: 'Stop sharing', danger: true })) return;
     await api.delete(`/client-files/${f.id}/share-report`);
     refreshCurrentView();
   };
 
   const toggleReportStatus = async f => {
     const next = f.report_status === 'released' ? 'pending' : 'released';
-    if (next === 'pending' && !confirm('Revert this report to draft? The client\'s link will show the blurred preview again.')) return;
+    if (next === 'pending' && !await confirm({ title: 'Revert to draft', message: 'Revert this report to draft? The client\'s link will show the blurred preview again.', confirmLabel: 'Revert to draft' })) return;
     await api.patch(`/client-files/${f.id}/report-status`, { status: next });
     refreshCurrentView();
   };
@@ -1522,6 +1526,7 @@ function fmtApptDateTime(localStr) {
 const noteDraftKey = clientId => `therapy:session-note-draft:client:${clientId}`;
 
 function SessionNotesTab({ clientId, client }) {
+  const confirm = useConfirm();
   const { user } = useAuth();
   const { timezone } = useSettings();
   const [notes, setNotes] = useState([]);
@@ -1666,7 +1671,7 @@ function SessionNotesTab({ clientId, client }) {
   };
 
   const saveEdit = async id => { await api.patch(`/session-notes/${id}`, { note: editText }); setEditingId(null); load(); };
-  const remove   = async id => { if (!confirm('Delete this note?')) return; await api.delete(`/session-notes/${id}`); load(); };
+  const remove   = async id => { if (!await confirm({ title: 'Delete note', message: 'Delete this note?', confirmLabel: 'Delete', danger: true })) return; await api.delete(`/session-notes/${id}`); load(); };
 
   const toggleSelect = id => setSelectedIds(ids => ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]);
 
@@ -1707,7 +1712,7 @@ function SessionNotesTab({ clientId, client }) {
   };
 
   const removeFile = async (noteId, fileId) => {
-    if (!confirm('Delete this file?')) return;
+    if (!await confirm({ title: 'Delete file', message: 'Delete this file?', confirmLabel: 'Delete', danger: true })) return;
     await api.delete(`/session-note-files/${fileId}`);
     loadNoteFiles(noteId);
     load();
@@ -2007,7 +2012,9 @@ export default function ClientDetail() {
   const isNew = id === 'new';
   const { user } = useAuth();
   const [client, setClient] = useState(isNew ? {} : null);
-  const [tab, setTab] = useState('details');
+  // ?tab= lets other pages (e.g. the report editor's back button) return to a specific tab.
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState(searchParams.get('tab') || 'details');
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -2271,13 +2278,12 @@ export default function ClientDetail() {
       )}
 
       {createdClient && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 space-y-4">
-            <h3 className="font-semibold text-gray-900">Client created</h3>
+        <Modal title="Client created" size="sm" onClose={() => { const newId = createdClient.id; setCreatedClient(null); navigate(`/clients/${newId}`, { replace: true }); }}>
+          <div className="space-y-4">
             <p className="text-sm text-gray-600">{createdClient.first_name} {createdClient.last_name} has been added successfully.</p>
             <Button onClick={() => { const newId = createdClient.id; setCreatedClient(null); navigate(`/clients/${newId}`, { replace: true }); }} className="w-full justify-center">Close</Button>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

@@ -4,6 +4,7 @@ import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 
 const EMPTY = { name: '', email: '', phone: '' };
 
@@ -39,6 +40,7 @@ function FundsManagerModal({ fm, onClose, onSaved }) {
 }
 
 export default function FundsManagers() {
+  const confirm = useConfirm();
   const [fms, setFms] = useState([]);
   const [modal, setModal] = useState(null);
 
@@ -46,7 +48,7 @@ export default function FundsManagers() {
   useEffect(() => { load(); }, []);
 
   const remove = async id => {
-    if (!confirm('Remove this funder?')) return;
+    if (!await confirm({ title: 'Remove funder', message: 'Remove this funder?', confirmLabel: 'Remove', danger: true })) return;
     await api.delete(`/funds-managers/${id}`);
     load();
   };
@@ -78,7 +80,7 @@ export default function FundsManagers() {
                 <td className="px-4 py-3 text-sm text-gray-600">{fm.phone || '—'}</td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex gap-1 justify-end">
-                    <Button variant="ghost" size="sm" onClick={() => setModal(fm)}><Pencil className="h-3.5 w-3.5" /></Button>
+                    <Button size="sm" variant="secondary" onClick={() => setModal(fm)}><Pencil className="h-3.5 w-3.5" /> Edit</Button>
                     <Button variant="ghost" size="sm" onClick={() => remove(fm.id)}><Trash2 className="h-3.5 w-3.5 text-red-400" /></Button>
                   </div>
                 </td>

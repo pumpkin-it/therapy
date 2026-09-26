@@ -12,6 +12,9 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
+// A long report draft (TipTap JSON, autosaved as a whole) easily passes the default 100kb body
+// limit — raised for report routes only. body-parser skips the global parser below once parsed.
+app.use(['/api/billable-reports', '/api/report-doc-templates'], express.json({ limit: '10mb' }));
 app.use(express.json());
 
 // Initialise DB on startup
@@ -25,10 +28,13 @@ app.use('/api/auth',            require('./routes/auth'));
 app.use('/api/sign',            require('./routes/signAgreement'));
 app.use('/api/report-view',     require('./routes/reportView'));
 app.use('/api/portal',          require('./routes/clientPortal'));
+// Images inside written reports — public but unguessable, same trust model as /api/report-view,
+// so the editor's <img> tags (which can't send an auth header) and the PDF renderer can load them.
+app.use('/api/report-images',   require('./routes/reportImages'));
 
 // All routes below require authentication
 app.use('/api', (req, res, next) => {
-  if (req.path.startsWith('/auth') || req.path.startsWith('/cal') || req.path.startsWith('/sign') || req.path.startsWith('/report-view') || req.path.startsWith('/portal') || req.path === '/health') return next();
+  if (req.path.startsWith('/auth') || req.path.startsWith('/cal') || req.path.startsWith('/sign') || req.path.startsWith('/report-view') || req.path.startsWith('/portal') || req.path.startsWith('/report-images') || req.path === '/health') return next();
   auth(req, res, next);
 });
 
@@ -48,6 +54,7 @@ app.use('/api/funding-periods', require('./routes/fundingPeriods')); // perm app
 app.use('/api/client-files',    perm('clients'), require('./routes/clientFiles'));
 app.use('/api/client-file-folders', perm('clients'), require('./routes/clientFileFolders'));
 app.use('/api/billable-reports', perm('clients'), require('./routes/billableReports'));
+app.use('/api/report-doc-templates', perm('clients'), require('./routes/reportDocTemplates'));
 app.use('/api/recurring-series', perm('calendar'), require('./routes/recurringSeries'));
 app.use('/api/disciplines',     perm('services'), require('./routes/disciplines'));
 app.use('/api/push',            require('./routes/push'));

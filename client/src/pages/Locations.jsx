@@ -5,6 +5,7 @@ import AddressAutocomplete from '../components/AddressAutocomplete';
 import Button from '../components/ui/Button';
 import Modal from '../components/ui/Modal';
 import Input from '../components/ui/Input';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 
 const EMPTY = { name: '', address: '' };
 
@@ -39,6 +40,7 @@ function LocationModal({ location, onClose, onSaved }) {
 }
 
 export default function Locations() {
+  const confirm = useConfirm();
   const [locations, setLocations] = useState([]);
   const [modal, setModal] = useState(null);
 
@@ -46,7 +48,7 @@ export default function Locations() {
   useEffect(() => { load(); }, []);
 
   const remove = async id => {
-    if (!confirm('Remove this location?')) return;
+    if (!await confirm({ title: 'Remove location', message: 'Remove this location?', confirmLabel: 'Remove', danger: true })) return;
     await api.delete(`/locations/${id}`);
     load();
   };
@@ -82,7 +84,7 @@ export default function Locations() {
                 <td className="px-4 py-3 text-sm text-gray-600">{loc.address}</td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex gap-1 justify-end">
-                    <Button variant="ghost" size="sm" onClick={() => setModal(loc)}><Pencil className="h-3.5 w-3.5" /></Button>
+                    <Button size="sm" variant="secondary" onClick={() => setModal(loc)}><Pencil className="h-3.5 w-3.5" /> Edit</Button>
                     <Button variant="ghost" size="sm" onClick={() => remove(loc.id)}><Trash2 className="h-3.5 w-3.5 text-red-400" /></Button>
                   </div>
                 </td>

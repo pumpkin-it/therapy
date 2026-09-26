@@ -3,8 +3,10 @@ import { PlusCircle, X, Settings2 } from 'lucide-react';
 import api from '../lib/api';
 import Modal from './ui/Modal';
 import Button from './ui/Button';
+import { useConfirm } from './ui/ConfirmDialog';
 
 export default function DisciplinePicker({ value, onChange, label = 'Discipline', noneLabel = '— None —' }) {
+  const confirm = useConfirm();
   const [disciplines, setDisciplines] = useState([]);
   const [newDiscipline, setNewDiscipline] = useState('');
   const [managing, setManaging] = useState(false);
@@ -23,7 +25,7 @@ export default function DisciplinePicker({ value, onChange, label = 'Discipline'
   };
 
   const removeDiscipline = async d => {
-    if (!confirm(`Remove discipline "${d.name}"?`)) return;
+    if (!await confirm({ title: 'Remove discipline', message: `Remove discipline "${d.name}"?`, confirmLabel: 'Remove', danger: true })) return;
     setDeletingId(d.id);
     try {
       await api.delete(`/disciplines/${d.id}`);

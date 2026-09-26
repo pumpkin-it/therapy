@@ -4,6 +4,7 @@ import { ArrowLeft, Trash2, Plus } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
+import { useConfirm } from '../components/ui/ConfirmDialog';
 
 const OPEN_END_DATE = '9999-09-09';
 const RATE_FIELDS = ['code', 'rate', 'travel_code', 'travel_rate_per_hour', 'km_code', 'km_rate', 'notes_code', 'notes_rate', 'cancel_code', 'gst_type'];
@@ -30,6 +31,7 @@ function DateInput({ label, value, onChange, disabled }) {
 }
 
 export default function FundingTypeRates() {
+  const confirm = useConfirm();
   const { id } = useParams();
   const navigate = useNavigate();
   const [fundingType, setFundingType] = useState(null);
@@ -100,7 +102,7 @@ export default function FundingTypeRates() {
   };
 
   const deletePeriod = async () => {
-    if (!confirm(`Delete rate period "${activePeriod.name}"? This reopens the previous period.`)) return;
+    if (!await confirm({ title: 'Delete rate period', message: `Delete rate period "${activePeriod.name}"? This reopens the previous period.`, confirmLabel: 'Delete', danger: true })) return;
     await api.delete(`/funding-types/${id}/rate-periods/${activePeriodId}`);
     setActivePeriodId(null);
     await loadPeriods();
@@ -115,7 +117,7 @@ export default function FundingTypeRates() {
   };
 
   const removeServiceRate = async (rateId, serviceName) => {
-    if (!confirm(`Remove "${serviceName}" from this rate period?`)) return;
+    if (!await confirm({ title: 'Remove service rate', message: `Remove "${serviceName}" from this rate period?`, confirmLabel: 'Remove', danger: true })) return;
     await api.delete(`/funding-types/${id}/rate-periods/${activePeriodId}/rates/${rateId}`);
     await loadRates();
   };

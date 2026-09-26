@@ -3,6 +3,7 @@ import api from '../lib/api';
 import Modal from './ui/Modal';
 import Button from './ui/Button';
 import DateTimeStepper from './DateTimeStepper';
+import { useConfirm } from './ui/ConfirmDialog';
 
 // Deliberately not built as a mode inside AppointmentModal (a ~2000-line component with a lot
 // of billing/series logic already in it) — a block has no client, no funder, no billing items,
@@ -11,6 +12,7 @@ import DateTimeStepper from './DateTimeStepper';
 // blocks live outside appointments entirely. Date/time picking still uses the shared
 // DateTimeStepper (extracted out of AppointmentModal) so both forms feel the same to use.
 export default function BlockTimeModal({ block, defaultDate, defaultTime, defaultPractitioner, practitioners, onClose, onSaved }) {
+  const confirm = useConfirm();
   const isEdit = !!block;
   const [practitionerId, setPractitionerId] = useState(block?.practitioner_id || defaultPractitioner || (practitioners[0]?.id ?? ''));
   const [startDate, setStartDate] = useState(block ? block.start_time.slice(0, 10) : defaultDate);
@@ -65,7 +67,7 @@ export default function BlockTimeModal({ block, defaultDate, defaultTime, defaul
   };
 
   const remove = async () => {
-    if (!confirm('Remove this blocked time?')) return;
+    if (!await confirm({ title: 'Remove blocked time', message: 'Remove this blocked time?', confirmLabel: 'Remove', danger: true })) return;
     setSaving(true);
     try {
       await api.delete(`/time-blocks/${block.id}`);
