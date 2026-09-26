@@ -103,9 +103,14 @@ async function graphSend({ from, to, cc, subject, html, text, attachments, debug
 
 // ─── Template engine ──────────────────────────────────────────────────────────
 
+// Templates written in the document editor keep each variable in a chip:
+// <span data-var="client_name">{{client_name}}</span>. Unwrap it first so a value that is itself
+// HTML (the pricing table, appointment details) isn't left inside a <span>.
+const unwrapVarChips = html => String(html).replace(/<span data-var="(\w+)"[^>]*>\{\{\1\}\}<\/span>/g, '{{$1}}');
+
 function renderTemplate(text, vars) {
   if (!text) return '';
-  return text.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
+  return unwrapVarChips(text).replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
 }
 
 // The "email preview" popups (report notify, session notes) show the template as plain text in a

@@ -130,4 +130,4 @@ function usedFonts(doc) {
   return [...found];
 }
 
-module.exports = { renderReportBody, usedFonts };
+module.exports = { renderReportBody, usedFonts, imageSrc, dataUri };

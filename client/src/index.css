@@ -14,49 +14,11 @@ body {
   background-image: repeating-linear-gradient(135deg, #e5e7eb 0, #e5e7eb 4px, #f3f4f6 4px, #f3f4f6 9px);
 }
 
-/* Quill rich text editor overrides */
-.quill-wrapper .ql-toolbar {
-  border: none;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f9fafb;
-  border-radius: 0.5rem 0.5rem 0 0;
-  padding: 6px 8px;
-  font-family: inherit;
-}
-.quill-wrapper .ql-container {
-  border: none;
-  font-family: inherit;
-  font-size: 0.875rem;
-  border-radius: 0 0 0.5rem 0.5rem;
-}
-.quill-wrapper .ql-editor {
-  min-height: 160px;
-  max-height: 400px;
-  overflow-y: auto;
-  padding: 10px 12px;
-  line-height: 1.6;
-}
-.quill-wrapper .ql-editor.ql-blank::before {
-  color: #9ca3af;
-  font-style: normal;
-}
-.quill-wrapper .ql-toolbar button:hover,
-.quill-wrapper .ql-toolbar button.ql-active {
-  color: #4f46e5;
-}
-.quill-wrapper .ql-toolbar button:hover .ql-stroke,
-.quill-wrapper .ql-toolbar button.ql-active .ql-stroke {
-  stroke: #4f46e5;
-}
-.quill-wrapper .ql-toolbar button:hover .ql-fill,
-.quill-wrapper .ql-toolbar button.ql-active .ql-fill {
-  fill: #4f46e5;
-}
-.quill-wrapper .ql-toolbar .ql-picker-label:hover,
-.quill-wrapper .ql-toolbar .ql-picker-label.ql-active {
-  color: #4f46e5;
-}
-.quill-wrapper .ql-toolbar .ql-picker-label:hover .ql-stroke,
-.quill-wrapper .ql-toolbar .ql-picker-label.ql-active .ql-stroke {
-  stroke: #4f46e5;
-}
+/* Document editor (components/reportEditor/DocEditor.jsx) in its plain, page-less layout. */
+.doc-plain .report-doc { min-height: 12rem; }
+.doc-page .report-doc { min-height: 0; }
+
+/* Saved notes and agreements shown in the app — the document's own styles (lists, tables,
+   pictures), at the surrounding text size. */
+.report-doc.doc-view { min-height: 0; font-family: inherit; font-size: inherit; line-height: 1.5; color: inherit; }
+.report-doc.doc-view img { max-width: 100%; }

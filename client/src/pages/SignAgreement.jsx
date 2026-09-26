@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import { useConfirm } from '../components/ui/ConfirmDialog';
+import DocView from '../components/reportEditor/DocView';
 
 export default function SignAgreement() {
   const confirm = useConfirm();
@@ -59,8 +60,9 @@ export default function SignAgreement() {
         </div>
       ) : (
         <>
-          <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-6 prose prose-sm max-w-none"
-            dangerouslySetInnerHTML={{ __html: agreement.rendered_html }} />
+          <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-6">
+            <DocView html={agreement.rendered_html} />
+          </div>
 
           <div className="rounded-xl border border-gray-200 bg-white shadow-sm p-6 space-y-4">
             <div className="space-y-1">

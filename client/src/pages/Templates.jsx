@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, ChevronDown, ChevronRight, Folder } from 'lucide-react';
 import api from '../lib/api';
@@ -6,7 +6,7 @@ import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
-import RichEditor from '../components/RichEditor';
+import DocEditor from '../components/reportEditor/DocEditor';
 import { buildFolderTree, sortedChildren, sortedItems, countItems } from '../lib/formFolders';
 import { useAuth } from '../context/AuthContext';
 import ReportTemplates from './ReportTemplates';
@@ -29,24 +29,10 @@ const NOTE_VARS = ['client_name', 'client_first_name', 'practitioner_name', 'dat
 const AGREEMENT_VARS = [
   'client_name', 'client_first_name', 'client_address', 'client_email', 'client_ndis_number',
   'practitioner_name', 'practice_name', 'practice_phone', 'practice_abn', 'date',
+  'agreement_start_date', 'agreement_end_date',
   'plan_start_date', 'plan_end_date', 'funds_manager_name', 'funds_manager_email', 'funds_manager_phone',
-  'pricing_table',
+  'pricing_table', 'client_signature',
 ];
-
-function VarChips({ vars, insertRef }) {
-  const insert = v => insertRef?.current?.(`{{${v}}}`);
-  return (
-    <div className="flex flex-wrap gap-1.5 mt-1.5">
-      <span className="text-xs text-gray-400 self-center">Insert:</span>
-      {vars.map(v => (
-        <button key={v} type="button" onClick={() => insert(v)}
-          className="rounded border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-700 hover:bg-indigo-100 font-mono transition-colors">
-          {`{{${v}}}`}
-        </button>
-      ))}
-    </div>
-  );
-}
 
 // ─── Shared list layout ──────────────────────────────────────────────────────
 // Every tab uses the Report Templates layout: a description with the New button beside it, one
@@ -71,7 +57,10 @@ function TemplateList({ items, empty, children }) {
   );
 }
 
-const stripHtml = html => (html || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+// Preview line: the template's text, with field chips shown as {{name}} and entities decoded.
+const stripHtml = html => new DOMParser()
+  .parseFromString((html || '').replace(/<(p|li|br|h\d|div)\b/gi, ' <$1'), 'text/html')
+  .body.textContent.replace(/\s+/g, ' ').trim();
 
 function TemplateRow({ name, tag, sub, onEdit, onRemove, indent = 0 }) {
   return (
@@ -113,7 +102,6 @@ function EmailTemplates() {
   const [form, setForm] = useState({ name: '', subject: '', body: '' });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  const insertRef = useRef();
 
   const load = () => api.get('/templates?type=email').then(r => setTemplates(r.data)).catch(() => setTemplates([]));
   useEffect(() => { load(); }, []);
@@ -145,24 +133,18 @@ function EmailTemplates() {
           <Input label="Subject" value={form.subject} onChange={e => change({ subject: e.target.value })} />
           <div className="space-y-1">
             <label className="block text-sm font-medium text-gray-700">Body</label>
-            {/* key remounts Quill whenever a different template is opened */}
-            <RichEditor
-              key={editing.id}
-              defaultValue={form.body}
-              onChange={v => change({ body: v })}
-              insertRef={insertRef}
-              toolbar="email"
-            />
-            <VarChips vars={vars} insertRef={insertRef} />
+            {/* key reloads the editor whenever a different template is opened */}
+            <DocEditor key={editing.id} layout="plain" vars={vars} value={form.body} onChange={v => change({ body: v })} />
+            <p className="text-xs text-gray-400">Use <strong>Insert field</strong> for details that fill in for each email.</p>
           </div>
           {editing.code?.startsWith('appt_') && (
             <p className="text-xs text-gray-400">
-              <code className="bg-gray-100 px-1 rounded">{'{{appointment_details}}'}</code> inserts a formatted table of appointment details.
+              The <strong>Appointment details</strong> field inserts a formatted table of the appointment.
             </p>
           )}
           {editing.code === 'appt_cancelled_client' && (
             <p className="text-xs text-gray-400">
-              <code className="bg-gray-100 px-1 rounded">{'{{late_cancellation_notice}}'}</code> inserts a warning that a cancellation fee applies — only when this cancellation was flagged as late. It's blank otherwise, so it's safe to leave in the template.
+              The <strong>Late cancellation notice</strong> field inserts a warning that a cancellation fee applies — only when this cancellation was flagged as late. It's blank otherwise, so it's safe to leave in the template.
             </p>
           )}
         </EditorModal>
@@ -180,7 +162,6 @@ function BodyTemplates({ type, description, empty, namePlaceholder, vars, withPr
   const [form, setForm] = useState({ name: '', body: '', has_pricing_table: true });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  const insertRef = useRef();
 
   const load = () => api.get(`/templates?type=${type}`).then(r => setTemplates(r.data)).catch(() => setTemplates([]));
   useEffect(() => { load(); }, [type]);
@@ -233,17 +214,12 @@ function BodyTemplates({ type, description, empty, namePlaceholder, vars, withPr
           )}
           <div className="space-y-1">
             <label className="block text-sm font-medium text-gray-700">Body</label>
-            <RichEditor
-              key={editing.id ? `edit-${editing.id}` : 'new'}
-              defaultValue={form.body}
-              onChange={v => change({ body: v })}
-              insertRef={insertRef}
-              toolbar="note"
-            />
-            <VarChips vars={vars} insertRef={insertRef} />
+            <DocEditor key={editing.id ? `edit-${editing.id}` : 'new'} vars={vars} value={form.body}
+              onChange={v => change({ body: v })} uploadUrl="/templates/images" />
+            <p className="text-xs text-gray-400">Use <strong>Insert field</strong> for details that fill in for each client.</p>
             {withPricing && form.has_pricing_table && (
               <p className="text-xs text-gray-400">
-                <code className="bg-gray-100 px-1 rounded">{'{{pricing_table}}'}</code> inserts the service pricing table the practitioner builds when drafting the agreement.
+                The <strong>Pricing table</strong> field inserts the service pricing table the practitioner builds when drafting the agreement.
               </p>
             )}
           </div>

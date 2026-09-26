@@ -111,20 +111,21 @@ instead, and gets a **Link to appointment** action → opens a picker of that cl
 appointments → pick one → the note's displayed date switches to the appointment's date/time and
 the Link action disappears (now linked).
 
-**Rich text formatting** (added 2026-09-14, both entry points, compose and edit): the note
-editor is a Quill toolbar (font, bold, italic, underline, color, lists) instead of a plain
-textarea. Type a note, apply bold to one word, underline to another, a color to a third, and
-switch a fourth to Serif or Monospace font → Save → reopen the note (collapsed→expanded) and
-confirm all four are still visible → click Edit and confirm the editor reopens with the same
-formatting intact (not flattened to plain text). A **legacy plain-text note** (written before
-this feature existed) must still display and edit correctly — its line breaks preserved, no raw
-HTML tags visible.
+**Word-style note editor** (2026-09-26, replaces the Quill editor; both entry points, compose
+and edit): the note is an A4 page with page guides and "N pages" underneath (in the appointment
+window it's shown scaled down, "shown at NN%"). **Expand** fills the window at full size; Escape
+or Done shrinks it back **without closing the appointment**. Type a note, apply bold, a colour,
+a font and a bulleted list, paste a picture (it uploads and appears) → Add/Save → the note shows
+in the list with the same formatting and picture → Edit reopens it intact. **Use template**
+fills the composer with the template, fields filled in. **Older notes** must still display and
+edit correctly: a plain-text note keeps its line breaks; a note written in the old editor shows
+real bullets/numbering (nested where it was indented), no raw HTML or "ql-" leftovers.
 
 ## 7. Session notes — download / email
 Select a note (appointment modal or client profile, both have this) → Download PDF succeeds
 (real 200 response, real PDF bytes) → the PDF's date matches the actual session date, not
-today, and any bold/underline/color/font formatting on the note carries into the PDF (not
-flattened to plain text). Email button opens the pre-filled modal with the correct
+today, formatting, lists and pictures carry into the PDF, a page break in the note starts a new
+page, and every page has the footer "<client> · Session notes · Page X of Y". Email button opens the pre-filled modal with the correct
 recipient/subject/body, including the same correct session date in the body — **do not actually
 click Send** (would dispatch a real email); confirming the pre-filled preview is correct is
 sufficient.
@@ -165,8 +166,11 @@ and verify the line items/total in the list view"** — do not click Export, sin
 complete a real (if harmless, QA-only-data) export rather than just previewing it.
 
 ## 10. Templates & Settings pages load cleanly
-Templates page — all four tabs (Email, Session Note, Agreement, Forms) load without a console
-error, consistent full-page width. Settings page loads. Reports page loads and returns data for
+Templates page — all five tabs (Email, Session Note, Agreement, Forms, Report) load without a
+console error, consistent full-page width. Editing an **email** template: a plain box (no pages,
+no picture or page-break buttons) with each {{variable}} shown as a named chip; Insert field adds
+one. **Session note / agreement** templates: an A4 page with page guides and Insert field. Saving
+and reopening keeps the chips; an agreement drafted from the template shows the real values. Settings page loads. Reports page loads and returns data for
 a normal date range.
 
 ## 11. Report billing (client → Reports tab)

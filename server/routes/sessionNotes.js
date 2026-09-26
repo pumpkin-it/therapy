@@ -3,6 +3,7 @@ const db = require('../database');
 const auth = require('../middleware/auth');
 const { generateSessionNotePdf } = require('../services/pdf');
 const { graphSend, renderTemplate, getTemplate, plainTextToHtml } = require('../services/mailer');
+const { acceptImage } = require('./reportImages');
 
 function loadNotesWithClient(noteIds) {
   if (!Array.isArray(noteIds) || !noteIds.length) return { client: null, notes: [] };
@@ -63,6 +64,12 @@ router.get('/', auth, (req, res) => {
     ORDER BY cn.created_at DESC
   `).all(...params);
   res.json(notes);
+});
+
+// Pictures pasted or inserted into a note (DocEditor). Stored and served like report pictures.
+router.post('/images', auth, acceptImage, (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Upload a PNG, JPG, GIF or WebP image.' });
+  res.status(201).json({ url: `/api/report-images/${req.file.filename}` });
 });
 
 router.post('/', auth, (req, res) => {

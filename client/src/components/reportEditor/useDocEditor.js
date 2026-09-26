@@ -8,7 +8,7 @@ import { TextStyle, Color, FontFamily, FontSize } from '@tiptap/extension-text-s
 import Highlight from '@tiptap/extension-highlight';
 import { Placeholder, CharacterCount } from '@tiptap/extensions';
 import api from '../../lib/api';
-import { ClientField, PracticeLogo, PageBreak, stripUnloadableImages, prepareImage } from './extensions';
+import { ClientField, PracticeLogo, PageBreak, TemplateVar, stripUnloadableImages, prepareImage } from './extensions';
 import { installReportFonts } from './fonts';
 import './report-doc.css';
 
@@ -22,7 +22,11 @@ installReportFonts();
 //   showLabels — templates: show each field's name instead of a value
 //   onUpdate   — called with the editor on every change
 //   onNotice   — called with a message for the user (e.g. pictures dropped from a Word paste)
-export default function useDocEditor({ uploadUrl, getFields = () => ({}), showLabels = false, onUpdate, onNotice, placeholder }) {
+//   templateVars — email/note/agreement templates: {{variable}} chips (TemplateVar)
+//   editable   — start editable (reports start read-only until their draft has loaded)
+//   pageBreaks — false for email templates (an email has no pages)
+//   Without an uploadUrl, pasted or dropped pictures aren't uploaded (email templates).
+export default function useDocEditor({ uploadUrl, getFields = () => ({}), showLabels = false, onUpdate, onNotice, placeholder, templateVars = false, editable = false, pageBreaks = true }) {
   const editorRef = useRef(null);
 
   const uploadImages = useCallback(async files => {
@@ -51,9 +55,10 @@ export default function useDocEditor({ uploadUrl, getFields = () => ({}), showLa
       CharacterCount,
       ClientField.configure({ getFields, showLabels }),
       PracticeLogo,
-      PageBreak,
+      ...(pageBreaks ? [PageBreak] : []),
+      ...(templateVars ? [TemplateVar] : []),
     ],
-    editable: false,
+    editable,
     editorProps: {
       attributes: { class: 'report-doc focus:outline-none', spellcheck: 'true' },
       transformPastedHTML(html) {
@@ -67,7 +72,7 @@ export default function useDocEditor({ uploadUrl, getFields = () => ({}), showLa
         const cd = event.clipboardData;
         if (!cd || cd.getData('text/html')) return false;
         const files = [...cd.files].filter(f => f.type.startsWith('image/'));
-        if (!files.length) return false;
+        if (!files.length || !uploadUrl) return false;
         event.preventDefault();
         uploadImages(files);
         return true;
@@ -75,7 +80,7 @@ export default function useDocEditor({ uploadUrl, getFields = () => ({}), showLa
       handleDrop(view, event, slice, moved) {
         if (moved) return false;
         const files = [...(event.dataTransfer?.files || [])].filter(f => f.type.startsWith('image/'));
-        if (!files.length) return false;
+        if (!files.length || !uploadUrl) return false;
         event.preventDefault();
         uploadImages(files);
         return true;

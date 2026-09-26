@@ -5,7 +5,7 @@ import {
   Undo2, Redo2, Table, Image, Link2, Unlink, Highlighter, Baseline, RemoveFormatting, SeparatorHorizontal,
   UserSquare, Indent, Outdent, ChevronDown, Trash2,
 } from 'lucide-react';
-import { FIELD_GROUPS, LOGO_SIZE_NAMES } from './extensions';
+import { FIELD_GROUPS, LOGO_SIZE_NAMES, humaniseVar } from './extensions';
 import { REPORT_FONTS } from './fonts';
 import { useConfirm } from '../ui/ConfirmDialog';
 
@@ -54,7 +54,10 @@ function Popover({ button, children, title }) {
   );
 }
 
-export default function Toolbar({ editor, fields, onPickImage }) {
+// fields: report field values (the report Insert field menu). vars: template variable keys instead
+// (email/note/agreement templates). noFields: no Insert field menu (session notes).
+// onPickImage / pageBreaks: leave out to hide the picture / page break buttons (email templates).
+export default function Toolbar({ editor, fields, vars, noFields = false, onPickImage, pageBreaks = true }) {
   const confirm = useConfirm();
   // Re-render the toolbar only when what it displays actually changes, not on every keystroke.
   const s = useEditorState({
@@ -132,9 +135,20 @@ export default function Toolbar({ editor, fields, onPickImage }) {
         <Btn title={s.link ? 'Edit link' : 'Insert link'} active={s.link} onClick={setLink}><Link2 className="h-4 w-4" /></Btn>
         {s.link && <Btn title="Remove link" onClick={() => chain().extendMarkRange('link').unsetLink().run()}><Unlink className="h-4 w-4" /></Btn>}
         <Btn title="Insert table (3 × 3)" onClick={() => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}><Table className="h-4 w-4" /></Btn>
-        <Btn title="Insert picture" onClick={onPickImage}><Image className="h-4 w-4" /></Btn>
-        <Btn title="Start a new page here (Ctrl+Enter)" onClick={() => chain().setPageBreak().run()}><SeparatorHorizontal className="h-4 w-4" /><span className="ml-1 text-sm">Page break</span></Btn>
-        <Popover title="Insert a field that fills in automatically" button={<><UserSquare className="h-4 w-4" /><span className="ml-1 text-sm">Insert field</span></>}>
+        {onPickImage && <Btn title="Insert picture" onClick={onPickImage}><Image className="h-4 w-4" /></Btn>}
+        {pageBreaks && <Btn title="Start a new page here (Ctrl+Enter)" onClick={() => chain().setPageBreak().run()}><SeparatorHorizontal className="h-4 w-4" /><span className="ml-1 text-sm">Page break</span></Btn>}
+        {vars?.length > 0 && (
+          <Popover title="Insert a field that fills in automatically" button={<><UserSquare className="h-4 w-4" /><span className="ml-1 text-sm">Insert field</span></>}>
+            <div className="w-64 max-h-80 overflow-y-auto">
+              {vars.map(v => (
+                <button key={v} className="flex w-full rounded px-2 py-1.5 text-left text-sm hover:bg-gray-100" onClick={() => chain().insertTemplateVar(v).run()}>
+                  {humaniseVar(v)}
+                </button>
+              ))}
+            </div>
+          </Popover>
+        )}
+        {!vars && !noFields && <Popover title="Insert a field that fills in automatically" button={<><UserSquare className="h-4 w-4" /><span className="ml-1 text-sm">Insert field</span></>}>
           <div className="w-72 max-h-96 overflow-y-auto">
             <button className="flex w-full rounded px-2 py-1.5 text-left text-sm hover:bg-gray-100" onClick={() => chain().insertPracticeLogo().run()}>
               Practice logo
@@ -152,7 +166,7 @@ export default function Toolbar({ editor, fields, onPickImage }) {
               </div>
             ))}
           </div>
-        </Popover>
+        </Popover>}
         <Sep />
         <Btn title="Clear formatting" onClick={() => chain().unsetAllMarks().clearNodes().run()}><RemoveFormatting className="h-4 w-4" /></Btn>
       </div>

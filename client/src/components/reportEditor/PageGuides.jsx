@@ -12,9 +12,12 @@ const CONTENT_HEIGHT = PAGE.height - PAGE.margin * 2;
 function computeGuides(sheet) {
   const pm = sheet.querySelector('.ProseMirror');
   if (!pm) return { guides: [], pages: 1 };
-  const sheetTop = sheet.getBoundingClientRect().top;
-  const breaks = [...pm.querySelectorAll(':scope > .page-break')].map(el => el.getBoundingClientRect().bottom - sheetTop);
-  const end = pm.getBoundingClientRect().bottom - sheetTop;
+  // The sheet may be shown scaled down (a note in the appointment window) — measure in the
+  // sheet's own, unscaled coordinates.
+  const rect = sheet.getBoundingClientRect();
+  const k = sheet.offsetHeight ? rect.height / sheet.offsetHeight : 1;
+  const breaks = [...pm.querySelectorAll(':scope > .page-break')].map(el => (el.getBoundingClientRect().bottom - rect.top) / k);
+  const end = (pm.getBoundingClientRect().bottom - rect.top) / k;
   const guides = [];
   let pageStart = PAGE.margin, pages = 1, b = 0;
   for (let guard = 0; guard < 500; guard++) {

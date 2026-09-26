@@ -4,12 +4,13 @@ import Modal from './ui/Modal';
 import Button from './ui/Button';
 import AddressAutocomplete from './AddressAutocomplete';
 import { Trash2, Plus, FileText, Pencil, RefreshCw, Mail, AlertCircle, CheckCircle, TriangleAlert, Paperclip, Upload, Download, File as FileIcon, X, CalendarOff, Link2 } from 'lucide-react';
-import { localToday, fmtDate, fmtDateTime, downloadFile, roundQty, cn, noteHtml } from '../lib/utils';
+import { localToday, fmtDate, fmtDateTime, downloadFile, roundQty, cn, noteHtml, substituteVars } from '../lib/utils';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
 import SessionNoteEmailModal from './SessionNoteEmailModal';
 import DateTimeStepper from './DateTimeStepper';
-import RichEditor from './RichEditor';
+import DocEditor from './reportEditor/DocEditor';
+import DocView from './reportEditor/DocView';
 import { useConfirm } from './ui/ConfirmDialog';
 
 const EMPTY_ITEM = { service_id: '', description: '', quantity: 1, unit_rate: 0, travel_time_to: '', travel_time_from: '', travel_km: '', notes_min: '', item_notes: '' };
@@ -166,8 +167,8 @@ function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChan
     try {
       const saved = localStorage.getItem(noteDraftKey(appointmentId));
       // Unlike the client profile's compose box, this one isn't conditionally mounted, so by the
-      // time this effect runs the RichEditor (and its underlying Quill instance) already exists —
-      // defaultValue only applies at mount, so push a restored draft in imperatively instead.
+      // time this effect runs the editor already exists — its value only applies at mount, so push
+      // a restored draft in imperatively instead.
       if (saved) draftHtmlRef.current?.(saved);
     } catch {}
   }, [appointmentId]);
@@ -201,9 +202,9 @@ function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChan
       date:               today,
       next_appointment:   nextAppt,
     };
-    // Templates are themselves Quill-authored HTML — substitute vars directly into it (rather
+    // Templates are themselves HTML — substitute vars directly into it (rather
     // than stripping to plain text first) so a template's own formatting carries into the note.
-    const rendered = (t.body || '').replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
+    const rendered = substituteVars(t.body, vars);
     draftHtmlRef.current?.(rendered);
   };
 
@@ -220,7 +221,7 @@ function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChan
         await api.post('/session-note-files', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       }
       setDraftPersist(''); setStagedFiles([]); load();
-      // The compose box is a Quill editor that only reads its content once, at mount — clearing
+      // The compose box only reads its content once, at mount — clearing
       // the draft state alone leaves the saved text on screen, inviting a duplicate "Add note".
       draftHtmlRef.current?.('');
       onNotesChanged?.(); // calendar's note icon
@@ -254,7 +255,7 @@ function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChan
         <div key={n.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
           {editingId === n.id ? (
             <div className="space-y-2">
-              <RichEditor defaultValue={editText} onChange={setEditText} toolbar="session-note" />
+              <DocEditor value={editText} onChange={setEditText} uploadUrl="/session-notes/images" placeholder="Write the session note…" />
               <div className="flex gap-2 justify-end">
                 <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
                 <Button size="sm" onClick={() => saveEdit(n.id)}>Save</Button>
@@ -266,7 +267,7 @@ function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChan
                 <input type="checkbox" className="mt-1 accent-indigo-600 shrink-0"
                   checked={selectedIds.includes(n.id)} onChange={() => toggleSelect(n.id)} />
                 <div className="flex-1">
-                  <div className="text-sm text-gray-800" dangerouslySetInnerHTML={{ __html: noteHtml(n.note) }} />
+                  <DocView html={n.note} className="text-sm text-gray-800" />
                   <p className="text-xs text-gray-400 mt-1">{n.practitioner_name && <span>{n.practitioner_name} · </span>}{fmtDateTime(n.created_at, timezone)}</p>
                 </div>
                 <div className="flex gap-1 shrink-0">
@@ -340,7 +341,7 @@ function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChan
             ))}
           </div>
         )}
-        <RichEditor defaultValue={draft} onChange={setDraftPersist} htmlRef={draftHtmlRef} toolbar="session-note" />
+        <DocEditor value={draft} onChange={setDraftPersist} htmlRef={draftHtmlRef} uploadUrl="/session-notes/images" placeholder="Write the session note…" maxHeight={400} />
         {stagedFiles.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {stagedFiles.map(sf => (

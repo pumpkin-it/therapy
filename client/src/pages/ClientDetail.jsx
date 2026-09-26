@@ -10,8 +10,9 @@ import Input from '../components/ui/Input';
 import SearchSelect from '../components/ui/SearchSelect';
 import Modal from '../components/ui/Modal';
 import { EmbeddedCalendar } from '../components/CalendarViews';
-import { localToday, fmtDateTime, fmtDateOnly, downloadFile, currency, noteHtml, notePlainText } from '../lib/utils';
-import RichEditor from '../components/RichEditor';
+import { localToday, fmtDateTime, fmtDateOnly, downloadFile, currency, noteHtml, notePlainText, substituteVars } from '../lib/utils';
+import DocEditor from '../components/reportEditor/DocEditor';
+import DocView from '../components/reportEditor/DocView';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import AgreementPricingTable from '../components/AgreementPricingTable';
@@ -1645,9 +1646,9 @@ function SessionNotesTab({ clientId, client }) {
       date:              today,
       next_appointment:  nextAppt,
     };
-    // Templates are themselves Quill-authored HTML — substitute vars directly into it (rather
+    // Templates are themselves HTML — substitute vars directly into it (rather
     // than stripping to plain text first) so a template's own formatting carries into the note.
-    const rendered = (t.body || '').replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
+    const rendered = substituteVars(t.body, vars);
     newNoteHtmlRef.current?.(rendered);
   };
 
@@ -1792,7 +1793,7 @@ function SessionNotesTab({ clientId, client }) {
               ))}
             </div>
           )}
-          <RichEditor defaultValue={newNote} onChange={setNewNoteDraft} htmlRef={newNoteHtmlRef} toolbar="session-note" />
+          <DocEditor value={newNote} onChange={setNewNoteDraft} htmlRef={newNoteHtmlRef} uploadUrl="/session-notes/images" placeholder="Write the session note…" />
           {stagedFiles.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {stagedFiles.map(sf => (
@@ -1846,7 +1847,7 @@ function SessionNotesTab({ clientId, client }) {
           <div key={n.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
             {editingId === n.id ? (
               <div className="space-y-2">
-                <RichEditor defaultValue={editText} onChange={setEditText} toolbar="session-note" />
+                <DocEditor value={editText} onChange={setEditText} uploadUrl="/session-notes/images" placeholder="Write the session note…" />
                 <div className="flex gap-2 justify-end">
                   <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
                   <Button size="sm" onClick={() => saveEdit(n.id)}>Save</Button>
@@ -1862,7 +1863,7 @@ function SessionNotesTab({ clientId, client }) {
                       {q
                         ? highlightText(plain, searchQuery)
                         : isExpanded
-                          ? <div dangerouslySetInnerHTML={{ __html: noteHtml(n.note) }} />
+                          ? <DocView html={n.note} />
                           : snippet}
                     </div>
                     <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-1">

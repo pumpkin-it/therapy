@@ -15,6 +15,8 @@ app.use(cors());
 // A long report draft (TipTap JSON, autosaved as a whole) easily passes the default 100kb body
 // limit — raised for report routes only. body-parser skips the global parser below once parsed.
 app.use(['/api/billable-reports', '/api/report-doc-templates'], express.json({ limit: '10mb' }));
+// Notes and templates written in the document editor can be long (pictures are uploaded separately).
+app.use(['/api/session-notes', '/api/templates'], express.json({ limit: '2mb' }));
 app.use(express.json());
 
 // Initialise DB on startup

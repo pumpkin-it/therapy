@@ -213,3 +213,38 @@ export async function prepareImage(file) {
   const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.85));
   return new File([blob], file.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
 }
+
+// A {{variable}} in an email, session-note or agreement template, shown as a chip with a readable
+// name. Stored as <span data-var="client_name">{{client_name}}</span>, so the {{…}} text the
+// server substitutes is still there (mailer.js renderTemplate unwraps the span first).
+const ACRONYMS = { abn: 'ABN', ndis: 'NDIS', url: 'URL' };
+export const humaniseVar = key => {
+  const s = String(key || '').split('_').map(w => ACRONYMS[w] || w).join(' ');
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+
+export const TemplateVar = Node.create({
+  name: 'templateVar',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  selectable: true,
+  addAttributes() {
+    return { key: { default: null, parseHTML: el => el.getAttribute('data-var'), renderHTML: a => ({ 'data-var': a.key }) } };
+  },
+  parseHTML() { return [{ tag: 'span[data-var]' }]; },
+  renderHTML({ HTMLAttributes, node }) { return ['span', mergeAttributes(HTMLAttributes), `{{${node.attrs.key}}}`]; },
+  renderText({ node }) { return `{{${node.attrs.key}}}`; },
+  addNodeView() {
+    return ({ node }) => {
+      const dom = document.createElement('span');
+      dom.className = 'client-field is-template';
+      dom.textContent = humaniseVar(node.attrs.key);
+      dom.title = `Fills in with the ${humaniseVar(node.attrs.key).toLowerCase()} — {{${node.attrs.key}}}`;
+      return { dom };
+    };
+  },
+  addCommands() {
+    return { insertTemplateVar: key => ({ commands }) => commands.insertContent({ type: this.name, attrs: { key } }) };
+  },
+});

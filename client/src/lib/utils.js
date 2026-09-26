@@ -34,9 +34,13 @@ export const fmtDateOnly = (utcStr, tz = 'Australia/Sydney') => {
 
 export const cn = (...classes) => classes.filter(Boolean).join(' ');
 
+// Templates written in the document editor keep each variable in a chip:
+// <span data-var="client_name">{{client_name}}</span> — unwrapped before substituting.
+export const unwrapVarChips = html => String(html).replace(/<span data-var="(\w+)"[^>]*>\{\{\1\}\}<\/span>/g, '{{$1}}');
+
 export const substituteVars = (text, vars) => {
   if (!text) return '';
-  return text.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
+  return unwrapVarChips(text).replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
 };
 
 // Session notes moved from plain text to Quill-authored HTML — these three helpers let both

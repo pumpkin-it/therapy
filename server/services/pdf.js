@@ -133,333 +133,92 @@ function generateInvoicePdf(data) {
   });
 }
 
-// Named HTML entities used in agreement template content (typographic punctuation, checkboxes,
-// etc.) — the client-side htmlToPlain in AppointmentModal.jsx only needs a handful of these
-// since Quill rarely emits them, but the docx-derived agreement templates use them throughout.
-const NAMED_ENTITIES = {
-  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ',
-  ndash: '–', mdash: '—', rsquo: '’', lsquo: '‘',
-  rdquo: '”', ldquo: '“', hellip: '…', copy: '©', reg: '®', trade: '™',
-};
+// ─── Agreements and session notes ─────────────────────────────────────────────
+// Printed with headless Chrome (docPdf.renderHtmlPdf) from the stored HTML, with the same
+// stylesheet and fonts as the document editor they're written in — so page breaks and the
+// "Page X of Y" footer match what the editor shows. (Written reports use docPdf.renderReportPdf.)
 
-// pdfkit's default Helvetica font only covers the WinAnsi glyph set — it can render en-dashes
-// and curly quotes fine, but not symbol characters like the ballot-box checkbox (U+2610), which
-// would otherwise render as a missing/blank glyph. Substitute those with a PDF-safe equivalent.
-const PDF_UNSAFE_CHARS = { '☐': '[ ]', '☑': '[x]' };
+const escHtml = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-function decodeHtmlEntities(str) {
-  return str
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(parseInt(dec, 10)))
-    .replace(/&(\w+);/g, (m, name) => NAMED_ENTITIES[name] ?? m)
-    .replace(/[☐☑]/g, ch => PDF_UNSAFE_CHARS[ch]);
+// Notes written before rich text are plain text — keep their line breaks.
+const noteBodyHtml = note => (/<[a-z][\s\S]*>/i.test(note || '') ? note : escHtml(note || '').replace(/\n/g, '<br>'));
+
+function logoHtml() {
+  const { dataUri } = require('./reportHtml');
+  const logo = dataUri(path.join(__dirname, '../../uploads/logo'));
+  return logo ? `<p><img src="${logo}" alt="" style="height:64px;width:auto;display:inline-block"></p>` : '';
 }
 
-// Quill's color picker inserts inline `style="color: rgb(r, g, b);"` (or a hex value if
-// configured with one) — pdfkit's fillColor wants a hex string, not raw CSS syntax.
-function toHexColor(cssColor) {
-  if (!cssColor) return null;
-  const rgb = cssColor.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
-  if (rgb) return '#' + rgb.slice(1, 4).map(n => Number(n).toString(16).padStart(2, '0')).join('');
-  if (/^#[0-9a-f]{3,6}$/i.test(cssColor)) return cssColor;
-  return null; // unrecognised format — fall back to the default fill colour
-}
-
-// Parses a Quill-authored HTML fragment (agreement/session-note body) into block-level chunks
-// (paragraphs / list items), each holding an ordered list of inline runs with their
-// bold/italic/underline/color/font state — so PDF output can preserve the formatting visible in
-// the editor instead of flattening everything to plain text. Color and font (Quill's built-in
-// serif/monospace whitelist, carried as a <span class="ql-font-*">) nest via a stack the same
-// way bold/italic/underline nest via booleans, since a span can wrap other formatted spans.
-function parseInlineRuns(html) {
-  const runs = [];
-  const withBreaks = html.replace(/<br\s*\/?>/gi, '\n');
-  const tagRegex = /<(\/?)(strong|b|em|i|u|span)([^>]*)>/gi;
-  let bold = false, italic = false, underline = false;
-  const colorStack = [];
-  const fontStack = [];
-  let lastIndex = 0;
-  let m;
-  const flush = end => {
-    const text = withBreaks.slice(lastIndex, end).replace(/<[^>]+>/g, '');
-    if (text) {
-      runs.push({
-        text: decodeHtmlEntities(text), bold, italic, underline,
-        color: colorStack[colorStack.length - 1] || null,
-        font: fontStack[fontStack.length - 1] || null,
-      });
-    }
-  };
-  while ((m = tagRegex.exec(withBreaks))) {
-    flush(m.index);
-    const closing = m[1] === '/';
-    const tag = m[2].toLowerCase();
-    const attrs = m[3] || '';
-    if (tag === 'strong' || tag === 'b') bold = !closing;
-    else if (tag === 'em' || tag === 'i') italic = !closing;
-    else if (tag === 'u') underline = !closing;
-    else if (tag === 'span') {
-      if (!closing) {
-        const colorMatch = attrs.match(/color:\s*([^;"']+)/i);
-        const fontMatch = attrs.match(/ql-font-(serif|monospace)/i);
-        colorStack.push(colorMatch ? toHexColor(colorMatch[1].trim()) : (colorStack[colorStack.length - 1] || null));
-        fontStack.push(fontMatch ? fontMatch[1].toLowerCase() : (fontStack[fontStack.length - 1] || null));
-      } else {
-        colorStack.pop();
-        fontStack.pop();
-      }
-    }
-    lastIndex = tagRegex.lastIndex;
-  }
-  flush(withBreaks.length);
-  return runs.filter(r => r.text.length > 0);
-}
-
-function parseRichHtml(html) {
-  if (!html) return [];
-  const blocks = [];
-  const blockRegex = /<li[^>]*>([\s\S]*?)<\/li>|<p[^>]*>([\s\S]*?)<\/p>/gi;
-  let match;
-  let any = false;
-  while ((match = blockRegex.exec(html))) {
-    any = true;
-    const isListItem = match[0].toLowerCase().startsWith('<li');
-    const inner = match[1] !== undefined ? match[1] : match[2];
-    const runs = parseInlineRuns(inner);
-    if (runs.length) blocks.push({ listItem: isListItem, runs });
-  }
-  if (!any && html.trim()) {
-    const runs = parseInlineRuns(html);
-    if (runs.length) blocks.push({ listItem: false, runs });
-  }
-  return blocks;
-}
-
-// pdfkit ships 14 standard fonts including full Times/Courier families — a happy match for
-// Quill's built-in font whitelist (default sans, serif, monospace), so "different fonts" needs
-// no embedded font files, just picking the right one of the 14 per run.
-function pdfFontFor(fontKey, bold, italic) {
-  if (fontKey === 'serif') {
-    if (bold && italic) return 'Times-BoldItalic';
-    if (bold) return 'Times-Bold';
-    if (italic) return 'Times-Italic';
-    return 'Times-Roman';
-  }
-  if (fontKey === 'monospace') {
-    if (bold && italic) return 'Courier-BoldOblique';
-    if (bold) return 'Courier-Bold';
-    if (italic) return 'Courier-Oblique';
-    return 'Courier';
-  }
-  if (bold && italic) return 'Helvetica-BoldOblique';
-  if (bold) return 'Helvetica-Bold';
-  if (italic) return 'Helvetica-Oblique';
-  return 'Helvetica';
-}
-
-// Draws parsed rich-text blocks at the given position, preserving bold/italic/underline/
-// color/font and bullet points (PDFKit has no built-in HTML renderer, so formatting must be
-// replayed manually via font/fill-color switching between each inline run within a
-// `continued: true` chain).
-function drawRichBlocks(doc, blocks, x, y, { width = 495, fontSize = 10 } = {}) {
-  doc.x = x;
-  doc.y = y;
-  doc.fillColor('#111').fontSize(fontSize);
-  for (const block of blocks) {
-    if (!block.runs.length) continue;
-    const prefix = block.listItem ? '•  ' : '';
-    block.runs.forEach((run, i) => {
-      const text = i === 0 ? prefix + run.text : run.text;
-      doc.font(pdfFontFor(run.font, run.bold, run.italic));
-      doc.fillColor(run.color || '#111');
-      const isLast = i === block.runs.length - 1;
-      doc.text(text, { continued: !isLast, underline: run.underline, width });
-    });
-    doc.moveDown(0.5);
-  }
-  doc.fillColor('#111');
-  return doc.y;
-}
-
-// Pulls the pricing rows back out of the <table> embedded in rendered_html (produced by
-// templateVars.js's renderPricingTableHtml — fixed 5-cell rows). This is exactly what the
-// client sees on the signing link (and, once sent, the frozen snapshot they signed), so the
-// PDF always matches it — whether the rows came from manual agreement_items or a linked budget.
-function pricingRowsFromHtml(tableHtml) {
-  const tbody = tableHtml.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i);
-  if (!tbody) return [];
-  const cellText = c => decodeHtmlEntities(c.replace(/<[^>]+>/g, '').trim());
-  const num = s => Number(String(s).replace(/[$,\s]/g, '')) || 0;
-  const rows = [];
-  for (const tr of tbody[1].match(/<tr[^>]*>[\s\S]*?<\/tr>/gi) || []) {
-    const cells = (tr.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || []).map(c => cellText(c.replace(/^<td[^>]*>|<\/td>$/gi, '')));
-    if (cells.length < 5) continue;
-    rows.push({ description: cells[0], code: cells[1], quantity: num(cells[2]), unit_rate: num(cells[3]), line_total: num(cells[4]) });
-  }
-  return rows;
-}
-
-// Renders an agreement's rendered_html (prose + the {{pricing_table}} placeholder already
-// substituted with a real <table>) into a PDF, redrawing the table with the same fixed-column
-// row-loop used for invoices.
+// Renders an agreement's rendered_html (the template with every {{variable}} — including the
+// pricing table — already filled in) plus, once signed, the signing audit trail.
 function generateAgreementPdf(agreement) {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 50, size: 'A4' });
-    const chunks = [];
-    doc.on('data', c => chunks.push(c));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', reject);
-
-    const right = 545;
-
-    // Logo (top left) — same placement/pattern as the invoice PDF
-    const logoPath = path.join(__dirname, '../../uploads/logo');
-    let titleY = 50;
-    if (fs.existsSync(logoPath)) {
-      try { doc.image(logoPath, 50, 40, { height: 50 }); titleY = 110; } catch {}
+  const { renderHtmlPdf } = require('./docPdf');
+  const fmt = d => new Date(d).toLocaleString('en-AU', { timeZone: 'Australia/Melbourne' });
+  // A full chain-of-custody trail, not just the final signature — sent/viewed/signed timestamps,
+  // the IP/device from the FIRST view compared against the IP/device at the actual sign action, a
+  // reference to the unique link used (proof of possession, not just a typed name), and a content
+  // hash (proof this exact document, unaltered, is what was signed). None of this is airtight
+  // proof of identity on its own, but together it's real evidence beyond an assertion.
+  const trail = [];
+  if (agreement.signer_name) {
+    const a = agreement;
+    if (a.sent_at) trail.push(`Sent: ${fmt(a.sent_at)}`);
+    if (a.viewed_at) {
+      trail.push(`Viewed: ${fmt(a.viewed_at)}${a.viewed_ip ? ` from ${a.viewed_ip}` : ''}`);
+      if (a.viewed_user_agent) trail.push(`Viewing device/browser: ${a.viewed_user_agent}`);
     }
-
-    doc.fontSize(16).font('Helvetica-Bold').text(agreement.title, 50, titleY);
-    doc.moveDown(1);
-
-    const tableMatch = agreement.rendered_html.match(/<table[\s\S]*?<\/table>/i);
-    const htmlRows = tableMatch ? pricingRowsFromHtml(tableMatch[0]) : [];
-    const pricingRows = htmlRows.length ? htmlRows : (agreement.items || []);
-
-    const [beforeHtml, afterHtml] = agreement.rendered_html
-      .replace(/<table[\s\S]*?<\/table>/i, '[[PRICING_TABLE]]')
-      .split('[[PRICING_TABLE]]');
-
-    const beforeBlocks = parseRichHtml(beforeHtml);
-    if (beforeBlocks.length) drawRichBlocks(doc, beforeBlocks, 50, doc.y, { width: 495 });
-
-    // Pricing table
-    const tableY = doc.y + 15;
-    doc.rect(50, tableY, 495, 18).fill('#f3f4f6');
-    doc.fillColor('#111').font('Helvetica-Bold').fontSize(8);
-    doc.text('Service',  55, tableY + 5, { width: 220 });
-    doc.text('Code',    275, tableY + 5, { width: 90 });
-    doc.text('Qty',     365, tableY + 5, { width: 40, align: 'right' });
-    doc.text('Rate',    405, tableY + 5, { width: 60, align: 'right' });
-    doc.text('Total',   465, tableY + 5, { width: 65, align: 'right' });
-
-    let rowY = tableY + 20;
-    doc.font('Helvetica').fontSize(8);
-    for (const item of pricingRows) {
-      doc.fillColor('#111').text(item.description, 55, rowY, { width: 220 });
-      doc.text(item.code || '', 275, rowY, { width: 90 });
-      doc.text(Number(item.quantity).toFixed(2), 365, rowY, { width: 40, align: 'right' });
-      doc.text(`$${Number(item.unit_rate).toFixed(2)}`, 405, rowY, { width: 60, align: 'right' });
-      doc.text(`$${Number(item.line_total).toFixed(2)}`, 465, rowY, { width: 65, align: 'right' });
-      rowY = doc.y + 3;
-      doc.moveTo(50, rowY).lineTo(right, rowY).strokeColor('#e5e7eb').stroke();
-      rowY += 4;
+    trail.push(`Signed by: ${a.signer_name}${a.signer_email ? ` <${a.signer_email}>` : ''}`);
+    if (a.signed_at) trail.push(`Signed: ${fmt(a.signed_at)}${a.signed_ip ? ` from ${a.signed_ip}` : ''}`);
+    if (a.signed_user_agent) trail.push(`Signing device/browser: ${a.signed_user_agent}`);
+    if (a.viewed_ip && a.signed_ip) {
+      const sameIp = a.viewed_ip === a.signed_ip;
+      const sameDevice = a.viewed_user_agent === a.signed_user_agent;
+      trail.push(`Same IP/device as initial view: ${sameIp && sameDevice ? 'Yes' : sameIp ? 'Same IP, different device' : 'No — different IP'}`);
     }
-
-    const grandTotal = pricingRows.reduce((s, i) => s + Number(i.line_total || 0), 0);
-    doc.font('Helvetica-Bold').fontSize(10);
-    doc.text('Grand Total', 365, rowY + 8, { width: 100, align: 'right' });
-    doc.text(`$${grandTotal.toFixed(2)}`, 465, rowY + 8, { width: 65, align: 'right' });
-
-    let footerY = rowY + 35;
-    const afterBlocks = parseRichHtml(afterHtml);
-    if (afterBlocks.length) { footerY = drawRichBlocks(doc, afterBlocks, 50, footerY, { width: 495 }) + 20; }
-
-    // A full chain-of-custody trail, not just the final signature — sent/viewed/signed
-    // timestamps, the IP/device from the FIRST view compared against the IP/device at the actual
-    // sign action, a reference to the unique link used (proof of possession, not just a typed
-    // name), and a content hash (proof this exact document, unaltered, is what was signed). None
-    // of this is airtight proof of identity on its own, but together it's real evidence beyond an
-    // assertion — and a mismatch between viewed/signed device is exactly what would need
-    // explaining if this were ever challenged.
-    if (agreement.signer_name) {
-      doc.moveTo(50, footerY).lineTo(right, footerY).strokeColor('#e5e7eb').stroke();
-      footerY += 10;
-      doc.font('Helvetica-Bold').fontSize(9).text('SIGNING AUDIT TRAIL', 50, footerY);
-      footerY += 14;
-      doc.font('Helvetica').fontSize(8.5).fillColor('#333');
-      const line = text => { doc.text(text, 50, footerY, { width: 495 }); footerY = doc.y + 2; };
-      if (agreement.sent_at) line(`Sent: ${new Date(agreement.sent_at).toLocaleString('en-AU')}`);
-      if (agreement.viewed_at) {
-        line(`Viewed: ${new Date(agreement.viewed_at).toLocaleString('en-AU')}${agreement.viewed_ip ? ` from ${agreement.viewed_ip}` : ''}`);
-        if (agreement.viewed_user_agent) line(`  Viewing device/browser: ${agreement.viewed_user_agent}`);
-      }
-      line(`Signed by: ${agreement.signer_name}${agreement.signer_email ? ` <${agreement.signer_email}>` : ''}`);
-      if (agreement.signed_at) line(`Signed: ${new Date(agreement.signed_at).toLocaleString('en-AU')}${agreement.signed_ip ? ` from ${agreement.signed_ip}` : ''}`);
-      if (agreement.signed_user_agent) line(`  Signing device/browser: ${agreement.signed_user_agent}`);
-      if (agreement.viewed_ip && agreement.signed_ip) {
-        const sameIp = agreement.viewed_ip === agreement.signed_ip;
-        const sameDevice = agreement.viewed_user_agent === agreement.signed_user_agent;
-        line(`Same IP/device as initial view: ${sameIp && sameDevice ? 'Yes' : sameIp ? 'Same IP, different device' : 'No — different IP'}`);
-      }
-      if (agreement.signing_token) {
-        const tokenRef = crypto.createHash('sha256').update(agreement.signing_token).digest('hex');
-        line(`Signing link reference (SHA-256 of the unique link token): ${tokenRef}`);
-      }
-      if (agreement.content_hash) line(`Document content hash (SHA-256): ${agreement.content_hash}`);
-      line(`Agreement ID: ${agreement.id}`);
-    }
-
-    doc.end();
-  });
+    if (a.signing_token) trail.push(`Signing link reference (SHA-256 of the unique link token): ${crypto.createHash('sha256').update(a.signing_token).digest('hex')}`);
+    if (a.content_hash) trail.push(`Document content hash (SHA-256): ${a.content_hash}`);
+    trail.push(`Agreement ID: ${a.id}`);
+  }
+  const trailHtml = trail.length ? `
+    <div style="break-inside:avoid;margin-top:2em;padding-top:0.8em;border-top:1px solid #e5e7eb;font-size:8.5pt;color:#333">
+      <p style="font-weight:700;font-size:9pt">SIGNING AUDIT TRAIL</p>
+      ${trail.map(t => `<p style="margin:0.2em 0;word-break:break-all">${escHtml(t)}</p>`).join('')}
+    </div>` : '';
+  // The template normally places the pricing table via {{pricing_table}}; if it doesn't, the
+  // agreement's own items are still listed (as the previous PDF did).
+  let body = agreement.rendered_html || '';
+  if (!/<table\b/i.test(body) && agreement.items?.length) {
+    const { renderPricingTableHtml } = require('./templateVars');
+    body += renderPricingTableHtml(agreement.items);
+  }
+  const html = `${logoHtml()}<h1>${escHtml(agreement.title)}</h1>${body}${trailHtml}`;
+  return renderHtmlPdf({ html, footer: { clientName: agreement.client_name, title: agreement.title } });
 }
 
-// Renders one or more session notes (already loaded with practitioner_name/created_at) into a
-// simple PDF for download or emailing to a client/third party. Notes are Quill-authored HTML —
-// parseRichHtml/drawRichBlocks (shared with the agreement PDF) replays bold/italic/underline/
-// color/font. A legacy plain-text note (written before rich text existed, no HTML tags at all)
-// still renders correctly: parseRichHtml's no-block-match fallback treats it as one plain run,
-// identical to the old `doc.text(note.note, ...)` call this replaces.
+// One or more session notes (already loaded with practitioner_name/appointment_time/created_at),
+// one after another, for download or emailing to a client or third party.
 function generateSessionNotePdf({ client_name, notes }) {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 50, size: 'A4' });
-    const chunks = [];
-    doc.on('data', c => chunks.push(c));
-    doc.on('end', () => resolve(Buffer.concat(chunks)));
-    doc.on('error', reject);
-
-    const right = 545;
-
-    // Logo (top left) — same placement/pattern as the invoice/agreement PDFs
-    const logoPath = path.join(__dirname, '../../uploads/logo');
-    let titleY = 50;
-    if (fs.existsSync(logoPath)) {
-      try { doc.image(logoPath, 50, 40, { height: 50 }); titleY = 110; } catch {}
-    }
-
-    doc.fontSize(16).font('Helvetica-Bold').text('Session Notes', 50, titleY);
-    doc.fontSize(10).font('Helvetica').fillColor('#555').text(client_name, 50, doc.y + 4);
-    doc.moveDown(1.5);
-
-    for (const note of notes || []) {
-      // Show the actual SESSION date (the linked appointment's start_time), not created_at (when
-      // the note was typed) — a note entered days after the session must still show the session
-      // date. appointment_time is naive LOCAL Sydney time, parsed with no 'Z'; created_at is naive
-      // UTC and needs one appended — see sessionNotes.js's sessionDateOf for the full rationale.
-      // A standalone note with no linked appointment falls back to created_at, its only real date.
-      const sessionDate = note.appointment_time
-        ? new Date(note.appointment_time)
-        : note.created_at
-          ? new Date(note.created_at.endsWith('Z') ? note.created_at : note.created_at + 'Z')
-          : null;
-      const dateLabel = sessionDate
-        ? sessionDate.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Australia/Sydney' })
-        : '';
-      doc.font('Helvetica-Bold').fontSize(10).fillColor('#111').text(dateLabel, 50, doc.y);
-      if (note.practitioner_name) {
-        doc.font('Helvetica').fontSize(9).fillColor('#666').text(note.practitioner_name, 50, doc.y + 2);
-      }
-      doc.moveDown(0.4);
-      const blocks = parseRichHtml(note.note);
-      doc.y = drawRichBlocks(doc, blocks, 50, doc.y, { width: 495, fontSize: 10 });
-      doc.moveDown(0.6);
-      const lineY = doc.y;
-      doc.moveTo(50, lineY).lineTo(right, lineY).strokeColor('#e5e7eb').stroke();
-      doc.moveDown(0.8);
-    }
-
-    doc.end();
+  const { renderHtmlPdf } = require('./docPdf');
+  const parts = (notes || []).map(note => {
+    // Show the actual SESSION date (the linked appointment's start_time), not created_at (when the
+    // note was typed) — a note entered days after the session must still show the session date.
+    // appointment_time is naive LOCAL time, parsed with no 'Z'; created_at is naive UTC and needs
+    // one appended — see sessionNotes.js's sessionDateOf. A standalone note (no appointment)
+    // falls back to created_at, its only real date.
+    const sessionDate = note.appointment_time
+      ? new Date(note.appointment_time)
+      : note.created_at ? new Date(note.created_at.endsWith('Z') ? note.created_at : note.created_at + 'Z') : null;
+    const dateLabel = sessionDate
+      ? sessionDate.toLocaleDateString('en-AU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Australia/Melbourne' })
+      : '';
+    return `<div class="note-head" style="break-after:avoid;margin-top:1.4em;padding-top:0.6em;border-top:1px solid #e5e7eb">
+        <p style="font-weight:700">${escHtml(dateLabel)}</p>
+        ${note.practitioner_name ? `<p style="margin:0;font-size:9pt;color:#6b7280">${escHtml(note.practitioner_name)}</p>` : ''}
+      </div>
+      <div class="note-body">${noteBodyHtml(note.note)}</div>`;
   });
+  const html = `${logoHtml()}<h1>Session notes</h1><p style="color:#4b5563">${escHtml(client_name)}</p>${parts.join('')}`;
+  return renderHtmlPdf({ html, footer: { clientName: client_name, title: 'Session notes' } });
 }
 
 module.exports = { generateInvoicePdf, generateAgreementPdf, generateSessionNotePdf };
