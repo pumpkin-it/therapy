@@ -16,7 +16,6 @@ body {
 
 /* Document editor (components/reportEditor/DocEditor.jsx) in its plain, page-less layout. */
 .doc-plain .report-doc { min-height: 12rem; }
-.doc-page .report-doc { min-height: 0; }
 
 /* Saved notes and agreements shown in the app — the document's own styles (lists, tables,
    pictures), at the surrounding text size. */

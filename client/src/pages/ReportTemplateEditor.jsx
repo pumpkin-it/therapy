@@ -6,6 +6,7 @@ import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Toolbar from '../components/reportEditor/Toolbar';
 import PageGuides, { PAGE } from '../components/reportEditor/PageGuides';
+import ScaledSheet from '../components/reportEditor/ScaledSheet';
 import useDocEditor from '../components/reportEditor/useDocEditor';
 import { useConfirm } from '../components/ui/ConfirmDialog';
 
@@ -26,6 +27,7 @@ export default function ReportTemplateEditor() {
   const [notice, setNotice] = useState('');
   const [pages, setPages] = useState(1);
   const sheetRef = useRef(null);
+  const [scale, setScale] = useState(1);
   const fileInputRef = useRef();
   const loadedRef = useRef(false);
   const savedJsonRef = useRef(null);
@@ -131,12 +133,13 @@ export default function ReportTemplateEditor() {
       </div>
 
       <div className="px-4 py-6">
-        <div ref={sheetRef} className="relative mx-auto bg-white shadow-sm ring-1 ring-gray-200"
-          style={{ width: PAGE.width, minHeight: PAGE.height, padding: PAGE.margin }}>
+        <ScaledSheet sheetRef={sheetRef} onScale={setScale}>
           <PageGuides editor={editor} sheetRef={sheetRef} onPageCount={setPages} />
           <div className="relative"><EditorContent editor={editor} /></div>
-        </div>
-        <p className="mx-auto mt-3 text-right text-xs text-gray-500" style={{ width: PAGE.width }}>{pages} page{pages === 1 ? '' : 's'}</p>
+        </ScaledSheet>
+        <p className="mx-auto mt-3 text-right text-xs text-gray-500" style={{ maxWidth: PAGE.width }}>
+          {pages} page{pages === 1 ? '' : 's'}{scale < 0.99 ? ` · shown at ${Math.round(scale * 100)}%` : ''}
+        </p>
       </div>
     </div>
   );

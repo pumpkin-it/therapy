@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { EditorContent } from '@tiptap/react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import Toolbar from './Toolbar';
-import PageGuides, { PAGE } from './PageGuides';
+import PageGuides from './PageGuides';
+import ScaledSheet from './ScaledSheet';
 import useDocEditor from './useDocEditor';
 import { toEditorHtml, fromEditor } from './docHtml';
 
@@ -24,12 +25,10 @@ export default function DocEditor({ value, onChange, layout = 'page', vars = nul
   const [pages, setPages] = useState(1);
   const [expanded, setExpanded] = useState(false);
   const [scale, setScale] = useState(1);
-  const [sheetHeight, setSheetHeight] = useState(PAGE.height);
   const loadedRef = useRef(false);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const fileInputRef = useRef();
-  const areaRef = useRef();
   const sheetRef = useRef();
 
   const onUpdate = useCallback(ed => { if (loadedRef.current) onChangeRef.current?.(fromEditor(ed)); }, []);
@@ -47,23 +46,6 @@ export default function DocEditor({ value, onChange, layout = 'page', vars = nul
   const setHTML = html => editor?.commands.setContent(toEditorHtml(html, { vars: !!vars }), { emitUpdate: true });
   if (apiRef) apiRef.current = { setHTML, focus: () => editor?.commands.focus('end') };
   if (htmlRef) htmlRef.current = setHTML;
-
-  // Page layout: fit the A4 sheet to the width available (the appointment window is narrower than
-  // a page) by scaling it — lines wrap exactly as they will in the PDF either way.
-  useLayoutEffect(() => {
-    if (!isPage) return;
-    const area = areaRef.current, sheet = sheetRef.current;
-    if (!area || !sheet) return;
-    const measure = () => {
-      setScale(Math.min(1, (area.clientWidth - 32) / PAGE.width));
-      setSheetHeight(sheet.offsetHeight);
-    };
-    const ro = new ResizeObserver(measure);
-    ro.observe(area);
-    ro.observe(sheet);
-    measure();
-    return () => ro.disconnect();
-  }, [isPage, expanded]);
 
   // Expanded fills the window; Escape shrinks it back rather than closing the window underneath.
   useEffect(() => {
@@ -106,16 +88,12 @@ export default function DocEditor({ value, onChange, layout = 'page', vars = nul
       <div className={expanded ? 'shadow-sm' : ''}>{toolbar}</div>
       {noticeBar}
       {fileInput}
-      <div ref={areaRef} className={`overflow-auto px-4 py-4 ${expanded ? 'flex-1' : ''}`} style={expanded ? undefined : { maxHeight }}>
-        <div className="mx-auto" style={{ width: PAGE.width * scale, height: sheetHeight * scale }}>
-          <div style={{ width: PAGE.width, transform: `scale(${scale})`, transformOrigin: 'top left' }}>
-            <div ref={sheetRef} className="doc-page relative bg-white shadow-sm ring-1 ring-gray-200"
-              style={{ width: PAGE.width, minHeight: PAGE.height, padding: PAGE.margin }}>
-              <PageGuides editor={editor} sheetRef={sheetRef} onPageCount={setPages} />
-              <div className="relative"><EditorContent editor={editor} /></div>
-            </div>
-          </div>
-        </div>
+      {/* The appointment window is narrower than a page, so the page is usually shown scaled down. */}
+      <div className={`overflow-y-auto px-4 py-4 ${expanded ? 'flex-1' : ''}`} style={expanded ? undefined : { maxHeight }}>
+        <ScaledSheet sheetRef={sheetRef} onScale={setScale}>
+          <PageGuides editor={editor} sheetRef={sheetRef} onPageCount={setPages} />
+          <div className="relative"><EditorContent editor={editor} /></div>
+        </ScaledSheet>
       </div>
       <div className="flex items-center justify-between border-t border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-500">
         <span>{pages} page{pages === 1 ? '' : 's'}{scale < 0.99 ? ` · shown at ${Math.round(scale * 100)}%` : ''}</span>

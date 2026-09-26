@@ -59,7 +59,7 @@ export default function PageGuides({ editor, sheetRef, onPageCount }) {
   return guides.map(g => (
     <div key={g.page} className="pointer-events-none absolute inset-x-0 z-0" style={{ top: g.y }}>
       <div className="border-t border-dashed border-sky-300" />
-      <span className="absolute -top-2.5 left-full ml-2 whitespace-nowrap rounded bg-sky-50 px-1.5 text-[10px] font-medium text-sky-700 ring-1 ring-sky-200">
+      <span className="absolute -top-2.5 right-2 whitespace-nowrap rounded bg-sky-50 px-1.5 text-[10px] font-medium text-sky-700 ring-1 ring-sky-200">
         Page {g.page}
       </span>
     </div>
