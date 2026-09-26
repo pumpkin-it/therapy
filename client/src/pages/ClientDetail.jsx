@@ -2016,6 +2016,16 @@ export default function ClientDetail() {
   // ?tab= lets other pages (e.g. the report editor's back button) return to a specific tab.
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState(searchParams.get('tab') || 'details');
+  // Keep the selected tab visible when the tab row is scrolled (narrow window, or a link straight
+  // to a later tab).
+  const tabBarRef = useRef(null);
+  useEffect(() => {
+    const bar = tabBarRef.current, active = bar?.querySelector('[data-active]');
+    if (!bar || !active) return;
+    const { left, right } = active.getBoundingClientRect(), box = bar.getBoundingClientRect();
+    if (left < box.left) bar.scrollLeft -= box.left - left + 16;
+    else if (right > box.right) bar.scrollLeft += right - box.right + 16;
+  }, [tab, !!client]); // the tab row first appears once the client has loaded
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -2150,12 +2160,13 @@ export default function ClientDetail() {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="border-b border-gray-200">
-        <div className="flex gap-0">
+      {/* Tabs — one line; when they don't all fit (a narrower window) the row scrolls sideways on
+          its own instead of widening the whole page. */}
+      <div className="overflow-x-auto" ref={tabBarRef}>
+        <div className="flex w-max min-w-full border-b border-gray-200">
           {TABS.map(([tid, label]) => (
-            <button key={tid} onClick={() => setTab(tid)}
-              className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            <button key={tid} onClick={() => setTab(tid)} data-active={tab === tid || undefined}
+              className={`shrink-0 whitespace-nowrap px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
                 tab === tid ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}>
               {label}
