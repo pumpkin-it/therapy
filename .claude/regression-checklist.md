@@ -15,7 +15,13 @@ Each item: the flow, the concrete steps to exercise it, and what "still works" l
 ## 1. Add a new client
 Clients → Add client → fill first/last name, DOB, contact details → Save → new client appears
 in the list and opens correctly. If a similar name/DOB/phone/email already exists, the
-duplicate-detection warning banner appears (non-blocking).
+duplicate-detection warning banner appears (non-blocking). It fires when first **and** last name
+match an existing client **and** at least one of DOB / phone / email also matches — or the email
+alone matches. It's checked ~0.5 s after typing stops (the banner reads "Possible duplicate:").
+
+**Clients list** (UAT only until released, 2026-09-29): 50 per page with "1–50 of N clients" and
+Previous / Next. Search (name, full name, email, phone, or client code like C0012) and the
+Active / Inactive / All filter both go back to page 1.
 
 ## 2. Book an appointment
 Calendar → New appointment → pick Practitioner, Client, Funder (if the client has funding
@@ -50,18 +56,12 @@ appointment but skips the popup entirely. Confirmed 2026-09-08 by reading the so
 (`AppointmentModal.jsx`'s `del()` vs the generic save handler) after live testing showed a
 discrepancy — this is a real distinction in the app, not a bug in either path.
 
-**Known tool limitation**: when cancelling an appointment far enough out that no cancellation
-tier applies, the dedicated button's `del()` falls into a branch that calls native
-`window.confirm('Cancel this appointment?')`, which the Claude Browser pane tool suppresses and
-auto-answers "false" — the console shows `Page dialog suppressed (confirm): ...` when this
-happens. This means the confirmation-popup half of *this specific* (no-fee, no-tier) cancel
-path **cannot currently be verified through this tool** — every automated attempt will silently
-abort at the `confirm()` call. Item 5 below (cancelling within the policy window) does NOT hit
-this limitation — it uses a custom in-app confirmation instead — so prefer item 5 to verify the
-popup itself actually still works, and only use this item to confirm the plain-cancel
-status/badge behavior via the Status-dropdown proxy path, without expecting the popup to appear
-that way. Until the app is changed to use a custom modal here too (or the tooling gains dialog
-handling), treat the popup step of this specific item as **not automatable — verify manually**.
+**Confirmation window** (updated 2026-09-29): since 2026-09-26 this no-fee path uses the in-app
+confirm window (title "Cancel appointment", buttons **Keep it** / **Cancel appointment**) instead of
+the browser's native confirm(), so it IS automatable now. Check both: **Keep it** leaves the
+appointment untouched; **Cancel appointment** cancels it and then shows the "Appointment cancelled"
+window with Notify Practitioner / Notify Client / Done — click **Done**, don't notify. Escape on the
+confirm closes only the confirm, not the appointment window.
 
 ## 5. Late cancellation — billed and unbilled, verify the invoice extract
 Added 2026-09-08 after a real historical bug (memory: "Late-cancellation billing dropped
@@ -80,14 +80,14 @@ both variants below are fully automatable through this tool, unlike item 4.
 also has real travel/km/notes on its item → the policy prompt appears, showing the correct
 tier % and notice period → click "Apply N% late cancellation fee" → confirm the appointment now
 shows the **"LC" badge** (not plain "C") on the cancelled-only calendar view → open **Invoices →
-To Export** (or To Send) and confirm this appointment appears with a **non-zero amount** that
+MYOB Invoices** (or To Send) and confirm this appointment appears with a **non-zero amount** that
 correctly reflects the fee-percentage line **plus** any travel/km/notes lines (this is exactly
 the combination the historical bug dropped — don't just check that *an* amount shows, check that
 travel/km/notes weren't silently zeroed).
 
 **Unbilled**: click "Cancel appointment" on a second same-window appointment → at the same
 policy prompt, click "Go back" / decline the fee instead → confirm it shows the plain **"C"**
-badge (not "LC") → confirm this appointment does **NOT** appear on Invoices → To Export at all
+badge (not "LC") → confirm this appointment does **NOT** appear on Invoices → MYOB Invoices at all
 (cancelled + not billable should be fully excluded from the outstanding-to-bill list, unlike the
 billed case above).
 
@@ -154,7 +154,7 @@ succeeds → reopen the saved response, confirm the answers persisted correctly 
 calculated/derived field, e.g. LEFS's auto-summed total).
 
 ## 9. Invoicing — reach the confirm step
-Invoices → To Send (or To Export, depending on `invoicing_mode`) → open a real unbilled
+Invoices → To Send (or MYOB Invoices, depending on `invoicing_mode`) → open a real unbilled
 appointment → confirm the line items and total look right. Do not actually complete a real MYOB
 export or send a real invoice email unless the user has explicitly asked for that as part of
 this run.
@@ -164,6 +164,18 @@ screen in this mode — clicking "Export MYOB CSV" is a single action that immed
 export endpoint and stamps the appointment as exported. In this mode, **stop at "select the row
 and verify the line items/total in the list view"** — do not click Export, since that would
 complete a real (if harmless, QA-only-data) export rather than just previewing it.
+
+**MYOB Invoices screen** (2026-09-29, `export_only` mode): six status tiles (Not exported,
+Exported, Unpaid, Part paid, Paid, All) each show a count and $ that follow the date / client /
+practitioner filters; clicking a tile filters the list. Dates default to **This week** (the whole week to Sunday, nothing after); check Last week, This
+month, a Custom range and **All dates** — none of them show appointments after this week unless
+**Include future appointments** is ticked. Each tile reads "chosen dates / all dates" (e.g. Not
+exported 2 / 26), counts and $, both following the client/practitioner filters. Every row has a tick box; **select all** shows
+only on Not exported, Unpaid and Part paid. Ticking an already-exported row and clicking Export
+asks "Export again?" first (click Cancel). **Mark paid** appears only when every ticked row is
+Unpaid/Part paid. Clicking a row's MYOB invoice cell (owner/admin/finance) opens the edit window:
+invoice number, and payment — No payment / Part paid (amount paid ↔ amount due, worked out from the
+invoice total) / Paid in full. On QA data only.
 
 ## 10. Templates & Settings pages load cleanly
 Templates page — all five tabs (Email, Session Note, Agreement, Forms, Report) load without a
@@ -180,10 +192,20 @@ redirected to the test mailbox, so billing a real entry is safe there — check 
 arrived with a MYOB CSV whose line note reads "Report: <title> — 50% complete". Confirm a lower
 % than the current total is rejected. Upload a PDF, confirm the Files tab shows it as a billed
 report with no "Mark as released"/delete controls, and that the client link shows the blurred
-draft. Void the entry (admin/finance) and delete the QA report data afterwards.
+draft. As owner/admin/finance, click the entry's invoice number ("Add inv #") → the MYOB invoice
+window opens (invoice number + payment); set a number and Part paid → the entry's status updates
+(UAT only until released). Void the entry (admin/finance) and delete the QA report data afterwards.
 
-## 12. Report writing and report templates (UAT only until released)
-Added 2026-09-25. Report templates (sidebar, owner/admin) → open "Standard report" → fields show
+**Delete a fully voided report** (UAT only until released, fixed 2026-09-29): once every entry on
+the report is voided, the report's **Delete** button appears even though it has a file. The
+confirm text says the voided entries stay in the history and the client's link will stop working.
+Delete → the report leaves the Reports tab; the client link (/report/<token>) now shows "not
+found"; the file stays in Files as a plain unshared file (a "Share file" button, no "billed report"
+label), and it can now be deleted there. The voided entry still does NOT appear on the calendar.
+A report with a live (not voided) entry still has no Delete button (the API returns 409).
+
+## 12. Report writing and report templates (in production since 2026-09-26)
+Added 2026-09-25. **Templates → Report Templates tab** (owner/admin) → open "Standard report" → fields show
 as green labels, logo shows, Save stays greyed until something changes. Client → Reports → Start
 report with a template → Continue writing → every field on the cover page shows the client's real
 values (missing ones in amber), the footer shows words · pages, and "Saved <time>" appears a few
@@ -195,26 +217,127 @@ and lists saved copies. Page guides ("Page 2" etc.) appear when the text passes 
 full" (max half the pages) → Commit → lands on the client's Reports tab with the draft email open
 (don't send unless asked). The card shows "version 1 committed, locked"; Files has "<title>
 (version 1)"; the client link shows the blurred draft. Open the report → "Locked" banner, no
-toolbar. Unlock to revise → a reason is required → edit → Commit again → version 2; the old
-version's link stops working and the new one is a blurred draft. History → version 2 → Changes
+toolbar. Unlock to revise → a reason is required → edit → Commit again → version 2. The client
+keeps **the same link for the whole report** (since 2026-09-26): the link from the version 1 email
+still works and now shows version 2 as a blurred draft. History → version 2 → Changes
 shows the edit (added green/underlined, removed red/struck through); PDF buttons download each
 version.
+
+The Standard template's cover shows "Prepared by" (name) and "Position" (title) on separate
+rows, "Plan dates" as one field, and the practice contact line — no stray "," "·" or "–" when a
+value is missing (fixed 2026-09-26).
 
 **Forms note (2026-09-25):** UAT's current form templates have no required fields and no folders
 (the LEFS form was lost in an earlier UAT data refresh), so item 8's "blocked with missing fields"
 and folder-picker checks can't be exercised on UAT until such a template exists there again.
 
+## 13. Audit log (UAT only until released)
+Audit Log page shows the newest 200 entries; **Load older** adds the next 200 ("showing 400").
+Changing the type filter starts again from the newest.
+
+## 14. Sign-in security (UAT only until released, added 2026-09-29)
+- **Lockout:** 10 wrong passwords for one email → the 11th attempt (even with the RIGHT password)
+  shows "Too many attempts — try again in 15 minutes." Other emails can still sign in. Use a
+  throwaway QA account, never a real user's email. (Limits are per server process and reset when
+  the service restarts.)
+- **Forgot password:** more than 5 requests for one email in an hour → "Too many attempts".
+- **Password length:** the reset-password page and Users → edit (own password, or a user with no
+  email) reject anything under 8 characters.
+- **Reset links:** sending a new set-password link makes any earlier unused link for that user
+  stop working ("Invalid or expired reset link"); using a link also retires the others.
+- **No password hashes sent to the browser:** signed in as owner/admin/finance, DevTools → Network
+  → GET /api/practitioners (Users page) and GET /api/practitioners/<id> → the JSON has no
+  `password_hash` field. Users page still lists, edits and saves users normally.
+
 ---
 
+## How to run this (read first)
+**Claude can't sign in to UAT or production** — it may not type a password into a non-local site,
+and token injection counts as the same thing. So there are two ways to run the checklist:
+
+**A. On UAT, with the user signed in.** Ask the user to open https://therapy-uat.pumpkinit.com.au
+in the Browser pane and sign in themselves (allowing the site first if asked), then drive the
+pane. Every email UAT sends is redirected to the UAT test mailbox, so item 11's accounts email can
+be checked there. Don't send client-facing emails even so — stop at the preview.
+
+**B. On a local copy of the current build (no sign-in needed).** Same code as UAT; nothing leaves
+the machine. Follow memory `process_local_ui_qa.md`:
+1. `cd client && npx vite build` (the build UAT is running).
+2. Copy `server/pm.db` into the scratchpad as `qa.db` (plain `cp` — `sqlite3 -readonly .backup`
+   fails when there's no -shm file). Never touch `server/pm.db` itself.
+3. A wrapper server that redirects better-sqlite3 to qa.db, blocks every non-localhost
+   fetch/http/https request, sets PORT=3001 and APP_URL=http://localhost:4173, then requires
+   `server/index.js`. Serve the client with `client/node_modules/.bin/vite preview <client> --port
+   4173`. Add both to **/Users/peterchen/Claude/.claude/launch.json** (the workspace-root file the
+   preview tool reads) and start them with preview_start.
+4. The local DB is nearly empty, so seed qa.db before starting:
+   - a test **owner** (random bcrypt password saved to a scratchpad credentials file, not shown in
+     chat);
+   - a **practitioner** to book with (the owner doesn't show in practitioner pickers);
+   - NDIS `service_rates` with travel_rate_per_hour, km_rate, notes_rate and cancel/travel/km/notes
+     codes (item 5 needs them);
+   - `cancellation_policy` = `[{"days":2,"percent":100}]`;
+   - `invoicing_mode` = `export_only` (production's mode);
+   - `accounts_email`;
+   - a session_note template;
+   - a form_template with a `folder` (e.g. "Assessments/Mobility"), required fields and a
+     `calculated_sum` over two dropdowns (item 8);
+   - a small multi-page PDF in the scratchpad for uploads.
+   The existing sample appointments are referenced by old invoices, so mark them
+   `is_invoiced = 1` rather than deleting them.
+5. Uploading files: the pane has no file picker. Build a `File`, put it in a `DataTransfer`, set
+   `input.files` and dispatch `change`; paste pictures with a synthetic `ClipboardEvent`.
+6. The local server logs "JWT_SECRET is not set" — expected locally (no .env); it uses a random
+   secret, so restarting the API server signs the browser out. Tool quirks: date inputs need the native value setter plus input/change events; the pane's own
+   Escape key doesn't reach the page, so dispatch a `KeyboardEvent`; screenshots can lag a step
+   behind, so check the DOM; `document.querySelector('h2')` can hit editor headings, so use
+   `.fixed.inset-0 h2` for pop-up windows.
+7. Afterwards: stop both servers, delete files the run created under `uploads/` (find newer
+   than the seed script), the qa folder, and the launch.json entries.
+With B, emails can't be checked (they're blocked). Check item 11's accounts email on UAT with
+option A, or skip it and say so.
+
 ## Standing rules for whoever runs this (human or agent)
-- Run against **UAT** (`https://therapy-uat.pumpkinit.com.au`), never production, unless the
-  user explicitly asks for a specific check to be run against production too.
-- Use a **throwaway QA practitioner account**, created directly via a script on the UAT
-  database (see `project_therapy.md` / `feedback_therapy.md` memory for the established
-  pattern) — never reuse or overwrite a real practitioner's credentials.
+- Run against **UAT** (`https://therapy-uat.pumpkinit.com.au`) with the user signed in, or a
+  local copy of the current build (see "How to run this") — never production, unless the user
+  explicitly asks for a specific check to be run against production too.
+- On UAT, work as the user's own sign-in, and put all test data on a clearly-named QA client.
+  On a local copy, use the seeded test accounts. Never reuse or overwrite a real practitioner's
+  credentials.
 - Never actually send a real email or complete a real financial transaction during this run —
   stop at the confirmation/preview step for anything like that.
 - Clean up every piece of test data (notes, appointments, clients, the QA account itself)
   created during the run before finishing, regardless of pass/fail outcome.
 - Report a clear pass/fail per checklist item, not just an overall verdict — flag anything that
   didn't fully match "what still works" above with enough detail to reproduce.
+
+## Last full run — 2026-09-29 (UAT, option A, user's own sign-in)
+Result: **items 1–13 incl. 7b all PASS**; no functional failures, no console/network errors.
+Test data was on QA client "ZZ QA Regression 2026-09-29" (id 87). Bugs: see memory file
+`project_therapy_regression_bugs_2026-09-29.md`.
+
+| Item | Result | Notes |
+|---|---|---|
+| 1 Add client | PASS | Duplicate-client warning appears on re-entering existing name + email ("matched on email") |
+| 2 Book appointment | PASS | |
+| 3 Edit appointment | PASS | |
+| 4 Cancel, no fee | PASS | A billed late-cancel (LC) appointment stays visible (faded red) — looks intentional; wording above may need an LC exception |
+| 5 Late cancellation | PASS | Billed and unbilled paths |
+| 6 Session notes | PASS | Incl. legacy notes, drafts, templates |
+| 7 Download / email | PASS | Both entry points; Send not clicked |
+| 7b Client files | PASS | |
+| 8 Fill in a form | PASS (limited) | UAT has no required fields, folders or calculated field — those checks not exercisable there (use a local copy) |
+| 9 Invoicing | PASS | Manual MYOB edits, MYOB Invoices tiles ("chosen / all dates", future appointments hidden) all OK |
+| 10 Templates/Settings/Reports | PASS | |
+| 11 Report billing | PASS (part unverified) | Accounts email + MYOB CSV not verified — no access to the UAT test mailbox |
+| 12 Report writing | PASS | |
+| 13 Audit log | PASS | "Load older" 200 → 400, filter resets |
+
+Also verified: Clients pagination (1–50 of 51, Prev/Next, filter resets to page 1).
+
+Known issue (low): voiding the only billed entry on a report leaves the report file "Draft shared"
+with a live link that can't be deleted/unshared (409 "billed report"). **Fixed on UAT 2026-09-29**
+— see item 11 "Delete a fully voided report" (report 7 / file 203 can now be cleaned up that way).
+
+Cleanup gaps (app cannot hard-delete): QA client 87 + filler clients 88–90 still active, form
+response 16, funding period 65, billed report 7 (file 203), two /api/report-images uploads.

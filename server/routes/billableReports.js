@@ -47,15 +47,10 @@ const plainText = s => String(s)
 const aptRef = id => `APT-${String(id).padStart(5, '0')}`;
 const localToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Australia/Sydney' });
 
-// MYOB's status export gives invoice numbers as plain integers, TBSALE as 8-digit zero-padded —
-// myobSync.js stores the padded form, so a typed-in number must match it exactly.
-const normalizeInvoiceNo = v => {
-  const digits = String(v ?? '').trim().replace(/\D/g, '');
-  return digits ? digits.padStart(8, '0') : null;
-};
-
+// A deleted report whose entries were all voided is kept (deleted_at set) so the voided entries
+// keep their link to it — see DELETE /:id.
 function getReport(id) {
-  return db.prepare('SELECT * FROM billable_reports WHERE id = ?').get(id);
+  return db.prepare('SELECT * FROM billable_reports WHERE id = ? AND deleted_at IS NULL').get(id);
 }
 
 // Funding type for the report's funding period, then that service's rate on the entry's date —
@@ -153,8 +148,14 @@ async function sendEntryToAccounts(apptId, report) {
 router.get('/', auth, (req, res) => {
   const { client_id } = req.query;
   if (!client_id) return res.status(400).json({ error: 'client_id required' });
-  const reports = db.prepare('SELECT * FROM billable_reports WHERE client_id = ? ORDER BY created_at DESC').all(client_id);
+  const reports = db.prepare('SELECT * FROM billable_reports WHERE client_id = ? AND deleted_at IS NULL ORDER BY created_at DESC').all(client_id);
   res.json(reports.map(reportWithDetails));
+});
+
+router.get('/:id', auth, (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+  res.json(reportWithDetails(report));
 });
 
 router.post('/', auth, (req, res) => {
@@ -192,16 +193,33 @@ router.patch('/:id', auth, (req, res) => {
   res.json(reportWithDetails(getReport(report.id)));
 });
 
-// Only a report with nothing billed can be deleted — once anything has gone to accounts, the
-// entries are real invoices and have to be voided instead.
+// A report with nothing billed is deleted outright. Once anything has gone to accounts, the
+// entries are real invoices and have to be voided first; when every entry is voided the report
+// can go too, but its row is kept (deleted_at) so the voided entries stay linked to it — budgets
+// and the calendar rely on that link to leave them out. Its written draft is deleted, and its
+// file stops being shared (the client's link stops working) and becomes an ordinary file in the
+// client's Files, where it can be deleted.
 router.delete('/:id', auth, (req, res) => {
   const report = getReport(req.params.id);
   if (!report) return res.status(404).json({ error: 'Not found' });
   if (!canManage(req.user, report)) return res.status(403).json({ error: 'You can only delete your own reports' });
-  const count = db.prepare('SELECT COUNT(*) AS c FROM appointments WHERE billable_report_id = ?').get(report.id).c;
-  if (count) return res.status(409).json({ error: 'This report already has billed hours, so it can’t be deleted.' });
-  db.prepare('DELETE FROM billable_reports WHERE id = ?').run(report.id); // drafts/history cascade
-  audit.log('billable_report', report.id, 'deleted', `Deleted report "${report.title}"`);
+  const { total, live } = db.prepare("SELECT COUNT(*) AS total, SUM(status != 'cancelled') AS live FROM appointments WHERE billable_report_id = ?").get(report.id);
+  if (live) return res.status(409).json({ error: 'This report has billed hours, so it can’t be deleted. Void them first.' });
+  if (!total) {
+    db.prepare('DELETE FROM billable_reports WHERE id = ?').run(report.id); // drafts/history cascade
+    audit.log('billable_report', report.id, 'deleted', `Deleted report "${report.title}"`);
+    return res.status(204).send();
+  }
+  const share = report.client_file_id ? db.prepare('SELECT * FROM client_file_reports WHERE client_file_id = ?').get(report.client_file_id) : null;
+  db.transaction(() => {
+    if (share) db.prepare('DELETE FROM client_file_reports WHERE client_file_id = ?').run(report.client_file_id);
+    db.prepare('DELETE FROM report_draft_snapshots WHERE billable_report_id = ?').run(report.id);
+    db.prepare('DELETE FROM report_drafts WHERE billable_report_id = ?').run(report.id);
+    db.prepare("UPDATE billable_reports SET deleted_at = ?, status = 'deleted', client_file_id = NULL WHERE id = ?").run(new Date().toISOString(), report.id);
+  })();
+  if (share) try { fs.unlinkSync(path.join(UPLOAD_DIR, share.preview_filename)); } catch {}
+  audit.log('billable_report', report.id, 'deleted', `Deleted report "${report.title}" (all ${total} billed entr${total === 1 ? 'y was' : 'ies were'} voided)${share ? ' — its file is no longer shared with the client' : ''}`);
+  if (share) audit.log('client_file', report.client_file_id, 'updated', `Stopped sharing — report "${report.title}" was deleted`);
   res.status(204).send();
 });
 
@@ -270,24 +288,6 @@ router.post('/:id/entries/:apptId/resend', auth, async (req, res) => {
   try { await sendEntryToAccounts(appt.id, report); }
   catch (e) { return res.status(400).json({ error: e.message || 'Failed to email accounts' }); }
   audit.log('billable_report', report.id, 'updated', `${aptRef(appt.id)} emailed to accounts`);
-  res.json(reportWithDetails(getReport(report.id)));
-});
-
-router.patch('/:id/entries/:apptId/invoice-number', auth, (req, res) => {
-  if (!isAccounts(req.user)) return res.status(403).json({ error: 'Only admin or finance can link MYOB invoices' });
-  const report = getReport(req.params.id);
-  if (!report) return res.status(404).json({ error: 'Not found' });
-  const appt = db.prepare('SELECT * FROM appointments WHERE id = ? AND billable_report_id = ?').get(req.params.apptId, report.id);
-  if (!appt) return res.status(404).json({ error: 'Not found' });
-  const invoiceNo = req.body.invoice_no ? normalizeInvoiceNo(req.body.invoice_no) : null;
-  if (req.body.invoice_no && !invoiceNo) return res.status(400).json({ error: 'Enter the MYOB invoice number (digits only)' });
-  // A different number means any previously synced paid/open status belonged to the old invoice.
-  db.prepare(`UPDATE appointments SET myob_invoice_number = ?,
-      myob_status = CASE WHEN IFNULL(myob_invoice_number,'') = IFNULL(?,'') THEN myob_status END,
-      myob_amount_due = CASE WHEN IFNULL(myob_invoice_number,'') = IFNULL(?,'') THEN myob_amount_due END
-    WHERE id = ?`).run(invoiceNo, invoiceNo, invoiceNo, appt.id);
-  audit.log('appointment', appt.id, 'myob_invoice_linked', invoiceNo ? `Linked to MYOB invoice ${invoiceNo} (entered manually)` : 'MYOB invoice link cleared', { ref: aptRef(appt.id) });
-  releasePaidReportsInBackground([report.id]);
   res.json(reportWithDetails(getReport(report.id)));
 });
 

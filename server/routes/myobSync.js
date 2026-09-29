@@ -6,6 +6,7 @@ const auth = require('../middleware/auth');
 const audit = require('../services/audit');
 const { releasePaidReportsInBackground } = require('../services/reportRelease');
 const { roundQty, computeApptItemAmounts } = require('../lib/billing');
+const { appointmentAmount } = require('../lib/myobExport');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
@@ -241,6 +242,105 @@ router.post('/apply-status', auth, (req, res) => {
   // Any report whose last unpaid invoice just closed is released to the client right away.
   releasePaidReportsInBackground();
   res.json({ invoicesUpdated: updates.length, appointmentsUpdated: apptsUpdated });
+});
+
+// ─── Manual entry (alongside the imports above) ───────────────────────────────
+// Owners, admins and finance can link an invoice number and record payments by hand. A payment
+// status belongs to the MYOB invoice, so — exactly like the status import — it's applied to every
+// appointment on that invoice number.
+
+const isAccounts = user => ['owner', 'admin', 'finance'].includes(user?.role);
+const round2 = n => Math.round(n * 100) / 100;
+
+function invoiceSummary(invoiceNo) {
+  const appts = db.prepare(`
+    SELECT a.id, a.start_time, a.status, a.billable_report_id, a.report_progress_pct, a.myob_status, a.myob_amount_due,
+      c.first_name || ' ' || c.last_name AS client_name
+    FROM appointments a JOIN clients c ON c.id = a.client_id
+    WHERE a.myob_invoice_number = ? ORDER BY a.start_time
+  `).all(invoiceNo);
+  const rows = appts.map(a => ({ ...a, amount: round2(appointmentAmount(a.id)) }));
+  const first = appts[0] || {};
+  return {
+    invoice_no: invoiceNo,
+    appointments: rows,
+    total: round2(rows.reduce((s, r) => s + r.amount, 0)),
+    status: first.myob_status || null,
+    amount_due: first.myob_amount_due ?? null,
+  };
+}
+
+// The appointments already on an invoice number (to show its total while editing).
+router.get('/invoice', auth, (req, res) => {
+  const invoiceNo = normalizeInvoiceNo(req.query.no);
+  if (!invoiceNo) return res.json({ invoice_no: '', appointments: [], total: 0, status: null, amount_due: null });
+  res.json(invoiceSummary(invoiceNo));
+});
+
+// What one appointment adds to a MYOB invoice (for the total when it joins an invoice).
+router.get('/appointment-amount', auth, (req, res) => {
+  res.json({ amount: round2(appointmentAmount(Number(req.query.id))) });
+});
+
+// One appointment: set its invoice number and/or the invoice's payment.
+//   invoice_no — '' to unlink
+//   payment    — omitted: leave as is; 'none': no payment recorded; 'open' with amount_due; 'paid'
+router.post('/manual', auth, (req, res) => {
+  if (!isAccounts(req.user)) return res.status(403).json({ error: 'Only an owner, admin or finance can update MYOB invoices' });
+  const { appointment_id, payment } = req.body;
+  const appt = db.prepare('SELECT * FROM appointments WHERE id = ?').get(appointment_id);
+  if (!appt) return res.status(404).json({ error: 'Appointment not found' });
+  const hasNo = String(req.body.invoice_no ?? '').trim() !== '';
+  const invoiceNo = hasNo ? normalizeInvoiceNo(req.body.invoice_no) : '';
+  if (hasNo && !invoiceNo) return res.status(400).json({ error: 'Enter the MYOB invoice number (digits only)' });
+  if (payment && !invoiceNo) return res.status(400).json({ error: 'Add the invoice number before recording a payment' });
+  if (payment === 'open' && !(Number(req.body.amount_due) > 0)) return res.status(400).json({ error: 'Enter the amount still due (more than $0)' });
+  if (payment && !['none', 'open', 'paid'].includes(payment)) return res.status(400).json({ error: 'Unknown payment status' });
+
+  const ref = `APT-${String(appt.id).padStart(5, '0')}`;
+  db.transaction(() => {
+    const oldNo = appt.myob_invoice_number || '';
+    if (oldNo !== invoiceNo) {
+      // A different number means any recorded payment belonged to the old invoice.
+      db.prepare('UPDATE appointments SET myob_invoice_number = ?, myob_status = NULL, myob_amount_due = NULL WHERE id = ?').run(invoiceNo || null, appt.id);
+      // Joining an invoice that already has a payment recorded takes that payment on.
+      const onInvoice = invoiceNo && db.prepare('SELECT myob_status, myob_amount_due FROM appointments WHERE myob_invoice_number = ? AND id != ? AND myob_status IS NOT NULL LIMIT 1').get(invoiceNo, appt.id);
+      if (onInvoice) db.prepare('UPDATE appointments SET myob_status = ?, myob_amount_due = ? WHERE id = ?').run(onInvoice.myob_status, onInvoice.myob_amount_due, appt.id);
+      audit.log('appointment', appt.id, 'myob_invoice_linked', invoiceNo ? `Linked to MYOB invoice ${invoiceNo} (entered manually)` : `MYOB invoice ${oldNo} link cleared (manually)`, { ref });
+    }
+    if (payment) {
+      const status = payment === 'none' ? null : payment === 'paid' ? 'closed' : 'open';
+      const due = payment === 'none' ? null : payment === 'paid' ? 0 : round2(Number(req.body.amount_due));
+      const ids = db.prepare('SELECT id FROM appointments WHERE myob_invoice_number = ?').all(invoiceNo).map(r => r.id);
+      db.prepare('UPDATE appointments SET myob_status = ?, myob_amount_due = ?, myob_status_synced_at = CURRENT_TIMESTAMP WHERE myob_invoice_number = ?').run(status, due, invoiceNo);
+      const what = payment === 'none' ? 'payment cleared' : payment === 'paid' ? 'paid in full' : `open, $${due.toFixed(2)} due`;
+      for (const id of ids) audit.log('appointment', id, 'myob_status_synced', `MYOB invoice ${invoiceNo} ${what} (entered manually)`, { ref: `APT-${String(id).padStart(5, '0')}` });
+    }
+  })();
+  releasePaidReportsInBackground();
+  res.json(invoiceSummary(invoiceNo));
+});
+
+// Bulk: mark the invoices of the selected appointments paid in full. Appointments with no invoice
+// number yet are skipped (there's no invoice to mark).
+router.post('/mark-paid', auth, (req, res) => {
+  if (!isAccounts(req.user)) return res.status(403).json({ error: 'Only an owner, admin or finance can update MYOB invoices' });
+  const ids = (req.body.appointment_ids || []).map(Number).filter(Boolean);
+  if (!ids.length) return res.status(400).json({ error: 'Select at least one appointment' });
+  const rows = db.prepare(`SELECT id, myob_invoice_number FROM appointments WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids);
+  const numbers = [...new Set(rows.map(r => r.myob_invoice_number).filter(Boolean))];
+  const skipped = rows.filter(r => !r.myob_invoice_number).length;
+  let appointmentsUpdated = 0;
+  db.transaction(() => {
+    for (const no of numbers) {
+      const onInvoice = db.prepare('SELECT id FROM appointments WHERE myob_invoice_number = ?').all(no).map(r => r.id);
+      db.prepare("UPDATE appointments SET myob_status = 'closed', myob_amount_due = 0, myob_status_synced_at = CURRENT_TIMESTAMP WHERE myob_invoice_number = ?").run(no);
+      appointmentsUpdated += onInvoice.length;
+      for (const id of onInvoice) audit.log('appointment', id, 'myob_status_synced', `MYOB invoice ${no} paid in full (marked manually)`, { ref: `APT-${String(id).padStart(5, '0')}` });
+    }
+  })();
+  releasePaidReportsInBackground();
+  res.json({ invoicesUpdated: numbers.length, appointmentsUpdated, skipped });
 });
 
 module.exports = router;

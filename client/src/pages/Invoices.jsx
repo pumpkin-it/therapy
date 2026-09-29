@@ -5,6 +5,7 @@ import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
 import AppointmentModal from '../components/AppointmentModal';
+import MyobRegister from '../components/MyobRegister';
 import InvoiceSync from './InvoiceSync';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
@@ -441,7 +442,7 @@ export default function Invoices() {
   const [tab, setTab] = useState('to_send');
 
   const TABS = exportOnlyMode
-    ? [['to_send', 'To Export'], ['sync', 'MYOB Sync']]
+    ? [['to_send', 'MYOB Invoices'], ['sync', 'MYOB Sync']]
     : [
         ['to_send',    'To Send'],
         ['to_receive', 'To Receive'],
@@ -467,7 +468,7 @@ export default function Invoices() {
         </div>
       </div>
 
-      {tab === 'to_send' && <ToSendTab mode={invoicingMode} />}
+      {tab === 'to_send' && (exportOnlyMode ? <MyobRegister /> : <ToSendTab mode={invoicingMode} />)}
       {!exportOnlyMode && tab === 'to_receive' && <InvoiceListTab status="draft,sent" emptyMsg="No invoices awaiting payment." />}
       {!exportOnlyMode && tab === 'paid' && <InvoiceListTab status="paid" emptyMsg="No paid invoices." />}
       {!exportOnlyMode && tab === 'void' && <InvoiceListTab status="void" emptyMsg="No voided invoices." />}

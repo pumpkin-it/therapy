@@ -480,26 +480,29 @@ if (gstCount === 0) {
   db.prepare("INSERT INTO gst_rates (rate, effective_from) VALUES (0.1, '2000-07-01')").run();
 }
 
-// Seed default admin user (legacy users table)
+// Seed default admin user (legacy users table — nothing signs in with it; the hash is of a random
+// throwaway password so there is no known default).
 const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
 if (userCount === 0) {
-  const hash = bcrypt.hashSync('admin123', 10);
+  const hash = bcrypt.hashSync(require('crypto').randomBytes(24).toString('hex'), 10);
   db.prepare("INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, 'admin')")
     .run('Administrator', 'admin@practice.com', hash);
 }
 
-// Ensure at least one practitioner can log in (owner role with default password)
+// Ensure at least one practitioner can log in (owner role). Only happens on a brand-new install:
+// a random one-time password is printed once so the installer can sign in and change it —
+// never a fixed default anyone could guess.
 const loginablePracs = db.prepare("SELECT COUNT(*) as c FROM practitioners WHERE password_hash IS NOT NULL").get().c;
 if (loginablePracs === 0) {
+  const initialPassword = require('crypto').randomBytes(9).toString('base64url');
+  const hash = bcrypt.hashSync(initialPassword, 10);
   const firstPrac = db.prepare("SELECT id, first_name, last_name, email FROM practitioners WHERE active = 1 ORDER BY id LIMIT 1").get();
   if (firstPrac) {
-    const hash = bcrypt.hashSync('admin123', 10);
     db.prepare("UPDATE practitioners SET password_hash = ?, role = 'owner' WHERE id = ?").run(hash, firstPrac.id);
-    console.log(`Default login set for ${firstPrac.first_name} ${firstPrac.last_name} (${firstPrac.email}) — password: admin123`);
+    console.log(`Initial login set for ${firstPrac.first_name} ${firstPrac.last_name} (${firstPrac.email}) — one-time password: ${initialPassword} (change it after signing in)`);
   } else {
-    const hash = bcrypt.hashSync('admin123', 10);
     db.prepare("INSERT INTO practitioners (first_name, last_name, email, role, password_hash) VALUES ('Admin', 'User', 'admin@practice.com', 'owner', ?)").run(hash);
-    console.log('Created default admin practitioner: admin@practice.com / admin123');
+    console.log(`Created initial admin practitioner admin@practice.com — one-time password: ${initialPassword} (change it after signing in)`);
   }
 }
 
@@ -1455,5 +1458,37 @@ try { db.exec(`
 try { db.exec(`ALTER TABLE billable_reports ADD COLUMN doc_locked INTEGER NOT NULL DEFAULT 0`); } catch {}
 // Where each report billing entry's MYOB CSV is emailed. Comma-separated, may be several.
 try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('accounts_email', '')").run(); } catch {}
+
+
+// Indexes for the busiest lookups (added 2026-09-29 after a 100x-data load test: without them the
+// MYOB Invoices screen and the daily budget alerts read every appointment for each row/budget).
+for (const sql of [
+  'CREATE INDEX IF NOT EXISTS idx_appointments_start ON appointments(start_time)',
+  'CREATE INDEX IF NOT EXISTS idx_appointments_client_start ON appointments(client_id, start_time)',
+  'CREATE INDEX IF NOT EXISTS idx_appointments_practitioner_start ON appointments(practitioner_id, start_time)',
+  'CREATE INDEX IF NOT EXISTS idx_appointments_myob_invoice ON appointments(myob_invoice_number)',
+  'CREATE INDEX IF NOT EXISTS idx_appointment_items_appointment ON appointment_items(appointment_id)',
+  'CREATE INDEX IF NOT EXISTS idx_funding_periods_client ON funding_periods(client_id)',
+  'CREATE INDEX IF NOT EXISTS idx_clients_name ON clients(first_name, last_name)',
+  'CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at)',
+  'CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id, created_at)',
+]) { try { db.exec(sql); } catch (e) { console.error('Index creation failed:', e.message); } }
+
+// Set when a report whose billed entries were all voided is deleted — the row stays so those
+// voided entries keep their billable_report_id (routes/billableReports.js DELETE /:id).
+try { db.exec(`ALTER TABLE billable_reports ADD COLUMN deleted_at TEXT`); } catch {}
+
+// Password reset tokens are stored hashed since 2026-09-29 (routes/auth.js). Hash any links issued
+// before that once, so they keep working until they expire.
+if (!db.prepare("SELECT 1 FROM settings WHERE key = 'password_resets_hashed'").get()) {
+  const crypto = require('crypto');
+  db.transaction(() => {
+    const upd = db.prepare('UPDATE password_resets SET token = ? WHERE id = ?');
+    for (const r of db.prepare('SELECT id, token FROM password_resets').all()) {
+      upd.run(crypto.createHash('sha256').update(r.token).digest('hex'), r.id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('password_resets_hashed', '1')").run();
+  })();
+}
 
 module.exports = db;

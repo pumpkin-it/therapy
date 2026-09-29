@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Plus, ChevronRight, Bell } from 'lucide-react';
+import { Search, Plus, ChevronRight, ChevronLeft, Bell } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Badge from '../components/ui/Badge';
@@ -11,21 +11,29 @@ const FUNDING_COLOR = { NDIS: 'blue', Medicare: 'green', Private: 'purple', 'Age
 
 export default function Clients() {
   const navigate = useNavigate();
-  const [clients, setClients] = useState([]);
+  const [clients, setClients] = useState(null);
+  const [total, setTotal] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
+  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState('1');
 
-  const load = (q = '', af = activeFilter) => {
-    const params = new URLSearchParams();
+  // One page at a time from the server (search and the Active filter are applied there too).
+  const load = (q, af, pg) => {
+    const params = new URLSearchParams({ page: String(pg), active: af });
     if (q) params.set('search', q);
-    params.set('active', af);
-    api.get(`/clients?${params}`).then(r => setClients(r.data));
+    api.get(`/clients?${params}`).then(r => {
+      setClients(r.data.rows); setTotal(r.data.total); setPageSize(r.data.page_size);
+    });
   };
-  useEffect(() => { load(search, activeFilter); }, [activeFilter]);
+  // A new search or filter starts again at page 1; the search waits for typing to pause.
+  useEffect(() => { setPage(1); load(search, activeFilter, 1); }, [activeFilter]);
   useEffect(() => {
-    const t = setTimeout(() => load(search, activeFilter), 300);
+    const t = setTimeout(() => { setPage(1); load(search, activeFilter, 1); }, 300);
     return () => clearTimeout(t);
   }, [search]);
+  const goTo = pg => { setPage(pg); load(search, activeFilter, pg); };
+  const pages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
     <div className="space-y-5">
@@ -38,7 +46,7 @@ export default function Clients() {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input className="w-64 rounded-lg border border-gray-300 py-2 pl-9 pr-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            placeholder="Search name, email…" value={search} onChange={e => setSearch(e.target.value)} />
+            placeholder="Search name, email, phone, C-code…" value={search} onChange={e => setSearch(e.target.value)} />
         </div>
         <select value={activeFilter} onChange={e => setActiveFilter(e.target.value)}
           className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700">
@@ -58,10 +66,13 @@ export default function Clients() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {clients.length === 0 && (
+            {clients === null && (
+              <tr><td colSpan={5} className="py-12 text-center text-gray-400">Loading…</td></tr>
+            )}
+            {clients?.length === 0 && (
               <tr><td colSpan={5} className="py-12 text-center text-gray-400">No clients found</td></tr>
             )}
-            {clients.map(c => {
+            {(clients || []).map(c => {
               const fundingType = c.active_funding_type || c.funding_type;
               const fundsManager = c.active_funds_manager_name || c.funds_manager_name;
               return (
@@ -93,6 +104,18 @@ export default function Clients() {
         </table>
       </div>
 
+      {total > 0 && (
+        <div className="flex items-center justify-between text-sm text-gray-500">
+          <span>{(page - 1) * pageSize + 1}–{Math.min(page * pageSize, total)} of {total.toLocaleString()} client{total === 1 ? '' : 's'}</span>
+          {pages > 1 && (
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="secondary" disabled={page <= 1} onClick={() => goTo(page - 1)}><ChevronLeft className="h-4 w-4" /> Previous</Button>
+              <span>Page {page} of {pages}</span>
+              <Button size="sm" variant="secondary" disabled={page >= pages} onClick={() => goTo(page + 1)}>Next <ChevronRight className="h-4 w-4" /></Button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

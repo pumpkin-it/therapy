@@ -5,6 +5,13 @@ const auth = require('../middleware/auth');
 const perm = require('../middleware/requirePermission');
 const { permAny } = perm;
 const audit = require('../services/audit');
+const { MIN_PASSWORD } = require('../lib/passwordPolicy');
+const tooShort = pw => pw && String(pw).length < MIN_PASSWORD;
+const TOO_SHORT_MSG = { field: 'password', message: `Password must be at least ${MIN_PASSWORD} characters` };
+
+// Never send password_hash to the browser — every response from this router goes through this.
+const safe = (row) => { if (!row) return row; const { password_hash, ...rest } = row; return rest; };
+const getSafe = (id) => safe(db.prepare('SELECT * FROM practitioners WHERE id = ?').get(id));
 
 // 'calendar' is included so any practitioner (who always has calendar:true) can populate the
 // practitioner dropdown on Calendar/AppointmentModal — but unlike the 'users'/'invoices' callers
@@ -18,13 +25,13 @@ router.get('/', auth, permAny('users', 'invoices', 'calendar'), (req, res) => {
   if (activeFilter !== null) { conditions.push('active = ?'); params.push(activeFilter); }
   if (role) { conditions.push('role = ?'); params.push(role); }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-  // Only the newly-added 'calendar' carve-out (i.e. plain practitioners) gets the restricted
-  // column list — owner/admin/finance callers keep the existing `SELECT *` behavior unchanged.
+  // Plain practitioners get the restricted column list; owner/admin/finance get every column
+  // except password_hash (stripped by safe()).
   const columns = req.user.role === 'practitioner'
     ? 'id, first_name, last_name, title, email, phone, color, role, active, provider_number, created_at'
     : '*';
   const rows = db.prepare(`SELECT ${columns} FROM practitioners ${where} ORDER BY first_name, last_name`).all(...params);
-  res.json(rows);
+  res.json(rows.map(safe));
 });
 
 router.get('/check-duplicates', auth, perm('users'), (req, res) => {
@@ -38,7 +45,7 @@ router.get('/check-duplicates', auth, perm('users'), (req, res) => {
 });
 
 router.get('/:id', auth, perm('users'), (req, res) => {
-  const row = db.prepare('SELECT * FROM practitioners WHERE id = ?').get(req.params.id);
+  const row = getSafe(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   res.json(row);
 });
@@ -50,6 +57,7 @@ router.post('/', auth, perm('users'), async (req, res, next) => {
       const existing = db.prepare('SELECT id FROM practitioners WHERE LOWER(email) = LOWER(?) LIMIT 1').get(email);
       if (existing) return res.status(409).json({ field: 'email', message: `A user with email "${email}" already exists` });
     }
+    if (tooShort(password)) return res.status(400).json(TOO_SHORT_MSG);
     if (!password && !email) {
       return res.status(400).json({ error: 'Provide either a password or an email address (to send a set-password link).' });
     }
@@ -70,12 +78,13 @@ router.post('/', auth, perm('users'), async (req, res, next) => {
         setPasswordEmail = { sent: false, error: e.message };
       }
     }
-    res.status(201).json({ ...created, setPasswordEmail });
+    res.status(201).json({ ...safe(created), setPasswordEmail });
   } catch (e) { next(e); }
 });
 
 router.patch('/:id', auth, perm('users'), (req, res) => {
   const { first_name, last_name, title, email, phone, color, provider_number, role, gender, discipline_id, password, target_amount, target_period, external_cal_url } = req.body;
+  if (tooShort(password)) return res.status(400).json(TOO_SHORT_MSG);
   if (email) {
     const existing = db.prepare('SELECT id FROM practitioners WHERE LOWER(email) = LOWER(?) AND id != ? LIMIT 1').get(email, req.params.id);
     if (existing) return res.status(409).json({ field: 'email', message: `A user with email "${email}" already exists` });
@@ -106,7 +115,7 @@ router.patch('/:id', auth, perm('users'), (req, res) => {
   }
   const changes = audit.diff(before, req.body, ['first_name','last_name','title','email','phone','role','gender','provider_number','target_amount','target_period','external_cal_url']);
   if (changes) audit.log('user', Number(req.params.id), 'updated', changes);
-  res.json(db.prepare('SELECT * FROM practitioners WHERE id = ?').get(req.params.id));
+  res.json(getSafe(req.params.id));
 });
 
 // Manual "Sync now" — same logic the hourly scheduler runs, exposed so a practitioner's admin
@@ -136,7 +145,7 @@ router.post('/:id/remove-calendar', auth, perm('users'), (req, res) => {
   db.prepare('UPDATE practitioners SET external_cal_url = NULL, external_cal_synced_at = NULL, external_cal_error = NULL WHERE id = ?').run(p.id);
   const removed = db.prepare(`DELETE FROM practitioner_time_blocks WHERE practitioner_id = ? AND source = 'external_sync'`).run(p.id);
   audit.log('user', p.id, 'calendar_sync_removed', `Removed external calendar sync${removed.changes ? ` and cleared ${removed.changes} synced block(s)` : ''}`);
-  res.json(db.prepare('SELECT * FROM practitioners WHERE id = ?').get(p.id));
+  res.json(getSafe(p.id));
 });
 
 router.patch('/:id/active', auth, perm('users'), (req, res) => {

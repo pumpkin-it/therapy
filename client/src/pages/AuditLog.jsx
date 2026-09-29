@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../lib/api';
+import Button from '../components/ui/Button';
 import { fmtDateTime } from '../lib/utils';
 import { useSettings } from '../context/SettingsContext';
 
@@ -30,10 +31,20 @@ export default function AuditLog() {
   const [typeFilter, setTypeFilter] = useState('');
   const [expanded, setExpanded] = useState(null);
 
-  const load = () => {
-    const params = new URLSearchParams({ limit: '200' });
+  const [hasOlder, setHasOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+
+  // Newest 200 first; "Load older" appends the next 200.
+  const PAGE = 200;
+  const fetchPage = offset => {
+    const params = new URLSearchParams({ limit: String(PAGE), offset: String(offset) });
     if (typeFilter) params.set('entity_type', typeFilter);
-    api.get(`/audit-logs?${params}`).then(r => setLogs(r.data));
+    return api.get(`/audit-logs?${params}`).then(r => { setHasOlder(r.data.length === PAGE); return r.data; });
+  };
+  const load = () => fetchPage(0).then(setLogs);
+  const loadOlder = () => {
+    setLoadingOlder(true);
+    fetchPage(logs.length).then(rows => setLogs(l => [...l, ...rows])).finally(() => setLoadingOlder(false));
   };
   useEffect(() => { load(); }, [typeFilter]);
 
@@ -87,6 +98,13 @@ export default function AuditLog() {
           ))}
         </div>
       </div>
+      {hasOlder && (
+        <div className="flex justify-center">
+          <Button variant="secondary" size="sm" onClick={loadOlder} disabled={loadingOlder}>
+            {loadingOlder ? 'Loading…' : `Load older (showing ${logs.length.toLocaleString()})`}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

@@ -31,6 +31,8 @@ export default function Login() {
     } catch (err) {
       if (err.response?.status === 401) {
         setError('Invalid email or password.');
+      } else if (err.response?.status === 429) {
+        setError(err.response.data?.error || 'Too many attempts — try again later.');
       } else if (err.response) {
         setError('Server error — please try again in a moment.');
       } else {

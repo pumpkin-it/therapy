@@ -22,8 +22,13 @@ const CLIENT_SELECT = `
   LEFT JOIN funds_managers fm_legacy ON fm_legacy.id = c.funds_manager_id
 `;
 
+const CLIENTS_PAGE = 50;
+
 router.get('/', auth, (req, res) => {
   const { search, active } = req.query;
+  // ?page=N (the Clients page): one page of clients, only the columns the list shows, plus the
+  // total. Without it, every client (pickers and filters elsewhere use the full list).
+  const page = req.query.page ? Math.max(1, Number(req.query.page) || 1) : null;
   // active=0 → inactive only, active=1 → active only (default), active=all → both
   const activeFilter = active === 'all' ? null : active === '0' ? 0 : 1;
   // Test/dummy data is excluded from every list view regardless of the active filter — distinct
@@ -33,12 +38,30 @@ router.get('/', auth, (req, res) => {
   if (activeFilter !== null) { whereParts.push('c.active = ?'); params.push(activeFilter); }
   if (search) {
     const q = `%${search}%`;
-    whereParts.push('(c.first_name LIKE ? OR c.last_name LIKE ? OR c.email LIKE ?)');
-    params.push(q, q, q);
+    // A client code (C0012 or 12) finds that client too.
+    const code = /^c?0*(\d+)$/i.exec(String(search).trim());
+    whereParts.push(`(c.first_name LIKE ? OR c.last_name LIKE ? OR (c.first_name || ' ' || c.last_name) LIKE ? OR c.email LIKE ? OR c.phone LIKE ?${code ? ' OR c.id = ?' : ''})`);
+    params.push(q, q, q, q, q, ...(code ? [Number(code[1])] : []));
   }
   const where = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
-  const rows = db.prepare(`${CLIENT_SELECT} ${where} ORDER BY c.first_name, c.last_name`).all(...params);
-  res.json(rows);
+  if (!page) {
+    const rows = db.prepare(`${CLIENT_SELECT} ${where} ORDER BY c.first_name, c.last_name`).all(...params);
+    return res.json(rows);
+  }
+  const total = db.prepare(`SELECT COUNT(*) n FROM clients c ${where}`).get(...params).n;
+  // This page's clients first, then their funding details — not the details for every client.
+  const ids = db.prepare(`SELECT c.id FROM clients c ${where} ORDER BY c.first_name, c.last_name, c.id LIMIT ? OFFSET ?`)
+    .all(...params, CLIENTS_PAGE, (page - 1) * CLIENTS_PAGE).map(r => r.id);
+  const details = ids.length ? db.prepare(`
+    SELECT c.id, c.first_name, c.last_name, c.email, c.phone, c.active, c.alert, c.funding_type,
+      fp_active.funding_type AS active_funding_type,
+      CASE WHEN fp_active.ndis_management = 'self' AND fm_active.name IS NULL THEN 'Self Managed' ELSE fm_active.name END AS active_funds_manager_name,
+      fm_legacy.name AS funds_manager_name
+    ${CLIENT_SELECT.slice(CLIENT_SELECT.indexOf('FROM clients c'))}
+    WHERE c.id IN (${ids.map(() => '?').join(',')})
+  `).all(...ids) : [];
+  const byId = new Map(details.map(d => [d.id, d]));
+  res.json({ rows: ids.map(id => byId.get(id)), total, page, page_size: CLIENTS_PAGE });
 });
 
 // A name match alone is deliberately NOT enough to flag a duplicate — real clients can share a

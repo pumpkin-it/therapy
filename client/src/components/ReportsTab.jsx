@@ -10,6 +10,7 @@ import ReportNotifyModal from './ReportNotifyModal';
 import { useAuth } from '../context/AuthContext';
 import { currency, localToday, downloadFile } from '../lib/utils';
 import { useConfirm } from './ui/ConfirmDialog';
+import MyobInvoiceModal from './MyobInvoiceModal';
 
 // Client → Reports tab: bill a report in chunks while writing it, upload the finished copy, and
 // let the system hold it back (blurred draft) until every invoice for it is paid.
@@ -239,31 +240,24 @@ function LogHoursModal({ report, onClose, onSaved }) {
 function InvoiceNumberCell({ report, entry, onChanged }) {
   const { user } = useAuth();
   const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState('');
-  const [error, setError] = useState('');
   if (entry.voided || !entry.myob_exported_at) return <span className="text-gray-400">—</span>;
-  if (!isAccounts(user)) return <span>{entry.myob_invoice_number || <span className="text-gray-400">pending</span>}</span>;
-  if (!editing) {
-    return (
-      <button className="text-left hover:text-indigo-600" title="Set MYOB invoice number"
-        onClick={() => { setValue(entry.myob_invoice_number || ''); setError(''); setEditing(true); }}>
-        {entry.myob_invoice_number || <span className="text-indigo-600">Add inv #</span>}
-      </button>
-    );
-  }
-  const save = async () => {
-    try {
-      const { data } = await api.patch(`/billable-reports/${report.id}/entries/${entry.id}/invoice-number`, { invoice_no: value.trim() || null });
-      setEditing(false);
-      onChanged(data);
-    } catch (e) { setError(e.response?.data?.error || 'Failed'); }
-  };
+  const number = entry.myob_invoice_number ? String(Number(entry.myob_invoice_number)) : null;
+  if (!isAccounts(user)) return <span>{number || <span className="text-gray-400">pending</span>}</span>;
   return (
-    <div>
-      <input className="w-24 rounded border border-gray-300 px-1.5 py-0.5 text-sm" value={value} autoFocus
-        onChange={e => setValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }} onBlur={save} />
-      {error && <p className="text-xs text-red-600">{error}</p>}
-    </div>
+    <>
+      <button className="text-left hover:text-indigo-600" title="Set the MYOB invoice number or payment" onClick={() => setEditing(true)}>
+        {number || <span className="text-indigo-600">Add inv #</span>}
+      </button>
+      {editing && (
+        <MyobInvoiceModal appointment={entry} label={`${report.title}, ${entry.ref}`}
+          onClose={() => setEditing(false)}
+          onSaved={async () => {
+            setEditing(false);
+            const { data } = await api.get(`/billable-reports/${report.id}`);
+            onChanged(data);
+          }} />
+      )}
+    </>
   );
 }
 
@@ -377,7 +371,10 @@ function ReportCard({ report, client, onChanged, onDeleted, justCommitted }) {
     const written = report.draft
       ? `\n\nThe report written in the system${report.draft.word_count ? ` (${report.draft.word_count.toLocaleString()} words)` : ''} will be deleted too and can't be recovered.`
       : '';
-    if (!await confirm({ title: 'Delete report', message: `Delete "${report.title}"? Nothing has been billed on it yet.${written}`, confirmLabel: 'Delete', danger: true })) return;
+    const billed = report.entries.length
+      ? `All ${report.entries.length === 1 ? 'its billed hours have' : `${report.entries.length} billed entries have`} been voided — the voided entries stay in the history.${report.file ? ' The report file stays in the client\'s Files, but the client\'s link will stop working.' : ''}`
+      : 'Nothing has been billed on it yet.';
+    if (!await confirm({ title: 'Delete report', message: `Delete "${report.title}"? ${billed}${written}`, confirmLabel: 'Delete', danger: true })) return;
     act('delete', async () => { await api.delete(`/billable-reports/${report.id}`); onDeleted(report.id); });
   };
 
@@ -536,7 +533,7 @@ function ReportCard({ report, client, onChanged, onDeleted, justCommitted }) {
         {isAdmin(user) && report.file && !released && (
           <Button size="sm" variant="ghost" onClick={releaseNow} disabled={busy === 'release'}><Unlock className="h-3.5 w-3.5" /> Release now</Button>
         )}
-        {mine && report.entries.length === 0 && !report.file && (
+        {mine && (report.entries.length ? liveEntries.length === 0 : !report.file) && (
           <Button size="sm" variant="ghost" onClick={remove}><Trash2 className="h-3.5 w-3.5" /> Delete</Button>
         )}
         <input ref={fileRef} type="file" accept="application/pdf,image/jpeg,image/png" className="hidden" onChange={pickFile} />

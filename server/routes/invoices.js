@@ -6,7 +6,7 @@ const { sendInvoiceEmail } = require('../services/mailer');
 const audit = require('../services/audit');
 const { roundQty } = require('../lib/billing');
 const {
-  buildAppointmentsMyobCsv, markAppointmentsExported,
+  buildAppointmentsMyobCsv, markAppointmentsExported, appointmentAmounts,
   fmtClientRef, fmtFundingTypeRef, fmtDateDMY, csvEscape, FP_JOIN_DIRECT_DATE, MYOB_HEADERS,
 } = require('../lib/myobExport');
 
@@ -111,6 +111,103 @@ router.get('/to-send', auth, (req, res) => {
   for (const r of rows) r.items = byAppt[r.id] || [];
 
   res.json(rows);
+});
+
+// ─── MYOB register (export-only invoicing) ───────────────────────────────────
+// Every billable session and report entry with where it's at in MYOB, for the Invoices page's
+// status tiles: not_exported → exported (in a file, no MYOB invoice number yet) → unpaid →
+// part_paid → paid. The payment belongs to the MYOB invoice, so "part paid" compares the amount
+// due with the whole invoice's total (every appointment on that number, whatever its date).
+const MYOB_STATUSES = ['not_exported', 'exported', 'unpaid', 'part_paid', 'paid'];
+
+const REGISTER_PAGE = 200;
+
+// ?status=<one of MYOB_STATUSES or all>&offset=N — the rows are that status only, a page at a time
+// (?ids_only=1: just the ids of every row in that status, for "select all").
+// Dates: from/to is the chosen range; `until` (optional) is the latest date anything is shown for —
+// the screen passes the end of this week unless future appointments are included. The tiles get
+// two summaries: `summary` for the chosen range, `summary_all` for all dates (up to `until`), both
+// for the same client/practitioner filters.
+router.get('/myob-register', auth, (req, res) => {
+  const { client_id, practitioner_id, until } = req.query;
+  let { from, to } = req.query;
+  if (until && (!to || to > until)) to = until;
+  const status = MYOB_STATUSES.includes(req.query.status) ? req.query.status : 'all';
+  const offset = Math.max(0, Number(req.query.offset) || 0);
+  let where = "(a.status != 'cancelled' OR a.late_cancel_billable = 1) AND a.status != 'pending' AND a.is_invoiced = 0";
+  const params = [];
+  if (client_id)       { where += ' AND a.client_id = ?';       params.push(client_id); }
+  if (practitioner_id) { where += ' AND a.practitioner_id = ?'; params.push(practitioner_id); }
+  if (until) { where += ' AND a.start_time <= ?'; params.push(`${until}T23:59`); }
+
+  // Pass 1 (every row up to `until`, all dates, lean): status and amount, for both sets of tiles.
+  const lean = db.prepare(`
+    SELECT a.id, a.start_time, a.myob_exported_at, a.myob_invoice_number, a.myob_status, a.myob_amount_due
+    FROM appointments a WHERE ${where} ORDER BY a.start_time ASC, a.id ASC
+  `).all(...params);
+  const inRange = r => (!from || r.start_time >= from) && (!to || r.start_time <= `${to}T23:59`);
+  const numbers = [...new Set(lean.map(r => r.myob_invoice_number).filter(Boolean))];
+  // Each MYOB invoice's total covers all its appointments, whatever their date.
+  const onInvoices = [];
+  for (let i = 0; i < numbers.length; i += 500) {
+    const chunk = numbers.slice(i, i + 500);
+    onInvoices.push(...db.prepare(`SELECT id, myob_invoice_number FROM appointments WHERE myob_invoice_number IN (${chunk.map(() => '?').join(',')})`).all(...chunk));
+  }
+  const amounts = appointmentAmounts([...new Set([...lean.map(r => r.id), ...onInvoices.map(r => r.id)])]);
+  const amountOf = id => Math.round((amounts.get(id) || 0) * 100) / 100;
+  const invoiceTotal = new Map();
+  for (const r of onInvoices) invoiceTotal.set(r.myob_invoice_number, (invoiceTotal.get(r.myob_invoice_number) || 0) + amountOf(r.id));
+
+  const statusOf = r => {
+    if (r.myob_invoice_number) {
+      if (r.myob_status === 'closed') return 'paid';
+      const due = r.myob_amount_due, total = invoiceTotal.get(r.myob_invoice_number) || 0;
+      if (r.myob_status === 'open' && due > 0 && due < total - 0.005) return 'part_paid';
+      return 'unpaid';
+    }
+    return r.myob_exported_at ? 'exported' : 'not_exported';
+  };
+
+  const blank = () => Object.fromEntries([...MYOB_STATUSES, 'all'].map(k => [k, { count: 0, amount: 0 }]));
+  const summary = blank(), summaryAll = blank();
+  const partDue = new Map(), partDueAll = new Map();
+  const inStatus = [];
+  for (const r of lean) {
+    const st = statusOf(r), amt = amountOf(r.id), shown = inRange(r);
+    for (const k of [st, 'all']) {
+      summaryAll[k].count++; summaryAll[k].amount += amt;
+      if (shown) { summary[k].count++; summary[k].amount += amt; }
+    }
+    if (st === 'part_paid') { partDueAll.set(r.myob_invoice_number, r.myob_amount_due); if (shown) partDue.set(r.myob_invoice_number, r.myob_amount_due); }
+    if (shown && (status === 'all' || st === status)) inStatus.push({ id: r.id, myob: st });
+  }
+  // What's still owed on the part-paid invoices (once per invoice, not per appointment).
+  summary.part_paid.due = [...partDue.values()].reduce((s, v) => s + v, 0);
+  summaryAll.part_paid.due = [...partDueAll.values()].reduce((s, v) => s + v, 0);
+
+  if (req.query.ids_only) return res.json({ ids: inStatus.map(r => r.id), summary, summary_all: summaryAll });
+
+  // Pass 2: full details for this page of rows only.
+  const page = inStatus.slice(offset, offset + REGISTER_PAGE);
+  const detail = page.length ? db.prepare(`
+    SELECT a.id, a.start_time, a.end_time, a.client_id, a.practitioner_id, a.status, a.late_cancel_pct, a.late_cancel_billable,
+      a.myob_exported_at, a.myob_invoice_number, a.myob_status, a.myob_amount_due, a.billable_report_id, a.report_progress_pct,
+      c.first_name || ' ' || c.last_name AS client_name,
+      p.first_name || ' ' || p.last_name AS practitioner_name, p.color AS practitioner_color,
+      (SELECT GROUP_CONCAT(COALESCE(s.name, ai.description), ', ') FROM appointment_items ai LEFT JOIN services s ON s.id = ai.service_id WHERE ai.appointment_id = a.id) AS services,
+      fm.name AS funds_manager_name
+    FROM appointments a
+    JOIN clients c ON c.id = a.client_id
+    JOIN practitioners p ON p.id = a.practitioner_id
+    ${FP_JOIN_DIRECT_DATE}
+    LEFT JOIN funds_managers fm ON fm.id = COALESCE(fp_direct.funds_manager_id, fp_date.funds_manager_id)
+    WHERE a.id IN (${page.map(() => '?').join(',')})
+  `).all(...page.map(r => r.id)) : [];
+  const byId = new Map();
+  for (const d of detail) if (!byId.has(d.id)) byId.set(d.id, d);
+  const rows = page.map(r => ({ ...byId.get(r.id), myob: r.myob, amount: amountOf(r.id),
+    invoice_total: byId.get(r.id)?.myob_invoice_number ? invoiceTotal.get(byId.get(r.id).myob_invoice_number) : null }));
+  res.json({ rows, summary, summary_all: summaryAll, total: inStatus.length, offset, page_size: REGISTER_PAGE });
 });
 
 // ─── Count of not-yet-exported appointments, ignoring date range ───────────
@@ -230,11 +327,14 @@ router.get('/export-myob', auth, (req, res) => {
 });
 
 // ─── Export MYOB CSV from appointments (before invoice generation) ─────────
-router.get('/export-myob-appointments', auth, (req, res) => {
-  const { appointment_ids, invoice_date } = req.query;
-  if (!appointment_ids) return res.status(400).json({ error: 'No appointment_ids provided' });
+// GET with ?appointment_ids=1,2,3, or POST with { appointment_ids: [...] } — the POST form is used
+// for large selections, which don't fit in a URL.
+const exportMyobAppointments = (req, res) => {
+  const src = req.method === 'POST' ? req.body || {} : req.query;
+  const { appointment_ids, invoice_date } = src;
+  if (!appointment_ids || (Array.isArray(appointment_ids) && !appointment_ids.length)) return res.status(400).json({ error: 'No appointment_ids provided' });
 
-  const ids = appointment_ids.split(',').map(Number).filter(Boolean);
+  const ids = (Array.isArray(appointment_ids) ? appointment_ids : String(appointment_ids).split(',')).map(Number).filter(Boolean);
   if (!ids.length) return res.status(400).json({ error: 'No valid appointment IDs' });
 
   const invDate = invoice_date || new Date().toISOString().slice(0, 10);
@@ -244,7 +344,9 @@ router.get('/export-myob-appointments', auth, (req, res) => {
   res.setHeader('Content-Type', 'text/csv');
   res.setHeader('Content-Disposition', `attachment; filename="MYOB_Import_${invDate}.csv"`);
   res.send(csv);
-});
+};
+router.get('/export-myob-appointments', auth, exportMyobAppointments);
+router.post('/export-myob-appointments', auth, exportMyobAppointments);
 
 router.get('/:id', auth, (req, res) => {
   const inv = getInvoiceWithItems(req.params.id);

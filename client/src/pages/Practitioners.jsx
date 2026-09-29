@@ -189,7 +189,7 @@ function UserModal({ user, onClose, onSaved }) {
             <input type="password" value={form.password || ''} onChange={e => set('password', e.target.value)}
               placeholder="Leave blank to keep current"
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm" />
-            <p className="text-xs text-gray-400">Changing your own password takes effect immediately.</p>
+            <p className="text-xs text-gray-400">At least 8 characters. Changing your own password takes effect immediately.</p>
           </div>
         ) : user && form.email ? (
           <div className="space-y-1">

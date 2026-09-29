@@ -8,3 +8,4 @@ server/*.db-wal
 uploads/
 .env
 *.log
+.DS_Store
