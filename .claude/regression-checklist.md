@@ -19,7 +19,7 @@ duplicate-detection warning banner appears (non-blocking). It fires when first *
 match an existing client **and** at least one of DOB / phone / email also matches — or the email
 alone matches. It's checked ~0.5 s after typing stops (the banner reads "Possible duplicate:").
 
-**Clients list** (UAT only until released, 2026-09-29): 50 per page with "1–50 of N clients" and
+**Clients list** (in production since 2026-09-29): 50 per page with "1–50 of N clients" and
 Previous / Next. Search (name, full name, email, phone, or client code like C0012) and the
 Active / Inactive / All filter both go back to page 1.
 
@@ -165,7 +165,7 @@ export endpoint and stamps the appointment as exported. In this mode, **stop at 
 and verify the line items/total in the list view"** — do not click Export, since that would
 complete a real (if harmless, QA-only-data) export rather than just previewing it.
 
-**MYOB Invoices screen** (2026-09-29, `export_only` mode): six status tiles (Not exported,
+**MYOB Invoices screen** (in production since 2026-09-29, `export_only` mode): six status tiles (Not exported,
 Exported, Unpaid, Part paid, Paid, All) each show a count and $ that follow the date / client /
 practitioner filters; clicking a tile filters the list. Dates default to **This week** (the whole week to Sunday, nothing after); check Last week, This
 month, a Custom range and **All dates** — none of them show appointments after this week unless
@@ -194,9 +194,9 @@ arrived with a MYOB CSV whose line note reads "Report: <title> — 50% complete"
 report with no "Mark as released"/delete controls, and that the client link shows the blurred
 draft. As owner/admin/finance, click the entry's invoice number ("Add inv #") → the MYOB invoice
 window opens (invoice number + payment); set a number and Part paid → the entry's status updates
-(UAT only until released). Void the entry (admin/finance) and delete the QA report data afterwards.
+(in production since 2026-09-29). Void the entry (admin/finance) and delete the QA report data afterwards.
 
-**Delete a fully voided report** (UAT only until released, fixed 2026-09-29): once every entry on
+**Delete a fully voided report** (in production since 2026-09-29): once every entry on
 the report is voided, the report's **Delete** button appears even though it has a file. The
 confirm text says the voided entries stay in the history and the client's link will stop working.
 Delete → the report leaves the Reports tab; the client link (/report/<token>) now shows "not
@@ -231,11 +231,11 @@ value is missing (fixed 2026-09-26).
 (the LEFS form was lost in an earlier UAT data refresh), so item 8's "blocked with missing fields"
 and folder-picker checks can't be exercised on UAT until such a template exists there again.
 
-## 13. Audit log (UAT only until released)
+## 13. Audit log (in production since 2026-09-29)
 Audit Log page shows the newest 200 entries; **Load older** adds the next 200 ("showing 400").
 Changing the type filter starts again from the newest.
 
-## 14. Sign-in security (UAT only until released, added 2026-09-29)
+## 14. Sign-in security (in production since 2026-09-29)
 - **Lockout:** 10 wrong passwords for one email → the 11th attempt (even with the RIGHT password)
   shows "Too many attempts — try again in 15 minutes." Other emails can still sign in. Use a
   throwaway QA account, never a real user's email. (Limits are per server process and reset when
