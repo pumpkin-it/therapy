@@ -8,7 +8,7 @@ import Input from './ui/Input';
 import Modal from './ui/Modal';
 import ReportNotifyModal from './ReportNotifyModal';
 import { useAuth } from '../context/AuthContext';
-import { currency, localToday, downloadFile } from '../lib/utils';
+import { currency, localToday, downloadFile, invoiceNoLabel } from '../lib/utils';
 import { useConfirm } from './ui/ConfirmDialog';
 import MyobInvoiceModal from './MyobInvoiceModal';
 
@@ -241,7 +241,7 @@ function InvoiceNumberCell({ report, entry, onChanged }) {
   const { user } = useAuth();
   const [editing, setEditing] = useState(false);
   if (entry.voided || !entry.myob_exported_at) return <span className="text-gray-400">—</span>;
-  const number = entry.myob_invoice_number ? String(Number(entry.myob_invoice_number)) : null;
+  const number = invoiceNoLabel(entry.myob_invoice_number) || null;
   if (!isAccounts(user)) return <span>{number || <span className="text-gray-400">pending</span>}</span>;
   return (
     <>

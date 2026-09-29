@@ -8,7 +8,7 @@ import AppointmentModal from './AppointmentModal';
 import MyobInvoiceModal from './MyobInvoiceModal';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from './ui/ConfirmDialog';
-import { currency, fmtDate, localToday, downloadFile } from '../lib/utils';
+import { currency, fmtDate, localToday, downloadFile, invoiceNoLabel } from '../lib/utils';
 
 // The Invoices page for practices that bill through MYOB exports: every billable session and
 // report entry, by where it's at in MYOB (server/routes/invoices.js /myob-register). Status tiles
@@ -239,7 +239,7 @@ export default function MyobRegister() {
               <tbody className="divide-y divide-gray-100">
                 {rows.map(r => {
                   const st = STATUS[r.myob];
-                  const number = r.myob_invoice_number ? String(Number(r.myob_invoice_number)) : null;
+                  const number = invoiceNoLabel(r.myob_invoice_number) || null;
                   return (
                     <tr key={r.id} className={selected.includes(r.id) ? 'bg-indigo-50/40' : 'hover:bg-gray-50'}>
                       <td className="px-4 py-3"><input type="checkbox" className="accent-indigo-600" checked={selected.includes(r.id)} onChange={() => toggle(r.id)} /></td>

@@ -42,10 +42,12 @@ function parseCsv(text) {
 
 // TBSALE.csv's Invoice No. column is zero-padded (e.g. "00000923"); the invoice-status
 // export gives the same number as a plain integer (911). Normalize both to 8 digits so
-// they actually match on the myob_invoice_number join key.
+// they actually match on the myob_invoice_number join key. Numbers with letters in them
+// (e.g. "INV1234") are kept as typed, in capitals, without spaces.
 function normalizeInvoiceNo(v) {
-  const digits = String(v ?? '').trim().replace(/\D/g, '');
-  return digits ? digits.padStart(8, '0') : '';
+  const s = String(v ?? '').trim().replace(/\s+/g, '').toUpperCase();
+  if (!s) return '';
+  return /^\d+$/.test(s) ? s.padStart(8, '0') : s;
 }
 
 function moneyToNumber(v) {
