@@ -218,3 +218,5 @@ and folder-picker checks can't be exercised on UAT until such a template exists 
   created during the run before finishing, regardless of pass/fail outcome.
 - Report a clear pass/fail per checklist item, not just an overall verdict — flag anything that
   didn't fully match "what still works" above with enough detail to reproduce.
+- Log every problem found, and every fix and re-test, in `.claude/qa-findings.md` (shared between
+  threads/agents) and commit it — keep that file current so other threads can pick items up.
