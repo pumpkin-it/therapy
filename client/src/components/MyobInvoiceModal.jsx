@@ -3,7 +3,7 @@ import api from '../lib/api';
 import Modal from './ui/Modal';
 import Button from './ui/Button';
 import Input from './ui/Input';
-import { currency, fmtDate, invoiceNoLabel } from '../lib/utils';
+import { currency, fmtDate } from '../lib/utils';
 
 // Manual MYOB entry for one appointment or report entry (owners, admins and finance) — alongside
 // the MYOB Sync imports. The invoice number is this appointment's; the payment belongs to the
@@ -19,7 +19,7 @@ const money = v => (v === '' || v == null || !Number.isFinite(Number(v)) ? '' : 
 
 export default function MyobInvoiceModal({ appointment, label, onClose, onSaved }) {
   const initialPayment = appointment.myob_status === 'closed' ? 'paid' : appointment.myob_status === 'open' ? 'open' : 'none';
-  const [invoiceNo, setInvoiceNo] = useState(invoiceNoLabel(appointment.myob_invoice_number));
+  const [invoiceNo, setInvoiceNo] = useState(appointment.myob_invoice_number || '');
   const [payment, setPayment] = useState(initialPayment);
   const [paid, setPaid] = useState('');
   const [due, setDue] = useState(appointment.myob_status === 'open' ? money(appointment.myob_amount_due) : '');
@@ -76,8 +76,8 @@ export default function MyobInvoiceModal({ appointment, label, onClose, onSaved 
     <Modal title={`MYOB invoice${label ? ` — ${label}` : ''}`} onClose={onClose}>
       <div className="space-y-4">
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <Input label="MYOB invoice number" value={invoiceNo} placeholder="e.g. 2222 or INV2222" autoFocus
-          onChange={e => setInvoiceNo(e.target.value.replace(/[^A-Za-z0-9\-/]/g, '').toUpperCase())} />
+        <Input label="MYOB invoice number" value={invoiceNo} placeholder="e.g. 00002222 or INV 2222" autoFocus
+          onChange={e => setInvoiceNo(e.target.value.replace(/[^A-Za-z0-9\-/ ]/g, '').toUpperCase())} />
 
         {others.length > 0 && (
           <div className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600">

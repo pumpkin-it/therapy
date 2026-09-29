@@ -32,9 +32,6 @@ export const fmtDateOnly = (utcStr, tz = 'Australia/Sydney') => {
   }).format(d);
 };
 
-// A MYOB invoice number for display: all-digit numbers without their leading zeros ("00002222" → "2222").
-export const invoiceNoLabel = no => (no ? (/^\d+$/.test(no) ? String(Number(no)) : String(no)) : '');
-
 export const cn = (...classes) => classes.filter(Boolean).join(' ');
 
 // Templates written in the document editor keep each variable in a chip:

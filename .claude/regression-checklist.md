@@ -175,9 +175,9 @@ only on Not exported, Unpaid and Part paid. Ticking an already-exported row and 
 asks "Export again?" first (click Cancel). **Mark paid** appears only when every ticked row is
 Unpaid/Part paid. Clicking a row's MYOB invoice cell (owner/admin/finance) opens the edit window:
 invoice number, and payment — No payment / Part paid (amount paid ↔ amount due, worked out from the
-invoice total) / Paid in full. The invoice number accepts letters as well as digits: typing
-`inv 12a` shows `INV12A`, saves, and the row then shows `INV12A` (an all-digit number like `2222`
-still shows as `2222`, stored as `00002222`). On QA data only.
+invoice total) / Paid in full. The invoice number accepts letters and spaces as well as digits:
+typing `inv 12a` shows `INV 12A`, saves, and the row then shows `INV 12A`. An all-digit number is
+padded like MYOB's and shown with its zeros everywhere: `2222` saves and shows as `00002222`. On QA data only.
 
 ## 10. Templates & Settings pages load cleanly
 Templates page — all five tabs (Email, Session Note, Agreement, Forms, Report) load without a
