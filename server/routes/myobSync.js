@@ -5,7 +5,7 @@ const db = require('../database');
 const auth = require('../middleware/auth');
 const audit = require('../services/audit');
 const { releasePaidReportsInBackground } = require('../services/reportRelease');
-const { roundQty, computeApptItemAmounts } = require('../lib/billing');
+const { roundQty } = require('../lib/billing');
 const { appointmentAmount } = require('../lib/myobExport');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -102,18 +102,10 @@ function getApptWithFundingType(apptId) {
   `).get(apptId);
 }
 
+// What the appointment's MYOB import lines add up to — late-cancellation fees and billing
+// adjustments included, exactly as exported.
 function getApptExpectedTotal(appt) {
-  const apptDate = appt.start_time ? appt.start_time.slice(0, 10) : null;
-  const items = db.prepare(`
-    SELECT ai.*, sr.travel_rate_per_hour, sr.km_rate, sr.notes_rate
-    FROM appointment_items ai
-    LEFT JOIN rate_periods rp ON rp.funding_type_id = ? AND ? BETWEEN rp.start_date AND rp.end_date
-    LEFT JOIN service_rates sr ON sr.period_id = rp.id AND sr.service_id = ai.service_id
-    WHERE ai.appointment_id = ?
-  `).all(appt.funding_type_id, apptDate, appt.id);
-  let total = 0;
-  for (const item of items) for (const amt of computeApptItemAmounts(item)) total += amt;
-  return Math.round(total * 100) / 100;
+  return Math.round(appointmentAmount(appt.id) * 100) / 100;
 }
 
 // ─── Step 1: link MYOB invoice numbers from TBSALE.csv ──────────────────────

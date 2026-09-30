@@ -55,8 +55,9 @@ function linesFor(appt, items) {
   for (const item of items) {
     const gstType = item.gst_type || 'GST';
     if (appt.status === 'cancelled' && appt.late_cancel_billable && appt.late_cancel_pct) {
-      const cancelRate = item.unit_rate * (appt.late_cancel_pct / 100);
-      add(item.cancel_code || '', `Cancellation fee (${appt.late_cancel_pct}% — ${item.service_name || item.description})`, item.quantity, cancelRate, gstType);
+      // The fee is a percentage of the session as billed — a billing adjustment (e.g. $0) applies.
+      const cancelRate = (item.billed_unit_rate ?? item.unit_rate) * (appt.late_cancel_pct / 100);
+      add(item.cancel_code || '', `Cancellation fee (${appt.late_cancel_pct}% — ${item.service_name || item.description})`, item.billed_quantity ?? item.quantity, cancelRate, gstType);
     } else {
       add(item.service_code || '', item.service_name || item.description, item.billed_quantity ?? item.quantity, item.billed_unit_rate ?? item.unit_rate, gstType, item.item_notes);
     }
@@ -94,6 +95,9 @@ function appointmentLines(apptId) {
   `).all(appt.funding_type_id, apptDate, apptId);
   return { appt, lines: linesFor(appt, items) };
 }
+
+// An appointment billed at $0 in total is "No charge": it never goes to MYOB or onto an invoice.
+const isNoCharge = amount => Math.abs(amount) < 0.005;
 
 // What an appointment adds to its MYOB invoice (the sum of its import lines, as exported).
 const appointmentAmount = apptId => (appointmentLines(apptId)?.lines || []).reduce((s, l) => s + l.amount, 0);
@@ -140,8 +144,9 @@ function appointmentAmounts(ids) {
   return out;
 }
 
-// Returns { csv, exportedAppts } — appointments with no billable items are skipped and left out
-// of exportedAppts, so callers only ever mark what actually went into the file.
+// Returns { csv, exportedAppts } — appointments with no billable items, or billed at $0 ("No
+// charge" — every line adjusted to nothing), are skipped and left out of exportedAppts, so
+// callers only ever mark what actually went into the file.
 function buildAppointmentsMyobCsv(ids, invDate) {
   const rows = [MYOB_HEADERS.join(',')];
   const exportedAppts = [];
@@ -151,6 +156,7 @@ function buildAppointmentsMyobCsv(ids, invDate) {
     const built = appointmentLines(apptId);
     if (!built || !built.lines.length) continue;
     const { appt, lines } = built;
+    if (isNoCharge(lines.reduce((s, l) => s + l.amount, 0))) continue;
     exportedAppts.push(appt);
 
     if (!first) rows.push(',,,,,,,,,,,');
@@ -198,6 +204,6 @@ function markAppointmentsExported(appts, via = 'pre-generation') {
 }
 
 module.exports = {
-  buildAppointmentsMyobCsv, markAppointmentsExported, appointmentLines, appointmentAmount, appointmentAmounts,
+  buildAppointmentsMyobCsv, markAppointmentsExported, appointmentLines, appointmentAmount, appointmentAmounts, isNoCharge,
   fmtClientRef, fmtFundingTypeRef, fmtDateDMY, csvEscape, FP_JOIN_DIRECT_DATE, MYOB_HEADERS,
 };

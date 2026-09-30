@@ -152,7 +152,7 @@ function ToSendTab({ mode }) {
                   const isBillableCancellation = a.status === 'cancelled' && a.late_cancel_billable && a.late_cancel_pct;
                   const total = (a.items || []).reduce((s, i) => {
                     let t = isBillableCancellation
-                      ? roundQty(i.quantity) * i.unit_rate * (a.late_cancel_pct / 100)
+                      ? roundQty(i.billed_quantity ?? i.quantity) * (i.billed_unit_rate ?? i.unit_rate) * (a.late_cancel_pct / 100)
                       : roundQty(i.billed_quantity ?? i.quantity) * (i.billed_unit_rate ?? i.unit_rate);
                     const travelMin = (i.travel_time_to || 0) + (i.travel_time_from || 0);
                     if (travelMin) t += roundQty(travelMin / 60) * (i.billed_travel_rate ?? i.travel_rate_per_hour ?? i.unit_rate);

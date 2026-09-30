@@ -6,7 +6,7 @@ const { sendInvoiceEmail } = require('../services/mailer');
 const audit = require('../services/audit');
 const { roundQty } = require('../lib/billing');
 const {
-  buildAppointmentsMyobCsv, markAppointmentsExported, appointmentAmounts,
+  buildAppointmentsMyobCsv, markAppointmentsExported, appointmentAmounts, isNoCharge,
   fmtClientRef, fmtFundingTypeRef, fmtDateDMY, csvEscape, FP_JOIN_DIRECT_DATE, MYOB_HEADERS,
 } = require('../lib/myobExport');
 
@@ -68,7 +68,7 @@ router.get('/to-send', auth, (req, res) => {
   }
   if (pending_export_only) { where += ' AND a.myob_exported_at IS NULL'; }
 
-  const rows = db.prepare(`
+  const allRows = db.prepare(`
     SELECT a.id, a.start_time, a.end_time, a.client_id, a.practitioner_id, a.location, a.notes, a.series_id, a.funding_period_id,
       a.status, a.late_cancel_pct, a.late_cancel_billable, a.myob_exported_at,
       a.myob_invoice_number, a.myob_status, a.myob_amount_due, a.billable_report_id, a.report_progress_pct,
@@ -86,6 +86,9 @@ router.get('/to-send', auth, (req, res) => {
     WHERE ${where}
     ORDER BY a.start_time ASC
   `).all(...params);
+  // Appointments adjusted to $0 ("No charge") are never invoiced or exported.
+  const amounts = appointmentAmounts(allRows.map(r => r.id));
+  const rows = allRows.filter(r => !isNoCharge(amounts.get(r.id) || 0));
 
   const ids = rows.map(r => r.id);
   const items = ids.length
@@ -116,9 +119,9 @@ router.get('/to-send', auth, (req, res) => {
 // ─── MYOB register (export-only invoicing) ───────────────────────────────────
 // Every billable session and report entry with where it's at in MYOB, for the Invoices page's
 // status tiles: not_exported → exported (in a file, no MYOB invoice number yet) → unpaid →
-// part_paid → paid. The payment belongs to the MYOB invoice, so "part paid" compares the amount
+// part_paid → paid, plus no_charge (adjusted to $0 and never sent to MYOB). The payment belongs to the MYOB invoice, so "part paid" compares the amount
 // due with the whole invoice's total (every appointment on that number, whatever its date).
-const MYOB_STATUSES = ['not_exported', 'exported', 'unpaid', 'part_paid', 'paid'];
+const MYOB_STATUSES = ['not_exported', 'exported', 'unpaid', 'part_paid', 'paid', 'no_charge'];
 
 const REGISTER_PAGE = 200;
 
@@ -165,6 +168,7 @@ router.get('/myob-register', auth, (req, res) => {
       if (r.myob_status === 'open' && due > 0 && due < total - 0.005) return 'part_paid';
       return 'unpaid';
     }
+    if (isNoCharge(amountOf(r.id))) return 'no_charge';
     return r.myob_exported_at ? 'exported' : 'not_exported';
   };
 
@@ -212,12 +216,13 @@ router.get('/myob-register', auth, (req, res) => {
 
 // ─── Count of not-yet-exported appointments, ignoring date range ───────────
 router.get('/pending-export-count', auth, (req, res) => {
-  const count = db.prepare(`
-    SELECT COUNT(*) AS c FROM appointments a
+  const ids = db.prepare(`
+    SELECT a.id FROM appointments a
     WHERE (a.status != 'cancelled' OR a.late_cancel_billable = 1) AND a.status != 'pending'
       AND a.is_invoiced = 0 AND a.myob_exported_at IS NULL
-  `).get().c;
-  res.json({ count });
+  `).all().map(r => r.id);
+  const amounts = appointmentAmounts(ids);
+  res.json({ count: ids.filter(id => !isNoCharge(amounts.get(id) || 0)).length });
 });
 
 // ─── List invoices (sent / paid / all) ──────────────────────────────────────
@@ -414,8 +419,8 @@ router.post('/generate', auth, (req, res) => {
         // Billable cancellation: the session bills as a percentage fee, but travel/km/notes
         // below still bill in full — those reflect real costs already incurred (e.g. the
         // practitioner already drove to the client's home before the cancellation).
-        const cancelRate = item.unit_rate * (appt.late_cancel_pct / 100);
-        addLine(item.cancel_code || '', `Cancellation fee (${appt.late_cancel_pct}% — ${item.service_name || item.description})`, item.quantity, cancelRate, 'cancellation');
+        const cancelRate = (item.billed_unit_rate ?? item.unit_rate) * (appt.late_cancel_pct / 100);
+        addLine(item.cancel_code || '', `Cancellation fee (${appt.late_cancel_pct}% — ${item.service_name || item.description})`, item.billed_quantity ?? item.quantity, cancelRate, 'cancellation');
       } else {
         addLine(item.service_code || '', item.service_name || item.description, item.billed_quantity ?? item.quantity, item.billed_unit_rate ?? item.unit_rate, 'service');
       }
@@ -426,6 +431,7 @@ router.post('/generate', auth, (req, res) => {
     }
 
     const subtotal = lineItems.reduce((s, i) => s + i.line_total, 0);
+    if (isNoCharge(subtotal)) continue; // "No charge" — never invoiced
     const taxAmount = lineItems.reduce((s, i) => s + i.gst_amount, 0);
     const total = subtotal + taxAmount;
 

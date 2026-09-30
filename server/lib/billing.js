@@ -95,7 +95,7 @@ function computeAppointmentTotal(apptId, disciplineId = null) {
   let total = 0;
   for (const item of items) {
     if (appt.status === 'cancelled' && appt.late_cancel_billable && appt.late_cancel_pct) {
-      total += lineAmount(item.quantity, item.unit_rate * (appt.late_cancel_pct / 100));
+      total += lineAmount(item.billed_quantity ?? item.quantity, (item.billed_unit_rate ?? item.unit_rate) * (appt.late_cancel_pct / 100));
       // Travel/km/notes lines are billed exactly as normal — reuse them (index 0 is the session line).
       total += computeApptItemAmounts(item).slice(1).reduce((a, b) => a + b, 0);
     } else {

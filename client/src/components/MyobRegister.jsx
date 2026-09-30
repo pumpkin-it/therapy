@@ -16,6 +16,8 @@ import { currency, fmtDate, localToday, downloadFile } from '../lib/utils';
 //   • Tick any row to (re-)export it — a deleted export file can always be made again.
 //   • Select all is offered where a bulk action makes sense: Not exported (export) and
 //     Unpaid / Part paid (mark paid).
+//   • No charge: adjusted to $0 on the appointment's Billing adjustment tab — listed for the
+//     record, but never exported or invoiced, so those rows can't be ticked.
 
 const STATUSES = [
   { key: 'not_exported', label: 'Not exported', sub: 'Not in a MYOB file yet', color: 'amber' },
@@ -23,6 +25,7 @@ const STATUSES = [
   { key: 'unpaid',       label: 'Unpaid',       sub: 'Invoiced, nothing paid', color: 'blue' },
   { key: 'part_paid',    label: 'Part paid',    sub: 'Balance still due', color: 'orange' },
   { key: 'paid',         label: 'Paid',         sub: 'Paid in full', color: 'green' },
+  { key: 'no_charge',    label: 'No charge',    sub: 'Adjusted to $0, not billed', color: 'gray' },
   { key: 'all',          label: 'All',          sub: 'Everything in view', color: 'gray' },
 ];
 const STATUS = Object.fromEntries(STATUSES.map(s => [s.key, s]));
@@ -164,7 +167,7 @@ export default function MyobRegister() {
       )}
 
       {/* Status tiles — "chosen dates / all dates" (both follow the client and practitioner filters); click one to show just that status. */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
         {STATUSES.map(s => {
           const t = summary[s.key] || { count: 0, amount: 0 };
           const a = summaryAll[s.key] || { count: 0, amount: 0 };
@@ -242,7 +245,7 @@ export default function MyobRegister() {
                   const number = r.myob_invoice_number || null;
                   return (
                     <tr key={r.id} className={selected.includes(r.id) ? 'bg-indigo-50/40' : 'hover:bg-gray-50'}>
-                      <td className="px-4 py-3"><input type="checkbox" className="accent-indigo-600" checked={selected.includes(r.id)} onChange={() => toggle(r.id)} /></td>
+                      <td className="px-4 py-3">{r.myob !== 'no_charge' && <input type="checkbox" className="accent-indigo-600" checked={selected.includes(r.id)} onChange={() => toggle(r.id)} />}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm">
                         <button onClick={() => openAppt(r.id)} className="text-gray-700 hover:text-indigo-600 hover:underline" title="View appointment">{fmtDate(r.start_time)}</button>
                       </td>
@@ -260,11 +263,11 @@ export default function MyobRegister() {
                       <td className="whitespace-nowrap px-4 py-3 text-right text-sm font-medium text-gray-900">{currency(r.amount)}</td>
                       <td className="px-4 py-3 text-sm text-gray-500">{r.funds_manager_name || <span className="text-gray-300">—</span>}</td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm">
-                        <button type="button" disabled={!canEditMyob} onClick={() => setMyobEdit(r)}
+                        {r.myob === 'no_charge' ? <span className="text-gray-300">—</span> : <button type="button" disabled={!canEditMyob} onClick={() => setMyobEdit(r)}
                           title={canEditMyob ? 'Edit the MYOB invoice number or payment' : undefined}
                           className={`rounded font-mono text-xs ${canEditMyob ? '-m-1 p-1 hover:bg-indigo-50' : 'cursor-default'}`}>
                           {number ? `INV ${number}` : <span className={canEditMyob ? 'font-sans text-indigo-600' : 'font-sans text-gray-300'}>{canEditMyob ? 'Add' : '—'}</span>}
-                        </button>
+                        </button>}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm">
                         <Badge color={st.color}>{st.label}</Badge>

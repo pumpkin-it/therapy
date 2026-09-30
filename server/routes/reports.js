@@ -111,7 +111,7 @@ function buildReport({ from, to, practitionerIds, clientIds, serviceIds, groupBy
       // Session bills as a percentage fee (no real session happened); travel/km/notes below
       // still count and bill in full — they reflect real activity already incurred (e.g. the
       // practitioner already drove to the client's home before the cancellation).
-      value += roundQty(r.quantity) * r.unit_rate * (r.late_cancel_pct / 100);
+      value += roundQty(r.billed_quantity ?? r.quantity) * (r.billed_unit_rate ?? r.unit_rate) * (r.late_cancel_pct / 100);
     } else {
       bucket.hours += r.quantity;
       value += roundQty(r.billed_quantity ?? r.quantity) * (r.billed_unit_rate ?? r.unit_rate);

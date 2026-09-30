@@ -179,6 +179,18 @@ invoice total) / Paid in full. The invoice number accepts letters and spaces as 
 typing `inv 12a` shows `INV 12A`, saves, and the row then shows `INV 12A`. An all-digit number is
 padded like MYOB's and shown with its zeros everywhere: `2222` saves and shows as `00002222`. On QA data only.
 
+**No charge / Don't bill** (QA data only): open a not-exported appointment → Billing adjustment tab →
+**Don't bill** → confirm. A "Billing updated" popup appears; OK closes the appointment window and
+the MYOB Invoices list refreshes by itself (no page reload). Reopen it: the tab now says "No charge", every Current subtotal is $0, and the Don't
+bill button is gone. On the MYOB Invoices screen the row moves from Not exported to the **No charge**
+tile (its own tile; also under All), with no tick box and "—" for the invoice number; the
+Not exported count drops by one. Repeat on a **billable late cancellation** (e.g. Cancelled — 100%):
+it must also go to $0 / No charge (a billing adjustment used to be ignored on cancellation fees).
+**Revert to original** puts it back to Not exported at its full amount (same popup and refresh).
+Saving an ordinary adjustment (change a rate → Save) also shows "Billing updated" and closes.
+The appointment window is wide (about 900px on a desktop): Cancel appointment, Notify Practitioner,
+Notify Client, Close and Save all fit on one row.
+
 ## 10. Templates & Settings pages load cleanly
 Templates page — all five tabs (Email, Session Note, Agreement, Forms, Report) load without a
 console error, consistent full-page width. Editing an **email** template: a plain box (no pages,

@@ -602,12 +602,45 @@ function BillingAdjustmentTab({ items, appointmentId, seriesId, scopedServices, 
     } finally { setSaving(false); }
   };
 
+  // "Don't bill": every line on this appointment to $0 (the hours stay as recorded). A $0
+  // appointment is "No charge" — never exported to MYOB or invoiced. Revert to original undoes it.
+  const dontBill = async () => {
+    if (!await confirm({ title: "Don't bill this appointment", message: "Set every line on this appointment to $0? It stays on the calendar and in the client's history, but it won't be exported to MYOB, invoiced, or counted in billing totals.\n\nRevert to original undoes this.", confirmLabel: "Don't bill" })) return;
+    setSaving(true); setError('');
+    try {
+      let last = null;
+      for (const item of items) {
+        last = (await api.patch(`/appointments/${appointmentId}/items/${item.id}/billing`, {
+          billed_quantity: Number(item.quantity), billed_unit_rate: 0, billed_travel_rate: 0, billed_km_rate: 0, billed_notes_rate: 0, apply_to_future: false,
+        })).data;
+      }
+      setDrafts({});
+      if (last) onUpdated(last);
+    } catch (e) {
+      setError(e.response?.data?.error || "Failed to set this appointment to not be billed");
+    } finally { setSaving(false); }
+  };
+
+  // What's saved (not the unsaved drafts) comes to $0 on every line.
+  const savedNoCharge = items.length > 0 && items.every(item => {
+    const orig = resolveOriginalRates(item, scopedServices);
+    return Number(item.billed_unit_rate ?? orig.sessionRate) * Number(item.billed_quantity ?? item.quantity) === 0
+      && (!hasTravel(item) || Number(item.billed_travel_rate ?? orig.travelRate) === 0)
+      && (!hasKm(item) || Number(item.billed_km_rate ?? orig.kmRate) === 0)
+      && (!hasNotes(item) || Number(item.billed_notes_rate ?? orig.notesRate) === 0);
+  });
+
   if (!items.length) {
     return <p className="text-sm text-gray-400 py-8 text-center">No billable line items on this appointment.</p>;
   }
 
   return (
     <div className="space-y-6">
+      {savedNoCharge && (
+        <p className="rounded-lg bg-gray-100 px-3 py-2 text-sm text-gray-700">
+          <strong>No charge</strong> — this appointment is billed at $0, so it won't be exported to MYOB or invoiced.
+        </p>
+      )}
       {items.map(item => {
         const orig = resolveOriginalRates(item, scopedServices);
         const d = draftFor(item);
@@ -723,6 +756,7 @@ function BillingAdjustmentTab({ items, appointmentId, seriesId, scopedServices, 
               <Button variant="secondary" onClick={revertAll} disabled={saving} className="!border-red-200 !text-red-700 hover:!bg-red-50">
                 Revert to original
               </Button>
+              {!savedNoCharge && <Button variant="secondary" onClick={dontBill} disabled={saving}>Don't bill</Button>}
               <div className="ml-auto">
                 <Button onClick={requestSave} disabled={saving || !dirtyItemIds.length}>{saving ? 'Saving…' : 'Save'}</Button>
               </div>
@@ -1317,7 +1351,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
   const isHome = form.location_type === 'home' || form.location_type === 'other';
 
   return (
-    <Modal title={editing ? `Edit Appointment — APT-${String(appointment.id).padStart(5,'0')}` : 'New Appointment'} onClose={onClose} wide
+    <Modal title={editing ? `Edit Appointment — APT-${String(appointment.id).padStart(5,'0')}` : 'New Appointment'} onClose={onClose} size="xl"
       headerExtra={editing && (
         <button type="button" onClick={copyLink}
           className="text-xs text-gray-500 hover:text-indigo-600 flex items-center gap-1">
@@ -1352,7 +1386,14 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
             seriesId={appointment.series_id}
             scopedServices={scopedServices}
             canEdit={!!user?.permissions?.invoices}
-            onUpdated={updated => { setBillingItems(updated.items || []); if (onRefresh) onRefresh(); }}
+            onUpdated={async updated => {
+              setBillingItems(updated.items || []);
+              // Confirm the save, then close the appointment — onSaved reloads the screen behind it
+              // (invoice listing, calendar) so the new figures show straight away.
+              const future = updated.propagated ? ` Also applied to ${updated.propagated} future appointment${updated.propagated === 1 ? '' : 's'} in the series.` : '';
+              await confirm({ title: 'Billing updated', message: `The billing for this appointment has been updated.${future}`, alert: true });
+              onSaved();
+            }}
           />
         </div>
       ) : (
