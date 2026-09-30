@@ -328,7 +328,15 @@ the machine. Follow memory `process_local_ui_qa.md`:
 4. The local DB is nearly empty, so seed qa.db before starting:
    - a test **owner** (random bcrypt password saved to a scratchpad credentials file, not shown in
      chat);
-   - a **practitioner** to book with (the owner doesn't show in practitioner pickers);
+   - a **practitioner** to book with (the owner doesn't show in practitioner pickers) — give it a
+     login too (random password in the same credentials file) for item 9's therapist view;
+   - for item 9's overdue report invoices: two `billable_reports` (one written by that
+     practitioner, one by the owner) with report-entry appointments (`billable_report_id`, an
+     `appointment_items` row each) dated in the past: 35 days, no invoice number; 23 and 21 days
+     on one unpaid invoice number (`myob_status` 'open'); 16 days part paid (`myob_amount_due`
+     less than the total); 40 days paid (`myob_status` 'closed'); 5 days (too recent); 30 days
+     voided (`status` 'cancelled'). Expect 3 overdue: the no-number one, the shared invoice as one
+     line, and the part-paid one;
    - NDIS `service_rates` with travel_rate_per_hour, km_rate, notes_rate and cancel/travel/km/notes
      codes (item 5 needs them);
    - `cancellation_policy` = `[{"days":2,"percent":100}]`;
@@ -372,9 +380,12 @@ Released to production 2026-09-30 — not yet covered by a full run:
 - Item 5: billing adjustments now apply to late-cancellation fees.
 - Item 9: invoice numbers with letters/spaces and zero-padded display; Don't bill button;
   No charge tile/status; "Billing updated" popup that closes the window and refreshes the list.
-- Item 9 (in production since 2026-09-30): overdue report invoices — Calendar banner, sidebar number,
-  Overdue reports tile, Settings → Overdue Report Invoices.
-- Item 10 (in production since 2026-09-30): Settings → Budget Alerts "Send to" choices.
+- Item 9: overdue report invoices — Calendar banner, sidebar number, Overdue reports tile,
+  Settings → Overdue Report Invoices. The **therapist view** needs a practitioner-role sign-in:
+  on UAT (option A) ask the user whether they have one to sign in with, otherwise check it on a
+  local copy (option B) and say which way it was checked.
+- Item 10: Settings → Budget Alerts "Send to" choices (default: client's practitioners, owners,
+  admins — no finance).
 
 ## Last full run — 2026-09-29 (UAT, option A, user's own sign-in)
 Result: **items 1–13 incl. 7b all PASS**; no functional failures, no console/network errors.
