@@ -36,3 +36,4 @@ function requireAnyPermission(...permissions) {
 
 module.exports = requirePermission;
 module.exports.permAny = requireAnyPermission;
+module.exports.getPermissions = getPermissions;

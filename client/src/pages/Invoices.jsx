@@ -9,7 +9,7 @@ import MyobRegister from '../components/MyobRegister';
 import InvoiceSync from './InvoiceSync';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
-import { currency, fmtDate, localToday, downloadFile, roundQty } from '../lib/utils';
+import { currency, fmtDate, localToday, downloadFile, roundQty, invoiceLabel } from '../lib/utils';
 import { useConfirm } from '../components/ui/ConfirmDialog';
 
 const STATUS_COLOR = { draft:'gray', sent:'blue', paid:'green', void:'gray' };
@@ -200,7 +200,7 @@ function ToSendTab({ mode }) {
                         <td className="px-4 py-3">
                           {a.myob_invoice_number ? (
                             <div className="flex items-center gap-1.5">
-                              <span className="font-mono text-xs text-gray-500">INV {a.myob_invoice_number}</span>
+                              <span className="font-mono text-xs text-gray-500">{invoiceLabel(a.myob_invoice_number)}</span>
                               {a.myob_status === 'closed' ? (
                                 <Badge color="green">Closed</Badge>
                               ) : a.myob_status === 'open' ? (

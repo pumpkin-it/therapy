@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { CheckCircle, FileSpreadsheet } from 'lucide-react';
 import { format, startOfWeek, endOfWeek, subWeeks, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import api from '../lib/api';
@@ -8,7 +9,7 @@ import AppointmentModal from './AppointmentModal';
 import MyobInvoiceModal from './MyobInvoiceModal';
 import { useAuth } from '../context/AuthContext';
 import { useConfirm } from './ui/ConfirmDialog';
-import { currency, fmtDate, localToday, downloadFile } from '../lib/utils';
+import { currency, fmtDate, localToday, downloadFile, invoiceLabel } from '../lib/utils';
 
 // The Invoices page for practices that bill through MYOB exports: every billable session and
 // report entry, by where it's at in MYOB (server/routes/invoices.js /myob-register). Status tiles
@@ -16,6 +17,8 @@ import { currency, fmtDate, localToday, downloadFile } from '../lib/utils';
 //   • Tick any row to (re-)export it — a deleted export file can always be made again.
 //   • Select all is offered where a bulk action makes sense: Not exported (export) and
 //     Unpaid / Part paid (mark paid).
+//   • Overdue reports: report invoices still not paid in full N days (Settings, default 14) after
+//     the entry date — whatever the dates chosen. The sidebar badge links here (?tile=overdue_reports).
 //   • No charge: adjusted to $0 on the appointment's Billing adjustment tab — listed for the
 //     record, but never exported or invoiced, so those rows can't be ticked.
 
@@ -25,11 +28,12 @@ const STATUSES = [
   { key: 'unpaid',       label: 'Unpaid',       sub: 'Invoiced, nothing paid', color: 'blue' },
   { key: 'part_paid',    label: 'Part paid',    sub: 'Balance still due', color: 'orange' },
   { key: 'paid',         label: 'Paid',         sub: 'Paid in full', color: 'green' },
+  { key: 'overdue_reports', label: 'Overdue reports', sub: 'Report invoices unpaid', color: 'red' },
   { key: 'no_charge',    label: 'No charge',    sub: 'Adjusted to $0, not billed', color: 'gray' },
   { key: 'all',          label: 'All',          sub: 'Everything in view', color: 'gray' },
 ];
 const STATUS = Object.fromEntries(STATUSES.map(s => [s.key, s]));
-const SELECT_ALL = ['not_exported', 'unpaid', 'part_paid'];
+const SELECT_ALL = ['not_exported', 'unpaid', 'part_paid', 'overdue_reports'];
 const PAYABLE = ['unpaid', 'part_paid'];
 
 const iso = d => format(d, 'yyyy-MM-dd');
@@ -56,7 +60,10 @@ export default function MyobRegister() {
   const [custom, setCustom] = useState({ from: localToday(), to: localToday() });
   const [clientFilter, setClientFilter] = useState('');
   const [practFilter, setPractFilter] = useState('');
-  const [active, setActive] = useState('all');
+  const [searchParams] = useSearchParams();
+  const [active, setActive] = useState(searchParams.get('tile') || 'all');
+  // The sidebar's overdue badge links here with ?tile=overdue_reports — also while already on this page.
+  useEffect(() => { if (searchParams.get('tile')) setActive(searchParams.get('tile')); }, [searchParams]);
   const [data, setData] = useState(null);
   const [clients, setClients] = useState([]);
   const [practitioners, setPractitioners] = useState([]);
@@ -167,12 +174,25 @@ export default function MyobRegister() {
       )}
 
       {/* Status tiles — "chosen dates / all dates" (both follow the client and practitioner filters); click one to show just that status. */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
         {STATUSES.map(s => {
           const t = summary[s.key] || { count: 0, amount: 0 };
           const a = summaryAll[s.key] || { count: 0, amount: 0 };
           const on = active === s.key;
           const dim = on ? 'text-indigo-200' : 'text-gray-400';
+          if (s.key === 'overdue_reports') {
+            // One figure (it ignores the dates chosen); red while there's anything to chase.
+            const alert = !on && t.count > 0;
+            return (
+              <button key={s.key} onClick={() => setActive(on ? 'all' : s.key)}
+                className={`rounded-xl border p-4 text-left transition-all ${on ? 'border-indigo-600 bg-indigo-600 text-white shadow-lg' : alert ? 'border-red-300 bg-red-50 text-red-900 hover:shadow' : 'border-gray-200 bg-white text-gray-800 hover:border-indigo-300 hover:shadow'}`}>
+                <div className={`text-2xl font-bold leading-none ${on ? 'text-white' : alert ? 'text-red-700' : 'text-gray-900'}`}>{t.count}</div>
+                <div className={`mt-1 text-sm font-semibold ${on ? 'text-indigo-50' : alert ? 'text-red-800' : 'text-gray-700'}`}>{s.label}</div>
+                <div className={`text-xs ${on ? 'text-indigo-100' : alert ? 'text-red-600' : 'text-gray-400'}`}>Unpaid {t.days ?? 14}+ days, any date</div>
+                <div className={`mt-2 text-sm font-semibold ${on ? 'text-white' : alert ? 'text-red-700' : 'text-gray-600'}`}>{currency(t.amount)} <span className="text-xs font-medium">still due</span></div>
+              </button>
+            );
+          }
           return (
             <button key={s.key} onClick={() => setActive(on && s.key !== 'all' ? 'all' : s.key)}
               className={`rounded-xl border p-4 text-left transition-all ${on ? 'border-indigo-600 bg-indigo-600 text-white shadow-lg' : 'border-gray-200 bg-white text-gray-800 hover:border-indigo-300 hover:shadow'}`}>
@@ -226,7 +246,7 @@ export default function MyobRegister() {
       {/* List */}
       <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
         {data === null ? <p className="p-10 text-center text-sm text-gray-400">Loading…</p>
-          : !rows.length ? <p className="p-10 text-center text-sm text-gray-400">Nothing {active === 'all' ? '' : `${STATUS[active].label.toLowerCase()} `}for these filters.</p>
+          : !rows.length ? <p className="p-10 text-center text-sm text-gray-400">{active === 'overdue_reports' ? 'No overdue report invoices.' : `Nothing ${active === 'all' ? '' : `${STATUS[active].label.toLowerCase()} `}for these filters.`}</p>
           : (
             <table className="min-w-full divide-y divide-gray-100">
               <thead className="bg-gray-50">
@@ -266,13 +286,14 @@ export default function MyobRegister() {
                         {r.myob === 'no_charge' ? <span className="text-gray-300">—</span> : <button type="button" disabled={!canEditMyob} onClick={() => setMyobEdit(r)}
                           title={canEditMyob ? 'Edit the MYOB invoice number or payment' : undefined}
                           className={`rounded font-mono text-xs ${canEditMyob ? '-m-1 p-1 hover:bg-indigo-50' : 'cursor-default'}`}>
-                          {number ? `INV ${number}` : <span className={canEditMyob ? 'font-sans text-indigo-600' : 'font-sans text-gray-300'}>{canEditMyob ? 'Add' : '—'}</span>}
+                          {number ? invoiceLabel(number) : <span className={canEditMyob ? 'font-sans text-indigo-600' : 'font-sans text-gray-300'}>{canEditMyob ? 'Add' : '—'}</span>}
                         </button>}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm">
                         <Badge color={st.color}>{st.label}</Badge>
                         {r.myob === 'part_paid' && <span className="ml-1.5 text-xs text-orange-700">{currency(r.myob_amount_due)} due</span>}
                         {r.myob === 'exported' && <span className="ml-1.5 text-xs text-gray-400">{fmtDate(r.myob_exported_at)}</span>}
+                        {r.overdue_days != null && <span className="ml-1.5"><Badge color="red" title="Report invoice not paid in full">Overdue · {r.overdue_days} days</Badge></span>}
                       </td>
                     </tr>
                   );

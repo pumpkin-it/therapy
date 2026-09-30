@@ -1,8 +1,9 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { CalendarDays, Users, UserCog, Layers, FileText, Settings, Stethoscope, Wallet, MapPin, RefreshCw, ScrollText, LogOut, ClipboardList, BarChart3 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
 import { isUAT } from '../../lib/env';
+import useOverdueReports from '../../lib/useOverdueReports';
 
 const nav = [
   { to: '/calendar',        label: 'Calendar',   icon: CalendarDays, perm: 'calendar' },
@@ -26,6 +27,10 @@ export default function Sidebar() {
   const perms = user?.permissions || {};
 
   const visibleNav = nav.filter(n => !n.perm || perms[n.perm] || n.orRoles?.includes(user?.role));
+  const navigate = useNavigate();
+  // Red number on Invoices: report invoices overdue (finance sees them all). Click → that tile.
+  const overdue = useOverdueReports(!!perms.invoices && !!perms.clients);
+  const overdueCount = overdue?.groups?.length || 0;
 
   return (
     <aside className={cn(
@@ -58,6 +63,13 @@ export default function Sidebar() {
           >
             <Icon className="h-4 w-4 shrink-0" />
             {label}
+            {to === '/invoices' && overdueCount > 0 && (
+              <span role="link" title={`${overdueCount} report invoice${overdueCount === 1 ? '' : 's'} overdue`}
+                onClick={e => { e.preventDefault(); navigate('/invoices?tile=overdue_reports'); }}
+                className="ml-auto rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-semibold leading-none text-white">
+                {overdueCount}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>

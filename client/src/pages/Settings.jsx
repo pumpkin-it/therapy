@@ -36,12 +36,16 @@ export default function Settings() {
     finance:      { calendar:false, clients:true,  funding_periods:true,  users:false, funds_managers:true,  locations:false, services:true,  invoices:true,  reports:true, settings:false },
   };
   const [perms, setPerms] = useState(DEFAULT_PERMS);
+  // Budget alert recipients (server/services/budgets.js) — the same default when never set.
+  const BUDGET_ALERT_OPTIONS = [['client_practitioners', "The client's practitioners"], ['owner', 'Owners'], ['admin', 'Admins'], ['practitioner', 'All practitioners'], ['finance', 'Finance']];
+  const [budgetAlertTo, setBudgetAlertTo] = useState(['client_practitioners', 'owner', 'admin']);
 
   useEffect(() => {
     api.get('/settings').then(r => {
       setForm(r.data);
       try { setCancelTiers(JSON.parse(r.data.cancellation_policy || '[]')); } catch { setCancelTiers([]); }
       try { setPerms(JSON.parse(r.data.role_permissions || '{}')); } catch {}
+      try { if (r.data.budget_alert_to != null) setBudgetAlertTo(JSON.parse(r.data.budget_alert_to)); } catch {}
     });
     api.get('/settings/logo', { responseType: 'blob' })
       .then(r => setLogoUrl(URL.createObjectURL(r.data)))
@@ -90,7 +94,7 @@ export default function Settings() {
     const sorted = [...cancelTiers]
       .filter(t => t.days !== '' && t.percent !== '')
       .sort((a, b) => Number(a.days) - Number(b.days));
-    await api.patch('/settings', { ...form, cancellation_policy: JSON.stringify(sorted), role_permissions: JSON.stringify(perms) });
+    await api.patch('/settings', { ...form, cancellation_policy: JSON.stringify(sorted), role_permissions: JSON.stringify(perms), budget_alert_to: JSON.stringify(budgetAlertTo) });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -286,9 +290,30 @@ export default function Settings() {
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
         <div>
           <h2 className="font-semibold text-gray-900">Budget Alerts</h2>
-          <p className="text-sm text-gray-500 mt-1">Every night, each active budget that's newly crossed 75%, 90%, or 100% of its current tracked total gets an email — sent to the client's practitioner(s), everyone with the finance or owner role, and this address.</p>
+          <p className="text-sm text-gray-500 mt-1">Every night, each active budget that's newly crossed 75%, 90%, or 100% of its current tracked total gets one email, sent to everyone ticked below and the practice inbox.</p>
+        </div>
+        <div className="space-y-2">
+          <p className="text-sm font-medium text-gray-700">Send to</p>
+          <div className="flex flex-wrap gap-x-6 gap-y-2">
+            {BUDGET_ALERT_OPTIONS.map(([key, label]) => (
+              <label key={key} className="flex items-center gap-2 text-sm text-gray-700">
+                <input type="checkbox" className="accent-indigo-600" checked={budgetAlertTo.includes(key)}
+                  onChange={e => setBudgetAlertTo(t => e.target.checked ? [...t, key] : t.filter(k => k !== key))} />
+                {label}
+              </label>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400">"The client's practitioners" means whoever saw the client during the budget's period. A role means every active user with that role.</p>
         </div>
         {field('Practice alert inbox (optional)', 'budget_alert_email', 'email')}
+      </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+        <div>
+          <h2 className="font-semibold text-gray-900">Overdue Report Invoices</h2>
+          <p className="text-sm text-gray-500 mt-1">A report invoice not paid in full this many days after the report entry's date is flagged on the Calendar (therapists see their own reports), the Invoices menu and the MYOB Invoices screen. Leave empty for 14.</p>
+        </div>
+        {field('Days after the entry date', 'report_overdue_days', 'number')}
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">

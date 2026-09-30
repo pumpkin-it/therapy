@@ -151,13 +151,25 @@ function refreshBudgetCurrentTotals() {
 // night it stays above that line). Only the highest newly-crossed tier for a given run sends —
 // jumping straight past 75% and 90% in one day (e.g. several appointments billed at once)
 // shouldn't produce three emails, just the one that reflects where things actually stand.
+const DEFAULT_BUDGET_ALERT_TO = ['client_practitioners', 'owner', 'admin'];
+function budgetAlertTo() {
+  const raw = db.prepare(`SELECT value FROM settings WHERE key = 'budget_alert_to'`).get()?.value;
+  if (raw == null) return DEFAULT_BUDGET_ALERT_TO;
+  try { const v = JSON.parse(raw); return Array.isArray(v) ? v : DEFAULT_BUDGET_ALERT_TO; } catch { return DEFAULT_BUDGET_ALERT_TO; }
+}
+
 async function sendBudgetAlerts() {
   const practiceInboxRow = db.prepare(`SELECT value FROM settings WHERE key = 'budget_alert_email'`).get();
   const practiceInbox = practiceInboxRow?.value || null;
 
-  const financeOwnerEmails = db.prepare(`
-    SELECT email FROM practitioners WHERE role IN ('finance', 'owner') AND active = 1 AND email IS NOT NULL AND email != ''
-  `).all().map(r => r.email);
+  // Who gets them is chosen in Settings → Budget Alerts (`budget_alert_to`, a JSON list):
+  // 'client_practitioners' (whoever saw the client in the budget's period) and/or every active user
+  // with one of the roles owner / admin / practitioner / finance — plus the practice inbox above.
+  const alertTo = budgetAlertTo();
+  const roles = alertTo.filter(r => ['owner', 'admin', 'practitioner', 'finance'].includes(r));
+  const roleEmails = roles.length ? db.prepare(`
+    SELECT email FROM practitioners WHERE role IN (${roles.map(() => '?').join(',')}) AND active = 1 AND email IS NOT NULL AND email != ''
+  `).all(...roles).map(r => r.email) : [];
 
   const activeBudgets = db.prepare(`
     SELECT b.*, d.name AS discipline_name, c.first_name || ' ' || c.last_name AS client_name
@@ -201,26 +213,26 @@ async function sendBudgetAlerts() {
     if (!tier) continue;
 
     const endForQuery = budget.end_date || new Date().toISOString().slice(0, 10);
-    const practitionerEmails = db.prepare(`
+    const practitionerEmails = !alertTo.includes('client_practitioners') ? [] : db.prepare(`
       SELECT DISTINCT p.email FROM appointments a
       JOIN practitioners p ON p.id = a.practitioner_id
       WHERE a.client_id = ? AND DATE(a.start_time) BETWEEN ? AND ?
         AND p.active = 1 AND p.email IS NOT NULL AND p.email != ''
     `).all(budget.client_id, budget.start_date, endForQuery).map(r => r.email);
 
-    const recipients = [...new Set([...practitionerEmails, ...financeOwnerEmails, ...(practiceInbox ? [practiceInbox] : [])])];
+    const recipients = [...new Set([...practitionerEmails, ...roleEmails, ...(practiceInbox ? [practiceInbox] : [])])];
     if (recipients.length === 0) continue;
 
     // Labeled purely for UAT's redirected-email visibility (see server/services/mailer.js) —
     // real production sends ignore this entirely and just use `recipients`.
     const debugRecipients = [
       ...practitionerEmails.map(e => `PRACTITIONER EMAIL - ${e}`),
-      ...financeOwnerEmails.map(e => `FINANCE/OWNER EMAIL - ${e}`),
+      ...roleEmails.map(e => `ROLE (${roles.join('/').toUpperCase()}) EMAIL - ${e}`),
       ...(practiceInbox ? [`PRACTICE INBOX - ${practiceInbox}`] : []),
     ];
 
     const disciplineLabel = budget.discipline_name || 'budget';
-    // Every recipient here is staff (practitioners, finance/owner, practice inbox) — this never
+    // Every recipient here is staff (practitioners, users by role, practice inbox) — this never
     // goes to a client — tagged so it's identifiable at a glance in an inbox, same convention
     // to apply to any future client-facing budget email if one's ever added.
     const subject = `[Internal] Budget alert: ${budget.client_name} — ${disciplineLabel} has reached ${tier}%`;

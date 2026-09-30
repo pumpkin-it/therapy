@@ -13,6 +13,8 @@ const { getReportInstalments, releaseBlocker, releaseReport, releasePaidReportsI
 const { acceptImage, discardUpload } = require('./reportImages');
 const { renderReportPdf } = require('../services/docPdf');
 const crypto = require('crypto');
+const { overdueReportInvoices } = require('../lib/overdueReports');
+const { getPermissions } = require('../middleware/requirePermission');
 
 // Report billing: a practitioner bills a report in chunks as they write it ("5 hrs today, the
 // report is now 50% done"). Each chunk is a real completed appointment linked by
@@ -150,6 +152,15 @@ router.get('/', auth, (req, res) => {
   if (!client_id) return res.status(400).json({ error: 'client_id required' });
   const reports = db.prepare('SELECT * FROM billable_reports WHERE client_id = ? AND deleted_at IS NULL ORDER BY created_at DESC').all(client_id);
   res.json(reports.map(reportWithDetails));
+});
+
+// Overdue report invoices (server/lib/overdueReports.js) for the Calendar banner and the sidebar
+// badge. Anyone with the invoices permission sees them all; everyone else sees the reports they
+// write — they're the ones best placed to chase the client.
+router.get('/overdue', auth, (req, res) => {
+  const perms = getPermissions()[req.user.role] || {};
+  const { days, groups } = overdueReportInvoices(perms.invoices ? {} : { practitionerId: req.user.id });
+  res.json({ days, groups, all: !!perms.invoices });
 });
 
 router.get('/:id', auth, (req, res) => {

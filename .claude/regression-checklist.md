@@ -207,12 +207,37 @@ Budget and Reports follow the adjusted amount too: a No charge appointment adds 
 funding budget spend and to Reports "$ Invoiced". Leave every QA appointment back at its original
 billing (Revert to original) when done.
 
+**Overdue report invoices** (UAT only until released; added 2026-09-30): a report invoice is overdue
+when a report entry (client → Reports tab billing) is still not paid in full `report_overdue_days`
+after the entry's date (Settings → Overdue Report Invoices; empty = 14). Counts whether or not it
+has reached MYOB; leaves out voided entries, No charge ($0) ones and paid invoices. Entries on one
+MYOB invoice are one item, aged from the earliest. Check with a report entry dated 15+ days ago
+(QA data only — on a local copy, seed report entries with past dates: one with no invoice number,
+two on one unpaid invoice number, one part paid, one paid, one recent, one voided):
+- **Calendar banner** (first screen after sign-in): red "N report invoices overdue — $X not paid
+  14+ days after the report entry". Each line: client (link → that client's Reports tab), report,
+  (practitioner for finance), entry date and days ago, invoice number, status, amount due.
+  Hide/Show collapses it; more than 5 → "Show all N". Owner/admin/finance see every one plus
+  "Open in MYOB Invoices"; a **therapist** (practitioner role) sees only the reports they write,
+  with "Please follow up with the client", and no sidebar number. The paid, recent and voided
+  seeds must not appear; the two entries on one invoice show as one line.
+- **Sidebar**: a red number on Invoices (finance roles only) = number of overdue invoices; clicking
+  the number opens Invoices → MYOB Invoices on the **Overdue reports** tile.
+- **MYOB Invoices → Overdue reports tile**: red while anything is overdue, one count (no "/ all" —
+  it ignores the date filter) and "$X still due"; the list shows those entries, oldest first,
+  each with an "Overdue · N days" badge; select all works; Mark paid on them → back on the
+  Calendar the banner and the sidebar number drop (they refresh on each page change).
+- Lettered invoice numbers show once ("INV 77", not "INV INV 77"); all-digit ones as "INV 00002222".
+
 ## 10. Templates & Settings pages load cleanly
 Templates page — all five tabs (Email, Session Note, Agreement, Forms, Report) load without a
 console error, consistent full-page width. Editing an **email** template: a plain box (no pages,
 no picture or page-break buttons) with each {{variable}} shown as a named chip; Insert field adds
 one. **Session note / agreement** templates: an A4 page with page guides and Insert field. Saving
-and reopening keeps the chips; an agreement drafted from the template shows the real values. Settings page loads. Reports page loads and returns data for
+and reopening keeps the chips; an agreement drafted from the template shows the real values. Settings page loads. **Budget Alerts → Send to** (UAT only until released; added 2026-09-30):
+tick boxes for The client's practitioners, Owners, Admins, All practitioners and Finance (default:
+the first three) plus the Practice alert inbox; untick/tick some, Save, reload — the choice is kept.
+Put it back as it was afterwards. (Don't trigger a real alert email.) Reports page loads and returns data for
 a normal date range.
 
 ## 11. Report billing (client → Reports tab)
@@ -347,6 +372,9 @@ Released to production 2026-09-30 — not yet covered by a full run:
 - Item 5: billing adjustments now apply to late-cancellation fees.
 - Item 9: invoice numbers with letters/spaces and zero-padded display; Don't bill button;
   No charge tile/status; "Billing updated" popup that closes the window and refreshes the list.
+- Item 9 (UAT only until released): overdue report invoices — Calendar banner, sidebar number,
+  Overdue reports tile, Settings → Overdue Report Invoices.
+- Item 10 (UAT only until released): Settings → Budget Alerts "Send to" choices.
 
 ## Last full run — 2026-09-29 (UAT, option A, user's own sign-in)
 Result: **items 1–13 incl. 7b all PASS**; no functional failures, no console/network errors.

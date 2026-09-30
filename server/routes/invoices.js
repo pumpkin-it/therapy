@@ -5,6 +5,7 @@ const { generateInvoicePdf } = require('../services/pdf');
 const { sendInvoiceEmail } = require('../services/mailer');
 const audit = require('../services/audit');
 const { roundQty } = require('../lib/billing');
+const { overdueReportInvoices } = require('../lib/overdueReports');
 const {
   buildAppointmentsMyobCsv, markAppointmentsExported, appointmentAmounts, isNoCharge,
   fmtClientRef, fmtFundingTypeRef, fmtDateDMY, csvEscape, FP_JOIN_DIRECT_DATE, MYOB_HEADERS,
@@ -135,7 +136,7 @@ router.get('/myob-register', auth, (req, res) => {
   const { client_id, practitioner_id, until } = req.query;
   let { from, to } = req.query;
   if (until && (!to || to > until)) to = until;
-  const status = MYOB_STATUSES.includes(req.query.status) ? req.query.status : 'all';
+  const status = [...MYOB_STATUSES, 'overdue_reports'].includes(req.query.status) ? req.query.status : 'all';
   const offset = Math.max(0, Number(req.query.offset) || 0);
   let where = "(a.status != 'cancelled' OR a.late_cancel_billable = 1) AND a.status != 'pending' AND a.is_invoiced = 0";
   const params = [];
@@ -173,6 +174,13 @@ router.get('/myob-register', auth, (req, res) => {
   };
 
   const blank = () => Object.fromEntries([...MYOB_STATUSES, 'all'].map(k => [k, { count: 0, amount: 0 }]));
+  // Overdue report invoices — whatever the dates chosen (they're all in the past), following the
+  // client and practitioner filters. Counted per invoice; the $ is what's still due on them.
+  const leanIds = new Set(lean.map(r => r.id));
+  const overdueAll = overdueReportInvoices({ clientId: client_id || null });
+  const overdue = overdueAll.groups.filter(g => g.appointment_ids.some(id => leanIds.has(id)));
+  const overdueAppt = new Map();
+  for (const g of overdue) for (const id of g.appointment_ids) overdueAppt.set(id, g.days_since);
   const summary = blank(), summaryAll = blank();
   const partDue = new Map(), partDueAll = new Map();
   const inStatus = [];
@@ -183,11 +191,12 @@ router.get('/myob-register', auth, (req, res) => {
       if (shown) { summary[k].count++; summary[k].amount += amt; }
     }
     if (st === 'part_paid') { partDueAll.set(r.myob_invoice_number, r.myob_amount_due); if (shown) partDue.set(r.myob_invoice_number, r.myob_amount_due); }
-    if (shown && (status === 'all' || st === status)) inStatus.push({ id: r.id, myob: st });
+    if (status === 'overdue_reports' ? overdueAppt.has(r.id) : shown && (status === 'all' || st === status)) inStatus.push({ id: r.id, myob: st });
   }
   // What's still owed on the part-paid invoices (once per invoice, not per appointment).
   summary.part_paid.due = [...partDue.values()].reduce((s, v) => s + v, 0);
   summaryAll.part_paid.due = [...partDueAll.values()].reduce((s, v) => s + v, 0);
+  summary.overdue_reports = summaryAll.overdue_reports = { count: overdue.length, amount: overdue.reduce((s, g) => s + g.due, 0), days: overdueAll.days };
 
   if (req.query.ids_only) return res.json({ ids: inStatus.map(r => r.id), summary, summary_all: summaryAll });
 
@@ -209,7 +218,7 @@ router.get('/myob-register', auth, (req, res) => {
   `).all(...page.map(r => r.id)) : [];
   const byId = new Map();
   for (const d of detail) if (!byId.has(d.id)) byId.set(d.id, d);
-  const rows = page.map(r => ({ ...byId.get(r.id), myob: r.myob, amount: amountOf(r.id),
+  const rows = page.map(r => ({ ...byId.get(r.id), myob: r.myob, amount: amountOf(r.id), overdue_days: overdueAppt.get(r.id) ?? null,
     invoice_total: byId.get(r.id)?.myob_invoice_number ? invoiceTotal.get(byId.get(r.id).myob_invoice_number) : null }));
   res.json({ rows, summary, summary_all: summaryAll, total: inStatus.length, offset, page_size: REGISTER_PAGE });
 });

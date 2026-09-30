@@ -32,6 +32,10 @@ export const fmtDateOnly = (utcStr, tz = 'Australia/Sydney') => {
   }).format(d);
 };
 
+// A MYOB invoice number as shown in lists: "INV 00002222", but a number that already has letters
+// in it ("INV 77", "A123") is shown as it is.
+export const invoiceLabel = no => (no ? (/^\d+$/.test(no) ? `INV ${no}` : String(no)) : '');
+
 export const cn = (...classes) => classes.filter(Boolean).join(' ');
 
 // Templates written in the document editor keep each variable in a chip:

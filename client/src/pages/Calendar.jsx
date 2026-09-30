@@ -13,6 +13,7 @@ import BlockTimeModal from '../components/BlockTimeModal';
 import CancelledAppointmentsModal from '../components/CancelledAppointmentsModal';
 import { DayView, WeekView, MonthView } from '../components/CalendarViews';
 import { useAuth } from '../context/AuthContext';
+import OverdueReportsBanner from '../components/OverdueReportsBanner';
 
 export default function Calendar() {
   const { user } = useAuth();
@@ -131,6 +132,7 @@ export default function Calendar() {
 
   return (
     <div className="flex flex-col h-full space-y-4">
+      <OverdueReportsBanner />
       {/* Toolbar */}
       <div className="flex items-center gap-2 flex-wrap">
         <Button variant="secondary" size="sm" onClick={() => nav(-1)}><ChevronLeft className="h-4 w-4" /></Button>
