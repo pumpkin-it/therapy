@@ -43,6 +43,10 @@ Open an existing appointment → change time and/or a line item → Save → cha
 reload (close and reopen the appointment, confirm the new value is still there — not just
 optimistic UI).
 
+**Window width** (in production since 2026-09-30): on a desktop-size screen the appointment window
+is about 900px wide (`.fixed.inset-0 > div` width ≈ 896), and Cancel appointment, Notify
+Practitioner, Notify Client, Close and Save all sit on **one row** at the bottom of the Details tab.
+
 ## 4. Cancel an appointment (no fee, outside the policy window)
 Cancel an appointment booked well outside the cancellation-policy notice window (see item 5 for
 the near-term/billable case) → appointment shows on the cancelled-only calendar toggle with the
@@ -90,6 +94,13 @@ policy prompt, click "Go back" / decline the fee instead → confirm it shows th
 badge (not "LC") → confirm this appointment does **NOT** appear on Invoices → MYOB Invoices at all
 (cancelled + not billable should be fully excluded from the outstanding-to-bill list, unlike the
 billed case above).
+
+**Billing adjustment on a billed late cancellation** (fixed 2026-09-30 — a real bug on APT-00247,
+where a $0 adjustment was ignored and the full fee still showed): open the **billed** one →
+Billing adjustment tab → halve the Session rate → Save → OK. On MYOB Invoices its amount must drop
+to the fee on the **adjusted** rate (e.g. 100% of $96.99 instead of $193.99), plus any
+travel/km/notes. Then **Don't bill** → it shows $0 under **No charge** (see item 9). Revert to
+original afterwards.
 
 ## 6. Session notes — add, from both entry points
 - Via the appointment modal's own Session Notes section: add a note, Save → appears in the list.
@@ -165,8 +176,8 @@ export endpoint and stamps the appointment as exported. In this mode, **stop at 
 and verify the line items/total in the list view"** — do not click Export, since that would
 complete a real (if harmless, QA-only-data) export rather than just previewing it.
 
-**MYOB Invoices screen** (in production since 2026-09-29, `export_only` mode): six status tiles (Not exported,
-Exported, Unpaid, Part paid, Paid, All) each show a count and $ that follow the date / client /
+**MYOB Invoices screen** (in production since 2026-09-29, `export_only` mode): seven status tiles (Not exported,
+Exported, Unpaid, Part paid, Paid, No charge — added 2026-09-30 — and All) each show a count and $ that follow the date / client /
 practitioner filters; clicking a tile filters the list. Dates default to **This week** (the whole week to Sunday, nothing after); check Last week, This
 month, a Custom range and **All dates** — none of them show appointments after this week unless
 **Include future appointments** is ticked. Each tile reads "chosen dates / all dates" (e.g. Not
@@ -175,11 +186,15 @@ only on Not exported, Unpaid and Part paid. Ticking an already-exported row and 
 asks "Export again?" first (click Cancel). **Mark paid** appears only when every ticked row is
 Unpaid/Part paid. Clicking a row's MYOB invoice cell (owner/admin/finance) opens the edit window:
 invoice number, and payment — No payment / Part paid (amount paid ↔ amount due, worked out from the
-invoice total) / Paid in full. The invoice number accepts letters and spaces as well as digits:
-typing `inv 12a` shows `INV 12A`, saves, and the row then shows `INV 12A`. An all-digit number is
-padded like MYOB's and shown with its zeros everywhere: `2222` saves and shows as `00002222`. On QA data only.
+invoice total) / Paid in full.
 
-**No charge / Don't bill** (QA data only): open a not-exported appointment → Billing adjustment tab →
+**Invoice number format** (in production since 2026-09-30): the number accepts letters and spaces as well as digits:
+typing `inv 12a` shows `INV 12A`, saves, and the row then shows `INV 12A`. An all-digit number is
+padded like MYOB's and shown with its zeros everywhere (MYOB Invoices list, the edit window, the
+client's Reports tab): `2222` saves and shows as `00002222`. On QA data only — afterwards clear the
+number (empty box → Save) so the row goes back to Not exported.
+
+**No charge / Don't bill** (in production since 2026-09-30; QA data only): open a not-exported appointment → Billing adjustment tab →
 **Don't bill** → confirm. A "Billing updated" popup appears; OK closes the appointment window and
 the MYOB Invoices list refreshes by itself (no page reload). Reopen it: the tab now says "No charge", every Current subtotal is $0, and the Don't
 bill button is gone. On the MYOB Invoices screen the row moves from Not exported to the **No charge**
@@ -188,8 +203,9 @@ Not exported count drops by one. Repeat on a **billable late cancellation** (e.g
 it must also go to $0 / No charge (a billing adjustment used to be ignored on cancellation fees).
 **Revert to original** puts it back to Not exported at its full amount (same popup and refresh).
 Saving an ordinary adjustment (change a rate → Save) also shows "Billing updated" and closes.
-The appointment window is wide (about 900px on a desktop): Cancel appointment, Notify Practitioner,
-Notify Client, Close and Save all fit on one row.
+Budget and Reports follow the adjusted amount too: a No charge appointment adds $0 to the client's
+funding budget spend and to Reports "$ Invoiced". Leave every QA appointment back at its original
+billing (Revert to original) when done.
 
 ## 10. Templates & Settings pages load cleanly
 Templates page — all five tabs (Email, Session Note, Agreement, Forms, Report) load without a
@@ -324,6 +340,13 @@ option A, or skip it and say so.
   created during the run before finishing, regardless of pass/fail outcome.
 - Report a clear pass/fail per checklist item, not just an overall verdict — flag anything that
   didn't fully match "what still works" above with enough detail to reproduce.
+
+## Changed since the last full run (check these first)
+Released to production 2026-09-30 — not yet covered by a full run:
+- Item 3: wider appointment window, buttons on one row.
+- Item 5: billing adjustments now apply to late-cancellation fees.
+- Item 9: invoice numbers with letters/spaces and zero-padded display; Don't bill button;
+  No charge tile/status; "Billing updated" popup that closes the window and refreshes the list.
 
 ## Last full run — 2026-09-29 (UAT, option A, user's own sign-in)
 Result: **items 1–13 incl. 7b all PASS**; no functional failures, no console/network errors.
