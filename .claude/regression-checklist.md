@@ -207,7 +207,7 @@ Budget and Reports follow the adjusted amount too: a No charge appointment adds 
 funding budget spend and to Reports "$ Invoiced". Leave every QA appointment back at its original
 billing (Revert to original) when done.
 
-**Overdue report invoices** (UAT only until released; added 2026-09-30): a report invoice is overdue
+**Overdue report invoices** (in production since 2026-09-30): a report invoice is overdue
 when a report entry (client → Reports tab billing) is still not paid in full `report_overdue_days`
 after the entry's date (Settings → Overdue Report Invoices; empty = 14). Counts whether or not it
 has reached MYOB; leaves out voided entries, No charge ($0) ones and paid invoices. Entries on one
@@ -234,7 +234,7 @@ Templates page — all five tabs (Email, Session Note, Agreement, Forms, Report)
 console error, consistent full-page width. Editing an **email** template: a plain box (no pages,
 no picture or page-break buttons) with each {{variable}} shown as a named chip; Insert field adds
 one. **Session note / agreement** templates: an A4 page with page guides and Insert field. Saving
-and reopening keeps the chips; an agreement drafted from the template shows the real values. Settings page loads. **Budget Alerts → Send to** (UAT only until released; added 2026-09-30):
+and reopening keeps the chips; an agreement drafted from the template shows the real values. Settings page loads. **Budget Alerts → Send to** (in production since 2026-09-30):
 tick boxes for The client's practitioners, Owners, Admins, All practitioners and Finance (default:
 the first three) plus the Practice alert inbox; untick/tick some, Save, reload — the choice is kept.
 Put it back as it was afterwards. (Don't trigger a real alert email.) Reports page loads and returns data for
@@ -372,9 +372,9 @@ Released to production 2026-09-30 — not yet covered by a full run:
 - Item 5: billing adjustments now apply to late-cancellation fees.
 - Item 9: invoice numbers with letters/spaces and zero-padded display; Don't bill button;
   No charge tile/status; "Billing updated" popup that closes the window and refreshes the list.
-- Item 9 (UAT only until released): overdue report invoices — Calendar banner, sidebar number,
+- Item 9 (in production since 2026-09-30): overdue report invoices — Calendar banner, sidebar number,
   Overdue reports tile, Settings → Overdue Report Invoices.
-- Item 10 (UAT only until released): Settings → Budget Alerts "Send to" choices.
+- Item 10 (in production since 2026-09-30): Settings → Budget Alerts "Send to" choices.
 
 ## Last full run — 2026-09-29 (UAT, option A, user's own sign-in)
 Result: **items 1–13 incl. 7b all PASS**; no functional failures, no console/network errors.
