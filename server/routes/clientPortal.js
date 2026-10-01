@@ -4,8 +4,13 @@ const path = require('path');
 
 const UPLOAD_DIR = path.join(__dirname, '../../uploads');
 
+// A duplicate that was merged into another client: its old portal link shows the kept client.
 function getClientByToken(token) {
-  return db.prepare('SELECT id, first_name, last_name FROM clients WHERE portal_token = ?').get(token);
+  let client = db.prepare('SELECT id, first_name, last_name, merged_into FROM clients WHERE portal_token = ?').get(token);
+  for (let hops = 0; client?.merged_into && hops < 5; hops++) {
+    client = db.prepare('SELECT id, first_name, last_name, merged_into FROM clients WHERE id = ?').get(client.merged_into);
+  }
+  return client;
 }
 
 // Public — no auth, scoped entirely by the unguessable portal_token, same trust model as

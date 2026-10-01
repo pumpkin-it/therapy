@@ -47,6 +47,8 @@ app.use('/api', (req, res, next) => {
 app.use('/api/settings',        require('./routes/settings')); // perm applied per-route inside
 app.use('/api/practitioners',   require('./routes/practitioners')); // perm applied per-route inside
 app.use('/api/clients',         perm('clients'), require('./routes/clients'));
+app.use('/api/email',           perm('email'), require('./routes/email'));
+app.use('/api/tasks',           perm('email'), require('./routes/tasks'));
 app.use('/api/services',        perm('services'), require('./routes/services'));
 app.use('/api/appointments',    require('./routes/appointments')); // perm applied per-route inside
 app.use('/api/time-blocks',     require('./routes/timeBlocks')); // perm applied per-route inside
@@ -118,4 +120,33 @@ app.listen(PORT, () => {
   };
   runHourly();
   setInterval(runHourly, 60 * 60 * 1000);
+
+  // Copy new email from the practice mailbox every minute (services/mailSync.js). Does nothing
+  // until a mailbox is configured; a run already in progress is never started twice.
+  const { runSync } = require('./services/mailSync');
+  // When the suggestion rules change, work suggestions out again for emails still unfiled
+  // (bump the version below with each change).
+  const SUGGESTIONS_VERSION = '7'; // 7: flexible names (TianYun = Tian Yun, nicknames); organisation addresses must name the client
+  setTimeout(() => {
+    try {
+      const db = require('./database');
+      if (db.prepare("SELECT value FROM settings WHERE key = 'email_suggestions_version'").get()?.value === SUGGESTIONS_VERSION) return;
+      const n = require('./services/mailLinking').refreshSuggestions();
+      db.prepare("INSERT INTO settings (key, value) VALUES ('email_suggestions_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(SUGGESTIONS_VERSION);
+      console.log(`Email suggestions recalculated for ${n} emails`);
+    } catch (e) { console.error('Email suggestion refresh error:', e.message); }
+  }, 5 * 1000);
+  const runMailSync = () => runSync().catch(e => console.error('Mail sync error:', e.message));
+  setTimeout(runMailSync, 30 * 1000);
+  setInterval(runMailSync, 60 * 1000);
+
+  // Email written in Therapy waits in the outbox for its Undo time, then is sent from here.
+  const mailSend = require('./services/mailSend');
+  mailSend.recoverInterrupted();
+  setInterval(() => mailSend.processOutbox().catch(e => console.error('Mail send error:', e.message)), 5 * 1000);
+
+  // Waiting tasks whose follow-up date has come go back to To do.
+  const runFollowUps = () => { try { require('./services/tasks').dueFollowUps(); } catch (e) { console.error('Task follow-up error:', e.message); } };
+  runFollowUps();
+  setInterval(runFollowUps, 15 * 60 * 1000);
 });

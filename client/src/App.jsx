@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { SettingsProvider } from './context/SettingsContext';
 import { ConfirmProvider } from './components/ui/ConfirmDialog';
 import Sidebar from './components/layout/Sidebar';
+import { ComposeProvider } from './context/ComposeContext';
 import UatWatermark from './components/layout/UatWatermark';
 import { isUAT } from './lib/env';
 import Login from './pages/Login';
@@ -18,6 +19,8 @@ import Services from './pages/Services';
 import ServiceDetail from './pages/ServiceDetail';
 import Invoices from './pages/Invoices';
 import Reports from './pages/Reports';
+import Email from './pages/Email';
+import Tasks from './pages/Tasks';
 // The report editor pulls in TipTap/ProseMirror — loaded only when someone opens it.
 const ReportEditor = lazy(() => import('./pages/ReportEditor'));
 const ReportTemplateEditor = lazy(() => import('./pages/ReportTemplateEditor'));
@@ -95,8 +98,12 @@ function AuthenticatedApp() {
 
   const p = user.permissions || {};
   const isAdmin = ['owner', 'admin'].includes(user.role);
+  // The full Audit Log is owner/admin/finance only (server enforces it too).
+  const canAuditLog = isAdmin || user.role === 'finance';
+  const home = p.calendar ? '/calendar' : p.clients ? '/clients' : p.invoices ? '/invoices' : p.reports ? '/reports' : canAuditLog ? '/audit-log' : null;
 
   return (
+    <ComposeProvider enabled={!!p.email}>
     <div className={`flex h-screen overflow-hidden ${isUAT ? 'bg-purple-50/50' : 'bg-gray-50'}`}>
       <Sidebar />
       <main className="flex-1 overflow-y-auto p-6">
@@ -104,6 +111,8 @@ function AuthenticatedApp() {
           {p.calendar && <Route path="/calendar" element={<Calendar />} />}
           {p.calendar && <Route path="/appointments/:id" element={<AppointmentRedirect />} />}
           {p.clients && <Route path="/clients" element={<Clients />} />}
+          {p.email && <Route path="/email" element={<Email />} />}
+          {p.email && <Route path="/tasks" element={<Tasks />} />}
           {p.clients && <Route path="/clients/:id" element={<ClientDetail />} />}
           {isAdmin && <Route path="/report-templates" element={<Navigate to="/templates" state={{ tab: 'reports' }} replace />} />}
           {isAdmin && <Route path="/report-templates/:id" element={<Suspense fallback={<div className="p-6 text-sm text-gray-400">Loading editor…</div>}><ReportTemplateEditor /></Suspense>} />}
@@ -119,13 +128,14 @@ function AuthenticatedApp() {
           {p.reports && <Route path="/reports" element={<Reports />} />}
           {(p.settings || isAdmin) && <Route path="/templates" element={<Templates />} />}
           {p.settings && <Route path="/templates/forms/:id" element={<FormBuilder />} />}
-          <Route path="/audit-log" element={<AuditLog />} />
+          {canAuditLog && <Route path="/audit-log" element={<AuditLog />} />}
           {p.settings && <Route path="/settings" element={<Settings />} />}
           {p.services && <Route path="/funding-types/:id/rates" element={<FundingTypeRates />} />}
-          <Route path="*" element={<Navigate to={p.calendar ? '/calendar' : p.clients ? '/clients' : p.invoices ? '/invoices' : '/audit-log'} replace />} />
+          <Route path="*" element={home ? <Navigate to={home} replace /> : <p className="p-6 text-sm text-gray-500">Your account has no pages to show yet — ask an admin to check your role.</p>} />
         </Routes>
       </main>
     </div>
+    </ComposeProvider>
   );
 }
 

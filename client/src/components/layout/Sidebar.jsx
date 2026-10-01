@@ -1,13 +1,16 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { CalendarDays, Users, UserCog, Layers, FileText, Settings, Stethoscope, Wallet, MapPin, RefreshCw, ScrollText, LogOut, ClipboardList, BarChart3 } from 'lucide-react';
+import { Mail, ListTodo, CalendarDays, Users, UserCog, Layers, FileText, Settings, Stethoscope, Wallet, MapPin, RefreshCw, ScrollText, LogOut, ClipboardList, BarChart3 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
 import { isUAT } from '../../lib/env';
 import useOverdueReports from '../../lib/useOverdueReports';
+import useUnfiledEmailCount from '../../lib/useUnfiledEmailCount';
 
 const nav = [
   { to: '/calendar',        label: 'Calendar',   icon: CalendarDays, perm: 'calendar' },
   { to: '/clients',         label: 'Clients',    icon: Users,        perm: 'clients' },
+  { to: '/tasks',           label: 'Tasks',      icon: ListTodo,     perm: 'email' },
+  { to: '/email',           label: 'Email',      icon: Mail,         perm: 'email' },
   { to: '/practitioners',   label: 'Users',      icon: UserCog,      perm: 'users' },
   { to: '/funds-managers',  label: 'Funders',    icon: Wallet,       perm: 'funds_managers' },
   { to: '/locations',       label: 'Locations',  icon: MapPin,       perm: 'locations' },
@@ -18,7 +21,8 @@ const nav = [
   // Owners/admins always see Templates (for its Report Templates tab); the other tabs still need
   // the Settings permission (see pages/Templates.jsx).
   { to: '/templates',        label: 'Templates',  icon: ClipboardList, perm: 'settings', orRoles: ['owner', 'admin'] },
-  { to: '/audit-log',       label: 'Audit Log',  icon: ScrollText,   perm: null },
+  // Owner/admin/finance only — 'audit_log' isn't a real permission key, so only orRoles shows it.
+  { to: '/audit-log',       label: 'Audit Log',  icon: ScrollText,   perm: 'audit_log', orRoles: ['owner', 'admin', 'finance'] },
   { to: '/settings',        label: 'Settings',   icon: Settings,     perm: 'settings' },
 ];
 
@@ -31,6 +35,8 @@ export default function Sidebar() {
   // Red number on Invoices: report invoices overdue (finance sees them all). Click → that tile.
   const overdue = useOverdueReports(!!perms.invoices && !!perms.clients);
   const overdueCount = overdue?.groups?.length || 0;
+  const unfiledEmails = useUnfiledEmailCount(!!perms.email);
+  const todoCount = useUnfiledEmailCount(!!perms.email, '/tasks/counts', 'todo');
 
   return (
     <aside className={cn(
@@ -68,6 +74,18 @@ export default function Sidebar() {
                 onClick={e => { e.preventDefault(); navigate('/invoices?tile=overdue_reports'); }}
                 className="ml-auto rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-semibold leading-none text-white">
                 {overdueCount}
+              </span>
+            )}
+            {to === '/tasks' && todoCount > 0 && (
+              <span title={`${todoCount} task${todoCount === 1 ? '' : 's'} to do`}
+                className="ml-auto rounded-full bg-red-600 px-2 py-0.5 text-[11px] font-semibold leading-none text-white">
+                {todoCount}
+              </span>
+            )}
+            {to === '/email' && unfiledEmails > 0 && (
+              <span title={`${unfiledEmails} email${unfiledEmails === 1 ? '' : 's'} waiting to be filed`}
+                className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold leading-none text-white">
+                {unfiledEmails}
               </span>
             )}
           </NavLink>

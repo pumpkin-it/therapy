@@ -406,10 +406,10 @@ const defaults = {
   agreement_reminder_duration_days: '10',
   invoicing_mode: 'generate',
   role_permissions: JSON.stringify({
-    owner:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:true, funding_periods:true, reports:true },
-    admin:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:false, funding_periods:true, reports:true },
-    practitioner: { calendar:true, clients:true, users:false, funds_managers:false, locations:true, services:true, invoices:false, settings:false, funding_periods:false, reports:true },
-    finance:      { calendar:false, clients:true, users:false, funds_managers:true, locations:false, services:true, invoices:true, settings:false, funding_periods:true, reports:true },
+    owner:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:true, funding_periods:true, reports:true, email:true },
+    admin:        { calendar:true, clients:true, users:true, funds_managers:true, locations:true, services:true, invoices:true, settings:false, funding_periods:true, reports:true, email:true },
+    practitioner: { calendar:true, clients:true, users:false, funds_managers:false, locations:true, services:true, invoices:false, settings:false, funding_periods:false, reports:true, email:false },
+    finance:      { calendar:false, clients:true, users:false, funds_managers:true, locations:false, services:true, invoices:true, settings:false, funding_periods:true, reports:true, email:false },
   }),
 };
 
@@ -453,6 +453,28 @@ for (const [key, value] of Object.entries(defaults)) {
       for (const role of Object.keys(perms)) {
         if (perms[role].reports === undefined) {
           perms[role].reports = REPORTS_DEFAULT[role] ?? false;
+          changed = true;
+        }
+      }
+      if (changed) {
+        db.prepare("UPDATE settings SET value = ? WHERE key = 'role_permissions'").run(JSON.stringify(perms));
+      }
+    } catch {}
+  }
+}
+
+// Backfill the email permission key (Email page and clients' Communications tab, added
+// 2026-10-01). Off for practitioners and finance until the practice decides otherwise.
+{
+  const EMAIL_DEFAULT = { owner: true, admin: true, practitioner: false, finance: false };
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'role_permissions'").get();
+  if (row) {
+    try {
+      const perms = JSON.parse(row.value);
+      let changed = false;
+      for (const role of Object.keys(perms)) {
+        if (perms[role].email === undefined) {
+          perms[role].email = EMAIL_DEFAULT[role] ?? false;
           changed = true;
         }
       }
@@ -1490,5 +1512,362 @@ if (!db.prepare("SELECT 1 FROM settings WHERE key = 'password_resets_hashed'").g
     db.prepare("INSERT INTO settings (key, value) VALUES ('password_resets_hashed', '1')").run();
   })();
 }
+
+// Client contacts (added 2026-10-01) — any number of people attached to a client: parents,
+// carers, support coordinators, school, health professionals. Replaces the single flat
+// emergency_contact_* / case_manager_* fields, which are kept and re-derived from this table
+// (services/clientContacts.js syncLegacyFields) so older readers such as the mobile app keep
+// working. Removing a contact only sets active = 0.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS client_contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    role TEXT NOT NULL DEFAULT 'other',
+    name TEXT NOT NULL,
+    relationship TEXT,
+    organisation TEXT,
+    email TEXT,
+    phone TEXT,
+    notes TEXT,
+    is_emergency INTEGER NOT NULL DEFAULT 0,
+    is_primary INTEGER NOT NULL DEFAULT 0,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_client_contacts_client ON client_contacts(client_id)'); } catch {}
+// Incoming email will be matched to clients by sender address.
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_client_contacts_email ON client_contacts(email COLLATE NOCASE)'); } catch {}
+
+// One-time: copy each client's flat emergency contact and case manager into client_contacts.
+// Tracked by a settings flag so it never runs twice (a contact removed later isn't re-created).
+if (!db.prepare("SELECT 1 FROM settings WHERE key = 'client_contacts_migrated'").get()) {
+  const FAMILY = /^(mother|mum|mom|father|dad|parent|guardian|son|daughter|brother|sister|wife|husband|partner|spouse|grand(mother|father|ma|pa)|nan|nanna|aunt|auntie|uncle|cousin|niece|nephew|step.*)$/i;
+  const clean = v => (v == null ? '' : String(v).trim());
+  db.transaction(() => {
+    const ins = db.prepare(`
+      INSERT INTO client_contacts (client_id, role, name, relationship, organisation, email, phone, is_emergency)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const c of db.prepare('SELECT * FROM clients').all()) {
+      const ecName = clean(c.emergency_contact_name), ecPhone = clean(c.emergency_contact_phone), ecEmail = clean(c.emergency_contact_email);
+      if (ecName || ecPhone || ecEmail) {
+        const rel = clean(c.emergency_contact_relationship);
+        const role = FAMILY.test(rel) ? 'family' : /carer/i.test(rel) ? 'carer' : 'other';
+        ins.run(c.id, role, ecName || 'Emergency contact', rel || null, null, ecEmail || null, ecPhone || null, 1);
+      }
+      const cmName = clean(c.case_manager_name), cmPhone = clean(c.case_manager_phone), cmEmail = clean(c.case_manager_email);
+      if (cmName || cmPhone || cmEmail) {
+        ins.run(c.id, 'support_coordinator', cmName || 'Support coordinator', null, clean(c.case_manager_organisation) || null, cmEmail || null, cmPhone || null, 0);
+      }
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('client_contacts_migrated', '1')").run();
+  })();
+}
+
+// ─── Email (added 2026-10-01) ─────────────────────────────────────────────────
+// Every email in the practice mailbox is copied here (services/mailSync.js) and filed against
+// clients. The original .eml, the HTML body and attachments live in mail storage
+// (services/mailStore.js — S3 in production); this table holds the text for search and AI.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS email_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mailbox TEXT NOT NULL,
+    dedup_key TEXT NOT NULL,              -- the email's Message-ID, or graph:<id> when it has none
+    graph_id TEXT,                        -- immutable Graph id in the mailbox (NULL once removed there)
+    graph_folder TEXT,                    -- Graph folder id where it was last seen
+    graph_folder_name TEXT,               -- that folder's path, e.g. "Inbox/Katie Smith"
+    internet_message_id TEXT,
+    conversation_id TEXT,
+    in_reply_to TEXT,
+    references_header TEXT,
+    direction TEXT NOT NULL,              -- in | out
+    from_address TEXT,
+    from_name TEXT,
+    to_json TEXT,                         -- [{name, address}]
+    cc_json TEXT,
+    bcc_json TEXT,
+    reply_to_json TEXT,
+    subject TEXT,
+    snippet TEXT,
+    body_text TEXT,
+    body_html_key TEXT,                   -- sanitised HTML in mail storage
+    sent_at TEXT,                         -- ISO UTC
+    received_at TEXT,                     -- ISO UTC
+    has_attachments INTEGER NOT NULL DEFAULT 0,
+    eml_key TEXT NOT NULL,
+    eml_size INTEGER,
+    eml_sha256 TEXT NOT NULL,
+    is_read INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'unfiled', -- unfiled | filed | not_client
+    not_client_reason TEXT,
+    filed_at DATETIME,
+    filed_by INTEGER REFERENCES practitioners(id),
+    mailbox_removed_at DATETIME,          -- no longer in any synced folder (deleted there); our copy stays
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (mailbox, dedup_key)
+  )
+`); } catch {}
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS email_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL REFERENCES email_messages(id),
+    filename TEXT,
+    content_type TEXT,
+    size INTEGER,
+    content_id TEXT,                      -- for inline images referenced as cid: in the HTML
+    is_inline INTEGER NOT NULL DEFAULT 0,
+    storage_key TEXT NOT NULL,
+    sha256 TEXT NOT NULL
+  )
+`); } catch {}
+// Which clients an email is filed against. One email can belong to several clients. Unlinking
+// sets removed_at rather than deleting the row.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS email_message_clients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL REFERENCES email_messages(id),
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    method TEXT NOT NULL,                 -- manual | thread | outbound
+    note TEXT,
+    linked_by INTEGER REFERENCES practitioners(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    removed_at DATETIME,
+    removed_by INTEGER REFERENCES practitioners(id)
+  )
+`); } catch {}
+// Clients suggested for an unfiled email, shown pre-ticked in the filing picker.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS email_link_suggestions (
+    message_id INTEGER NOT NULL REFERENCES email_messages(id),
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    reason TEXT NOT NULL,                 -- thread | contact | client_email | funds_manager | folder
+    detail TEXT,
+    PRIMARY KEY (message_id, client_id, reason)
+  )
+`); } catch {}
+// Where the sync has got to in each mailbox folder (Graph delta link).
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS email_sync_state (
+    mailbox TEXT NOT NULL,
+    folder TEXT NOT NULL,                 -- Graph folder id
+    folder_name TEXT,
+    next_link TEXT,                       -- mid-way through a pass: resume from here
+    delta_link TEXT,                      -- pass complete: ask for changes since
+    initial_done_at DATETIME,
+    last_run_at DATETIME,
+    last_success_at DATETIME,
+    last_error TEXT,
+    PRIMARY KEY (mailbox, folder)
+  )
+`); } catch {}
+// Emails the sync couldn't copy. After a few attempts it moves on so one bad email can't
+// block the rest; these are listed for a manual retry.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS email_sync_failures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mailbox TEXT NOT NULL,
+    folder TEXT NOT NULL,
+    graph_id TEXT NOT NULL,
+    subject TEXT,
+    error TEXT,
+    attempts INTEGER NOT NULL DEFAULT 1,
+    first_failed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_failed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    skipped INTEGER NOT NULL DEFAULT 0,
+    resolved_at DATETIME,
+    UNIQUE (mailbox, graph_id)
+  )
+`); } catch {}
+for (const sql of [
+  'CREATE INDEX IF NOT EXISTS idx_email_messages_status ON email_messages(status, received_at)',
+  'CREATE INDEX IF NOT EXISTS idx_email_messages_conversation ON email_messages(conversation_id)',
+  'CREATE INDEX IF NOT EXISTS idx_email_messages_imid ON email_messages(internet_message_id)',
+  'CREATE INDEX IF NOT EXISTS idx_email_messages_graph ON email_messages(mailbox, graph_id)',
+  'CREATE INDEX IF NOT EXISTS idx_email_attachments_message ON email_attachments(message_id)',
+  'CREATE INDEX IF NOT EXISTS idx_email_message_clients_message ON email_message_clients(message_id)',
+  'CREATE INDEX IF NOT EXISTS idx_email_message_clients_client ON email_message_clients(client_id, removed_at)',
+  'CREATE INDEX IF NOT EXISTS idx_clients_email ON clients(email COLLATE NOCASE)',
+]) { try { db.exec(sql); } catch (e) { console.error('Index creation failed:', e.message); } }
+// 'marketing' (newsletter/bulk headers) or 'automated' (no-reply style sender): a hint to mark it
+// Newsletter / marketing.
+try { db.exec('ALTER TABLE email_messages ADD COLUMN auto_hint TEXT'); } catch {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_email_messages_from ON email_messages(from_address COLLATE NOCASE)'); } catch {}
+// Email tags (added 2026-10-01): what an email is about (Invoice / payment, Referral, Report…),
+// separate from which clients it's filed to — an email can have both, and several of each.
+// `key` marks the built-in tags the suggestion rules know about; staff can add their own.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS email_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT UNIQUE,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    color TEXT NOT NULL DEFAULT 'gray',
+    active INTEGER NOT NULL DEFAULT 1,
+    sort_order INTEGER NOT NULL DEFAULT 100,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS email_message_tags (
+    message_id INTEGER NOT NULL REFERENCES email_messages(id),
+    tag_id INTEGER NOT NULL REFERENCES email_tags(id),
+    added_by INTEGER REFERENCES practitioners(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (message_id, tag_id)
+  )
+`); } catch {}
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS email_tag_suggestions (
+    message_id INTEGER NOT NULL REFERENCES email_messages(id),
+    tag_id INTEGER NOT NULL REFERENCES email_tags(id),
+    reason TEXT NOT NULL,                 -- subject | body | attachment | newsletter | history
+    detail TEXT,
+    strong INTEGER NOT NULL DEFAULT 0,    -- 1 = start selected when filing
+    PRIMARY KEY (message_id, tag_id, reason)
+  )
+`); } catch {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_email_message_tags_tag ON email_message_tags(tag_id)'); } catch {}
+{
+  const ins = db.prepare('INSERT OR IGNORE INTO email_tags (key, name, color, sort_order) VALUES (?, ?, ?, ?)');
+  [
+    ['invoice', 'Invoice / payment', 'green'], ['referral', 'Referral / enquiry', 'purple'], ['appointment', 'Appointment / scheduling', 'blue'],
+    ['report', 'Report', 'indigo'], ['equipment', 'Quote / equipment', 'teal'], ['funding', 'Plan / funding', 'amber'],
+    ['admin', 'Practice admin', 'gray'], ['supplier', 'Supplier', 'orange'], ['ndis', 'NDIS / general', 'yellow'],
+    ['marketing', 'Newsletter / marketing', 'pink'], ['spam', 'Spam', 'red'],
+  ].forEach(([key, name, color], i) => ins.run(key, name, color, (i + 1) * 10));
+}
+// One-time: the old single "not client-related" reason becomes the matching tag.
+if (!db.prepare("SELECT 1 FROM settings WHERE key = 'email_reasons_to_tags'").get()) {
+  db.transaction(() => {
+    const tagId = key => db.prepare('SELECT id FROM email_tags WHERE key = ?').get(key)?.id;
+    const add = db.prepare('INSERT OR IGNORE INTO email_message_tags (message_id, tag_id, added_by) VALUES (?, ?, ?)');
+    for (const m of db.prepare("SELECT id, not_client_reason, filed_by FROM email_messages WHERE not_client_reason IS NOT NULL AND not_client_reason != 'other'").all()) {
+      const id = tagId(m.not_client_reason);
+      if (id) add.run(m.id, id, m.filed_by);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('email_reasons_to_tags', '1')").run();
+  })();
+}
+// Sending email from Therapy (added 2026-10-01). Files attached while writing an email are
+// uploaded first (email_uploads, stored in mail storage). Pressing Send puts the email in the
+// outbox with a short delay (Undo); a worker sends it through the practice mailbox
+// (services/mailSend.js).
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS email_uploads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    filename TEXT NOT NULL,
+    content_type TEXT,
+    size INTEGER NOT NULL,
+    storage_key TEXT NOT NULL,
+    created_by INTEGER REFERENCES practitioners(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS email_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    mailbox TEXT NOT NULL,
+    payload TEXT NOT NULL,                -- JSON: mode, source id, recipients, subject, html, uploads, clients, tags
+    send_at TEXT NOT NULL,                -- ISO UTC
+    status TEXT NOT NULL DEFAULT 'pending', -- pending | sending | sent | failed | cancelled
+    attempts INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    sent_message_id INTEGER REFERENCES email_messages(id),
+    created_by INTEGER REFERENCES practitioners(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_email_outbox_status ON email_outbox(status, send_at)'); } catch {}
+// The sent email's Message-ID — if filing it straight after sending fails, the sync files it
+// when it copies it in from Sent Items.
+try { db.exec('ALTER TABLE email_outbox ADD COLUMN internet_message_id TEXT'); } catch {}
+// 1 = sent at a chosen later time (Scheduled tab) rather than after the few-second Undo delay.
+try { db.exec('ALTER TABLE email_outbox ADD COLUMN scheduled INTEGER NOT NULL DEFAULT 0'); } catch {}
+try { db.exec('ALTER TABLE practitioners ADD COLUMN email_signature TEXT'); } catch {}
+// Full-text search over emails (subject, people, body), kept in step by triggers.
+try { db.exec(`
+  CREATE VIRTUAL TABLE IF NOT EXISTS email_fts USING fts5(
+    subject, people, body_text, content='', contentless_delete=1, tokenize='unicode61 remove_diacritics 2'
+  )
+`); } catch (e) { console.error('email_fts creation failed:', e.message); }
+try { db.exec(`
+  CREATE TRIGGER IF NOT EXISTS email_messages_fts_insert AFTER INSERT ON email_messages BEGIN
+    INSERT INTO email_fts (rowid, subject, people, body_text) VALUES (
+      new.id, new.subject,
+      COALESCE(new.from_name, '') || ' ' || COALESCE(new.from_address, '') || ' ' || COALESCE(new.to_json, '') || ' ' || COALESCE(new.cc_json, ''),
+      new.body_text);
+  END
+`); } catch (e) { console.error('email_fts trigger failed:', e.message); }
+
+// Merging duplicate client records (added 2026-10-01, services/clientMerge.js). The duplicate
+// keeps its row, marked merged_into the kept client, and disappears from lists and pickers; what
+// was moved is recorded in client_merges so a merge can be undone.
+try { db.exec('ALTER TABLE clients ADD COLUMN merged_into INTEGER REFERENCES clients(id)'); } catch {}
+try { db.exec('ALTER TABLE clients ADD COLUMN merged_at DATETIME'); } catch {}
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS client_merges (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_id INTEGER NOT NULL REFERENCES clients(id),
+    target_id INTEGER NOT NULL REFERENCES clients(id),
+    moved TEXT NOT NULL,                  -- JSON: { table: [row ids] } plus what else changed
+    source_was_active INTEGER NOT NULL,
+    merged_by INTEGER REFERENCES practitioners(id),
+    merged_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    undone_at DATETIME,
+    undone_by INTEGER REFERENCES practitioners(id)
+  )
+`); } catch {}
+
+// Tasks (added 2026-10-01, services/tasks.js): the team's to-do list. A task usually follows one
+// email conversation (several emails), or is created by hand. Status: todo (on us), waiting (on
+// someone else, with a follow-up date), done. Every change is recorded in task_events.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    next_step TEXT,
+    status TEXT NOT NULL DEFAULT 'todo',  -- todo | waiting | done
+    assigned_to INTEGER REFERENCES practitioners(id),
+    follow_up_at TEXT,                    -- YYYY-MM-DD (local): a waiting task comes back to To do then
+    source TEXT NOT NULL DEFAULT 'manual',  -- manual | email
+    created_by INTEGER REFERENCES practitioners(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    done_at DATETIME,
+    done_by INTEGER REFERENCES practitioners(id)
+  )
+`); } catch {}
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS task_clients (
+    task_id INTEGER NOT NULL REFERENCES tasks(id),
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    PRIMARY KEY (task_id, client_id)
+  )
+`); } catch {}
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS task_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id INTEGER NOT NULL REFERENCES tasks(id),
+    kind TEXT NOT NULL,                   -- created | email_in | email_out | status | assigned | edited | note | follow_up | clients
+    detail TEXT,
+    message_id INTEGER REFERENCES email_messages(id),
+    actor_id INTEGER REFERENCES practitioners(id), -- NULL = done automatically
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec('ALTER TABLE email_messages ADD COLUMN task_id INTEGER REFERENCES tasks(id)'); } catch {}
+for (const sql of [
+  'CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status, follow_up_at)',
+  'CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id, id)',
+  'CREATE INDEX IF NOT EXISTS idx_task_clients_client ON task_clients(client_id)',
+  'CREATE INDEX IF NOT EXISTS idx_email_messages_task ON email_messages(task_id)',
+]) { try { db.exec(sql); } catch (e) { console.error('Index creation failed:', e.message); } }
+// Defaults: file an email automatically when its client is certain; when someone moves an email out
+// of the Outlook Inbox, leave its task alone (set to '1' to mark the task done).
+try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('email_auto_file', '1')").run(); } catch {}
+try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('tasks_done_when_left_inbox', '0')").run(); } catch {}
+try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('tasks_follow_up_days', '3')").run(); } catch {}
 
 module.exports = db;

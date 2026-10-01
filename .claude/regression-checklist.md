@@ -19,9 +19,24 @@ duplicate-detection warning banner appears (non-blocking). It fires when first *
 match an existing client **and** at least one of DOB / phone / email also matches — or the email
 alone matches. It's checked ~0.5 s after typing stops (the banner reads "Possible duplicate:").
 
+**Merging duplicates** (on UAT since 2026-10-01, owners/admins only): on the duplicate's page →
+**Merge into…** → pick the client to keep (same-name clients listed first) → side-by-side details
+(amber = only on the duplicate, not copied) and "Moves to …: 1 invoice, 3 appointments…" → Merge. You
+land on the kept client, which now has those records; the duplicate disappears from the client list and
+email suggestions, and its page shows "This duplicate record was merged into …" with **Undo merge**
+(moves exactly those records back). Both clients' History tabs record it.
+
 **Clients list** (in production since 2026-09-29): 50 per page with "1–50 of N clients" and
 Previous / Next. Search (name, full name, email, phone, or client code like C0012) and the
 Active / Inactive / All filter both go back to page 1.
+
+**Contacts** (on UAT since 2026-10-01, not yet in production): the Details tab has a Contacts list
+instead of the old Emergency contact / Case manager boxes. Existing emergency contacts appear in it
+(with an Emergency badge). Add contact → pick a role, name, email → Save contact → it appears
+straight away. Saving without a name shows "Name is required"; a bad email shows an error. Ticking
+Primary on one contact removes it from any other. Edit and Remove (asks to confirm) work, and each
+change appears on the History tab. On a new client, contacts added before "Create client" are saved
+with it.
 
 ## 2. Book an appointment
 Calendar → New appointment → pick Practitioner, Client, Funder (if the client has funding
@@ -289,6 +304,12 @@ and folder-picker checks can't be exercised on UAT until such a template exists 
 ## 13. Audit log (in production since 2026-09-29)
 Audit Log page shows the newest 200 entries; **Load older** adds the next 200 ("showing 400").
 Changing the type filter starts again from the newest.
+**Owner/admin/finance only** (UAT only until released, fixed 2026-10-01): a practitioner
+sign-in has no Audit Log link, /audit-log goes back to their home page, and GET /api/audit-logs
+without entity_id returns 403. A client's or appointment's own History still works for them.
+Also GET /api/settings for a role without the Settings permission has no bank_*, graph_*, smtp_*,
+accounts_email, remittance_email, role_permissions, budget_alert_to, email_reasons_to_tags or
+invoice_counter (practice details, invoicing_mode and the Maps key remain).
 
 ## 14. Sign-in security (in production since 2026-09-29)
 - **Lockout:** 10 wrong passwords for one email → the 11th attempt (even with the RIGHT password)
@@ -306,14 +327,103 @@ Changing the type filter starts again from the newest.
 
 ---
 
+## 15. Email — filing (on UAT since 2026-10-01, not yet in production)
+UAT copies mail from the test mailbox (therapy-test@i2solutions.org.au). On a local copy, seed sample
+emails through the real sync with a fake Graph server.
+- **Email** in the sidebar (owner/admin only by default — Settings → Permissions → Email). The amber
+  number beside it = emails waiting to be filed. Tabs Unfiled / Filed / No client / All, newest first.
+- Opening an email shows who it's from/to, the body, attachments and other emails in the same
+  conversation. Pictures from the internet stay hidden until "show them" is clicked.
+- **Clients**: suggested clients are listed with why — client's email, contact, plan manager, Outlook
+  folder, same conversation, "Named in the email: …" (full name), "First name in the email: …" (for a
+  client linked to the sender, or a unique first name), "Filed here before (N emails…)". Pre-ticking
+  errs towards too many: every named client is ticked (two named → both); with nobody named, all of a
+  known sender's clients (up to 3) are ticked. Search adds any other client. Inactive clients are
+  still suggested, shown as "Name - INACTIVE"; one is ticked like anyone else unless an active client
+  with the same name is also suggested (a duplicate record — then only the active one is ticked).
+  Hyphens and spaces in names match each other ("Yong Sheng" = "Yong-Sheng").
+- **Tags** (separate from clients, any number): Invoice / payment, Referral / enquiry, Appointment /
+  scheduling, Report, Quote / equipment, Plan / funding, Practice admin, Supplier, NDIS / general,
+  Newsletter / marketing, Spam, plus "+ New tag". Suggested tags have a sparkle and come first; strong
+  ones (word in the subject, invoice/quote attachment, newsletter, sender usually tagged so) start
+  selected, body-only ones are dashed and unselected.
+- **File** (Ctrl/⌘+Enter) → the email leaves Unfiled, the next one opens, the sidebar number drops;
+  unfiled emails in the same conversation are filed too. With no client ticked the button is
+  "File — no client" (goes to No client, keeps its tags). "Move back to Unfiled" undoes either.
+- After filing an email from someone not on file: "…isn't on file for <client>. Add them as a
+  contact?" (role guessed: school domain → School, gmail etc. → Family, else Support coordinator);
+  adding makes their other unfiled emails suggest that client.
+- The **All tags** filter (with counts) narrows any tab. Search highlights the words in the list and
+  in the open email (scrolls to the first). Rows show clients (solid) and tags (coloured).
+- Tick several emails → bulk bar: file all to client(s) or "No client", and/or add tags ("Only add tags").
+- Client → **Communications** tab lists that client's emails (with tags), newest first; opening one
+  allows changing its filing. Filing shows on the client's History tab.
+- A practitioner sign-in doesn't see Email or the Communications tab (API answers 403).
+
+## 16. Email — writing and sending (on UAT since 2026-10-01, not yet in production)
+On UAT every email is redirected to UAT_TEST_MAILBOX (peterchen@flexisupport.com.au) with the real
+recipients listed in a yellow box at the top — never to real people. Sent from the test mailbox.
+- Email page → **New email**; an open email → **Reply / Reply all / Forward**; client page → **Email**
+  (To = primary contact, else the client's email; filed to that client); Communications → **New email**.
+- Reply fills To (the sender), Reply all adds the others as Cc, subject "RE: …"/"FW: …"; the original
+  is quoted below (expandable preview). Signature ("My signature" to edit) is added at the end.
+- To/Cc/Bcc suggest the chosen clients' contacts first, then anyone on file / who has emailed us.
+- **File the sent email to**: clients (pre-filled) or "No client", plus tags — required to send.
+- Attach files (or drag onto the window); forward keeps the original's attachments.
+- Send (or Ctrl/⌘+Enter) → bottom bar "Sending in 10s … Undo". Undo reopens the email unchanged
+  ("Sending was undone"). After sending: "Sent: …", and it appears on the client's Communications tab
+  (outgoing arrow) within seconds, threaded under the original in Outlook.
+- Closing the window keeps the draft in this browser ("Restored your unsent draft" next time).
+- **Schedule send**: the arrow next to Send → Tomorrow morning / Tomorrow afternoon / Monday morning
+  (with dates shown) or a chosen date and time (at least a minute ahead) → "Scheduled for …". Email page
+  → **Scheduled** tab (count) lists them; each can be **Send now**, **Edit or reschedule** (the original
+  stays scheduled until the edit is sent/scheduled; closing the editor leaves it as it was), or
+  **Cancel**.
+- Failure: a red box "Couldn't send …" with Open / Try again / Discard. If it says "may or may not have
+  finished", check the mailbox's Sent Items before trying again.
+
+## 17. Tasks — the to-do list (on UAT since 2026-10-01, not yet in production)
+Tasks start from what's in the Outlook Inbox once it has been fully copied in (one task per
+conversation; newsletters skipped); past mail never creates tasks.
+- Sidebar **Tasks** (red number = To do). Tabs To do / Waiting / Done with counts; Everyone / Mine /
+  Unassigned / a person; search; **New task** (title, next step, clients, To do or Waiting + follow-up
+  date, assignee).
+- A task shows: title (click to edit), To do / Waiting (with follow-up date) / Done, assignee, next
+  step, clients (add/remove), its emails (open, or "Reply to the latest"), notes and a history of every
+  change (who, or "automatic").
+- Automatic: a new email starts a task (or puts its conversation's task back to To do); a reply sent
+  from Outlook puts it to Waiting (follow up in 3 working days) — never Done; a Waiting task whose
+  follow-up date arrives comes back to To do ("No reply since …").
+- Writing an email: **After sending** — Waiting for a reply (+ date, the default for replies) / Done /
+  Keep as To do / Leave as it is ("Don't track" for a new email).
+- An open email shows its task ("Task: … · Open task") or "+ Create a task for this email"; email list
+  rows show To do / Waiting / Done.
+- Client → Communications tab → **Open tasks** for that client (+ New task).
+- **Auto-filed** (badge "Auto-filed"): from someone on file for one client only (own email, a contact,
+  or filed there twice before by people) and naming no other client. An organisation's address (not
+  personal webmail like gmail) must also name that client. An address whose emails people have filed to
+  two or more clients is treated as shared: auto-filed only when exactly one client is named in full.
+  Moving an email back to Unfiled sticks (never auto-filed again).
+- Name matching copes with run-together / spaced / hyphenated names and bracketed nicknames: "Tian Yun
+  Li", "TianYun Li" and "Jupiter Li" all match "TianYun (Jupiter) Li"; "ManNa" matches "Man Na";
+  "Alex Woo" / "Alexander Woo" match "Alexander (Alex) Kaizeng Woo".
+- Moving an email out of the Outlook Inbox does NOT close its task (setting tasks_done_when_left_inbox,
+  off by default). Therapy never moves anything in Outlook.
+
 ## How to run this (read first)
 **Claude can't sign in to UAT or production** — it may not type a password into a non-local site,
 and token injection counts as the same thing. So there are two ways to run the checklist:
 
 **A. On UAT, with the user signed in.** Ask the user to open https://therapy-uat.pumpkinit.com.au
 in the Browser pane and sign in themselves (allowing the site first if asked), then drive the
-pane. Every email UAT sends is redirected to the UAT test mailbox, so item 11's accounts email can
-be checked there. Don't send client-facing emails even so — stop at the preview.
+pane. Every email UAT sends is redirected to UAT_TEST_MAILBOX (peterchen@flexisupport.com.au) with
+the real recipients listed at the top, so item 11's accounts email can be checked there. Don't send
+client-facing emails even so — stop at the preview (item 16 has its own rule, below).
+UAT's Email page holds real mail copied from the test mailbox (therapy-test@i2solutions.org.au) and
+its Tasks page real tasks. For items 1, 15–17: create test data on clearly-named **ZZ QA** clients,
+tasks and contacts; if you file/tag a real email to check something, put it back as it was
+(Move back to Unfiled / untick tags) and say which emails you touched. Don't merge real clients —
+merge two ZZ QA clients, then Undo merge.
 
 **B. On a local copy of the current build (no sign-in needed).** Same code as UAT; nothing leaves
 the machine. Follow memory `process_local_ui_qa.md`:
@@ -355,8 +465,20 @@ the machine. Follow memory `process_local_ui_qa.md`:
    Escape key doesn't reach the page, so dispatch a `KeyboardEvent`; screenshots can lag a step
    behind, so check the DOM; `document.querySelector('h2')` can hit editor headings, so use
    `.fixed.inset-0 h2` for pop-up windows.
-7. Afterwards: stop both servers, delete files the run created under `uploads/` (find newer
-   than the seed script), the qa folder, and the launch.json entries.
+7. **Email, Tasks, Communications (items 15–17).** After the step-4 seed, run
+   `server/scripts/qa/seed-email.js` through the same wrapper (it refuses to touch server/pm.db):
+   it adds ZZ QA clients with contacts and 9 emails covering each filing case, and starts tasks.
+   Set MAIL_LOCAL_DIR to a scratch folder in the wrapper (stored email files go there, not
+   uploads/). For sending (item 16): run `node server/scripts/qa/fake-graph.js` (port 4597; add it
+   to launch.json too), set GRAPH_BASE_URL=http://localhost:4597/v1.0 in the wrapper, and make the
+   wrapper answer `https://login.microsoftonline.com…` fetches with
+   `{"access_token":"qa","expires_in":3600}` (all other non-localhost requests stay blocked). Sent
+   emails are printed in the fake server's log (preview_logs) and appear on the client's
+   Communications tab. Merge (item 1) and practitioner-permission checks need two ZZ QA clients and
+   a practitioner sign-in from the step-4 seed.
+8. Afterwards: stop all servers, delete files the run created under `uploads/` (find newer
+   than the seed script), the qa folder (incl. the MAIL_LOCAL_DIR folder), and the launch.json
+   entries.
 With B, emails can't be checked (they're blocked). Check item 11's accounts email on UAT with
 option A, or skip it and say so.
 
@@ -368,13 +490,49 @@ option A, or skip it and say so.
   On a local copy, use the seeded test accounts. Never reuse or overwrite a real practitioner's
   credentials.
 - Never actually send a real email or complete a real financial transaction during this run —
-  stop at the confirmation/preview step for anything like that.
+  stop at the confirmation/preview step for anything like that. Item 16 exception: test sending with
+  **Undo** (press Undo within the 10 seconds — nothing is sent) and **Schedule send → Cancel**; on a
+  local copy, send freely to the fake mail server. On UAT, a real (redirected) send only if the user
+  says yes in this session.
 - Clean up every piece of test data (notes, appointments, clients, the QA account itself)
-  created during the run before finishing, regardless of pass/fail outcome.
+  created during the run before finishing, regardless of pass/fail outcome. Things the app can't
+  delete (ZZ QA clients, tasks, contacts): deactivate clients, mark tasks Done, remove contacts, and
+  list what's left in the report.
 - Report a clear pass/fail per checklist item, not just an overall verdict — flag anything that
   didn't fully match "what still works" above with enough detail to reproduce.
 
 ## Changed since the last full run (check these first)
+On UAT only (2026-10-01), not yet released — check these first:
+- Bug fixes from the 2026-10-01 run (UAT, fixed 2026-10-01 evening):
+  - Item 1: a contact with a bad email is rejected at **Save contact** on a NEW client ("… is not
+    a valid email address"); any Create client failure now shows a red message by the button.
+    After Create client, the new client's page shows no stale duplicate banner (a banner that
+    lists only the OTHER matching client is correct). A merged duplicate's page has no
+    Reactivate/Deactivate button and no duplicate banner (Undo merge only); the API refuses to
+    reactivate it (409).
+  - Item 13: Audit Log owner/admin/finance only; settings trimmed for non-Settings roles (see item 13).
+  - Item 15: **Move back to Unfiled** (also from the All view, where the URL doesn't change)
+    updates the sidebar Email number straight away.
+  - Item 16: clicking anywhere in the empty compose body (not just the first line) puts the
+    cursor there.
+  - Item 11 accounts email: not a code change. On UAT the email is sent FROM the graph_mailbox
+    setting (production's copy — ahp@i2solutions.org.au since 2026-10-01), so its Sent Items
+    copy is in that mailbox, which UAT's email sync (UAT_MAIL_SYNC_MAILBOX) does not read. The
+    email itself does arrive (confirmed by the user 2026-10-01): check for "[UAT TEST] Report
+    billing…" in the UAT test mailbox's inbox (UAT_TEST_MAILBOX), not on the Email page's Sent Items.
+- Item 1: client **Contacts** list (replaces the Emergency contact / Case manager boxes) and
+  **Merge into…** for duplicate clients (with Undo merge; owners/admins only).
+- Item 15: **Email** page — filing emails to clients and tags, suggestions (incl. names, nicknames,
+  inactive clients), automatic filing, search highlighting; client **Communications** tab; new
+  **Email** permission (practitioner/finance off by default — needs a practitioner sign-in to check).
+- Item 16: writing, replying, forwarding, attachments, signature, Undo send, **Schedule send** and
+  the **Scheduled** tab.
+- Item 17: **Tasks** (to-do list) from email and by hand; After-sending choice; follow-ups.
+- Production data changed 2026-10-01 (not code): sending address and practice email are now
+  ahp@i2solutions.org.au, accounts/remittance emails accounts@i2solutions.org.au — item 11's
+  accounts email goes to the new address. Man Na Adhofer, Stanley Stanton and Ross Martin had a
+  shared organisation address moved from their own email to a contact (case manager in production).
+
 Released to production 2026-09-30 — not yet covered by a full run:
 - Item 3: wider appointment window, buttons on one row.
 - Item 5: billing adjustments now apply to late-cancellation fees.
@@ -387,7 +545,51 @@ Released to production 2026-09-30 — not yet covered by a full run:
 - Item 10: Settings → Budget Alerts "Send to" choices (default: client's practitioners, owners,
   admins — no finance).
 
-## Last full run — 2026-09-29 (UAT, option A, user's own sign-in)
+## Last full run — 2026-10-01 (UAT option A + local copy option B)
+Result: **items 1–17 incl. 7b all PASS on their core flows**; 7 minor bugs (1 security), all
+unfixed at the time of the run — see memory file `project_therapy_regression_bugs_2026-10-01.md`.
+UAT test data on ZZ QA clients 91 and 92. Local copy covered practitioner-role checks, item 14
+(by API), sending via the fake Graph server, PDF text, and item 8's required/folder/calculated checks.
+
+| Item | Result | Notes |
+|---|---|---|
+| 1 Add client | PASS | Contacts, Merge/Undo merge, pagination OK. Bugs: bad-email contact makes Create fail silently (400, no message); duplicate banner stays after create and lists itself; merged duplicate still offers Reactivate + banner |
+| 2 Book appointment | PASS | |
+| 3 Edit appointment | PASS | Wide window, five buttons on one row |
+| 4 Cancel, no fee | PASS | |
+| 5 Late cancellation | PASS | Billing adjustments apply to the late fee; Don't bill / Revert OK |
+| 6 Session notes | PASS | Legacy notes tested with synthetic data only (no genuine old-style notes on UAT) |
+| 7 Download / email | PASS | Send never clicked |
+| 7b Client files | PASS with gap | "Notify client" on Files tab not clicked (denied by classifier); the auto-opened draft email preview after Upload final report / Commit was checked |
+| 8 Fill in a form | PASS | Required/folder/calculated checks on local copy |
+| 9 Invoicing | PASS | Letters/zero-padded invoice numbers, No charge, "Billing updated", overdue reports (practitioner view on local copy). "Export again?" not clicked |
+| 10 Templates/Settings/Reports | PASS | Budget Alerts "Send to" persisted; real templates not saved over |
+| 11 Report billing | PASS, part unverified | Accounts email not seen in the test mailbox after ~25 min — check peterchen@flexisupport.com.au (possible 2026-10-01 sender change) |
+| 12 Report writing | PASS | Version PDFs checked by page count only |
+| 13 Audit log | PASS | |
+| 14 Sign-in security | PASS (local, by API) | Lockout, forgot-password limit, 8-char minimum, reset-link invalidation, no password_hash |
+| 15 Email filing | PASS | Bug: sidebar Email count stale after "Move back to Unfiled". Fresh inbound auto-filing only seen on local seed |
+| 16 Email writing/sending | PASS | No real send on UAT; Undo send, Schedule send → Cancel on UAT; real send via fake Graph locally. Bug: only first line of compose body clickable. "Send now" not tested |
+| 17 Tasks | PASS | Waiting→To do on follow-up date and Done/Keep after a real send not tested |
+
+Security (low-medium, probably older): a practitioner-role login gets 200 from GET /api/audit-logs
+(no permission check) and GET /api/settings (bank details, Maps key, Graph ids).
+
+Real data touched: six real emails (shelley@qscs.com.au thread) filed to QA client 91 then moved
+back to Unfiled via the app — now carry the "never auto-filed" flag. No real tasks changed.
+Cleanup gaps (can't hard-delete): QA clients 91–92 (deactivated), 6 cancelled appointments,
+funding periods 66–67, form response 17, 2 uploaded images, voided report entries, APT-00637
+"No charge" row on MYOB Invoices, an extra billing email.
+
+Re-test of the fixes, 2026-10-01 (post-fix, UAT option A + local copy for practitioner roles): bugs
+#1, #2, #3, #4, #6, #7 all PASS, no new bugs; #5 not a code change and not verifiable from the
+browser (the email goes to the UAT test inbox). Details in the bug memory file, "Re-test 2026-10-01
+(post-fix)". Notes: finance and admin also get the trimmed /api/settings (default role permissions
+give them no settings access); the duplicate banner on the new-client form behind the "Client
+created" popup briefly lists the client itself, then disappears (cosmetic). Test leftovers: ZZ QA
+clients 93–95 deactivated, task 23 Done.
+
+## Previous full run — 2026-09-29 (UAT, option A, user's own sign-in)
 Result: **items 1–13 incl. 7b all PASS**; no functional failures, no console/network errors.
 Test data was on QA client "ZZ QA Regression 2026-09-29" (id 87). Bugs: see memory file
 `project_therapy_regression_bugs_2026-09-29.md`.

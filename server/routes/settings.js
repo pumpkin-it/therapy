@@ -14,11 +14,19 @@ const logoStorage = multer.diskStorage({
 });
 const logoUpload = multer({ storage: logoStorage, limits: { fileSize: 2 * 1024 * 1024 } });
 
+// Everyone signed in reads settings (timezone, invoicing mode, practice details for report
+// templates, the Maps key for address search). Bank details, mail/Graph setup, where emails are
+// routed and the role permissions are only for users who can open the Settings page.
+const SETTINGS_ONLY = /^(bank_|graph_|smtp_)|^(accounts_email|remittance_email|role_permissions|budget_alert_to|email_reasons_to_tags|invoice_counter)$/;
+
 router.get('/', auth, (req, res) => {
   const rows = db.prepare('SELECT key, value FROM settings').all();
   const settings = Object.fromEntries(rows.map(r => [r.key, r.value]));
   delete settings.smtp_pass;
   delete settings.graph_client_secret;
+  if (!perm.hasPermission(req.user, 'settings')) {
+    for (const key of Object.keys(settings)) if (SETTINGS_ONLY.test(key)) delete settings[key];
+  }
   res.json(settings);
 });
 

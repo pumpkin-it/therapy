@@ -34,6 +34,10 @@ function requireAnyPermission(...permissions) {
   };
 }
 
+// For routes that serve everyone but trim what a role without the permission sees.
+const hasPermission = (user, permission) => !!getPermissions()[user?.role]?.[permission];
+
 module.exports = requirePermission;
 module.exports.permAny = requireAnyPermission;
 module.exports.getPermissions = getPermissions;
+module.exports.hasPermission = hasPermission;

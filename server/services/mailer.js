@@ -396,4 +396,4 @@ async function sendReminderEmail(toEmail, invoiceNumber, total, dueDate) {
   await graphSend({ to: toEmail, subject, html });
 }
 
-module.exports = { sendInvoiceEmail, sendAppointmentNotification, sendTestEmail, sendReminderEmail, sendSetPasswordEmail, graphSend, renderTemplate, getTemplate, plainTextToHtml };
+module.exports = { getGraphToken, sendInvoiceEmail, sendAppointmentNotification, sendTestEmail, sendReminderEmail, sendSetPasswordEmail, graphSend, renderTemplate, getTemplate, plainTextToHtml };

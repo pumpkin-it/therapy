@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
-import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, Folder, FolderPlus, Paperclip, X, UserX, UserCheck, Search, ChevronDown, ChevronRight, Link2 } from 'lucide-react';
+import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, Folder, FolderPlus, Paperclip, X, UserX, UserCheck, Search, ChevronDown, ChevronRight, Link2, Mail } from 'lucide-react';
 import api from '../lib/api';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 import Button from '../components/ui/Button';
@@ -21,6 +21,10 @@ import ReportNotifyModal from '../components/ReportNotifyModal';
 import ReportsTab from '../components/ReportsTab';
 import FormFillModal from '../components/FormFillModal';
 import EntityAuditLog from '../components/EntityAuditLog';
+import ClientContacts from '../components/ClientContacts';
+import ClientCommunications from '../components/email/ClientCommunications';
+import { useCompose } from '../context/ComposeContext';
+import MergeClientModal from '../components/MergeClientModal';
 import BudgetModal from '../components/BudgetModal';
 import { buildFolderTree, sortedChildren, sortedItems, countItems } from '../lib/formFolders';
 import { useConfirm } from '../components/ui/ConfirmDialog';
@@ -2002,13 +2006,12 @@ function SessionNotesTab({ clientId, client }) {
 const EMPTY_FORM = {
   first_name: '', last_name: '', email: '', phone: '', date_of_birth: '', address: '', gender: '',
   notes: '', alert: '',
-  emergency_contact_name: '', emergency_contact_phone: '', emergency_contact_relationship: '', emergency_contact_email: '',
-  case_manager_name: '', case_manager_organisation: '', case_manager_phone: '', case_manager_email: '',
   diagnosis: '', allergies: '', regular_medication: '', is_test_data: false,
 };
 
 export default function ClientDetail() {
   const { id } = useParams();
+  const confirm = useConfirm();
   const navigate = useNavigate();
   const isNew = id === 'new';
   const { user } = useAuth();
@@ -2027,16 +2030,31 @@ export default function ClientDetail() {
     else if (right > box.right) bar.scrollLeft += right - box.right + 16;
   }, [tab, !!client]); // the tab row first appears once the client has loaded
   const [form, setForm] = useState(EMPTY_FORM);
+  // Saved on their own as they change (ClientContacts); for a new client, sent with it on create.
+  const [contacts, setContacts] = useState([]);
+  const { openCompose, enabled: canEmail } = useCompose();
+  const [merging, setMerging] = useState(false);
+  const canMerge = ['owner', 'admin'].includes(user?.role);
+  // Who a new email to this client goes to: the primary contact, else the client, else any contact.
+  const emailTo = () => {
+    const withEmail = contacts.filter(c => c.email);
+    const pick = withEmail.find(c => c.is_primary) || (client?.email ? { name: `${client.first_name} ${client.last_name}`, email: client.email } : withEmail[0]);
+    return pick ? [{ name: pick.name, address: pick.email.toLowerCase() }] : [];
+  };
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [createdClient, setCreatedClient] = useState(null);
   const [duplicates, setDuplicates] = useState([]);
+  const [saveError, setSaveError] = useState('');
+  // A duplicate check already in flight when Create client succeeds must not repopulate the banner.
+  const createdRef = useRef(false);
   const [portalLinkCopied, setPortalLinkCopied] = useState(false);
   const dupTimer = useRef(null);
   const load = () => {
     if (isNew) return;
     api.get(`/clients/${id}`).then(r => {
       setClient(r.data);
+      setContacts(r.data.contacts || []);
       setForm({
         first_name: r.data.first_name || '',
         last_name:  r.data.last_name  || '',
@@ -2047,14 +2065,6 @@ export default function ClientDetail() {
         gender:     r.data.gender     || '',
         notes:      r.data.notes      || '',
         alert:      r.data.alert      || '',
-        emergency_contact_name:         r.data.emergency_contact_name         || '',
-        emergency_contact_phone:        r.data.emergency_contact_phone        || '',
-        emergency_contact_relationship: r.data.emergency_contact_relationship || '',
-        emergency_contact_email:        r.data.emergency_contact_email        || '',
-        case_manager_name:         r.data.case_manager_name         || '',
-        case_manager_organisation: r.data.case_manager_organisation || '',
-        case_manager_phone:        r.data.case_manager_phone        || '',
-        case_manager_email:        r.data.case_manager_email        || '',
         diagnosis:         r.data.diagnosis         || '',
         allergies:         r.data.allergies         || '',
         regular_medication: r.data.regular_medication || '',
@@ -2063,29 +2073,34 @@ export default function ClientDetail() {
     });
   };
 
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => { createdRef.current = false; setDuplicates([]); setSaveError(''); load(); }, [id]);
 
   useEffect(() => {
     clearTimeout(dupTimer.current);
-    if (!form.first_name || !form.last_name) { setDuplicates([]); return; }
+    // A merged duplicate already says which record it went into — no banner for it.
+    // Once created (popup open), a check would find the new record itself — skip it.
+    if (!form.first_name || !form.last_name || client?.merged || createdClient) { setDuplicates([]); return; }
     dupTimer.current = setTimeout(() => {
       const params = new URLSearchParams({ first_name: form.first_name, last_name: form.last_name });
       if (form.date_of_birth) params.set('date_of_birth', form.date_of_birth);
       if (form.phone) params.set('phone', form.phone);
       if (form.email) params.set('email', form.email);
       if (!isNew) params.set('exclude_id', id);
-      api.get(`/clients/check-duplicates?${params}`).then(r => setDuplicates(r.data)).catch(() => {});
+      api.get(`/clients/check-duplicates?${params}`).then(r => { if (!createdRef.current) setDuplicates(r.data); }).catch(() => {});
     }, 500);
     return () => clearTimeout(dupTimer.current);
-  }, [form.first_name, form.last_name, form.date_of_birth, form.phone, form.email]);
+  }, [form.first_name, form.last_name, form.date_of_birth, form.phone, form.email, client?.merged, createdClient]);
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const save = async () => {
     setSaving(true);
+    setSaveError('');
     try {
       if (isNew) {
-        const res = await api.post('/clients', form);
+        const res = await api.post('/clients', { ...form, contacts });
+        createdRef.current = true;
+        setDuplicates([]); // the new record would otherwise match itself
         setCreatedClient(res.data);
       } else {
         await api.patch(`/clients/${id}`, form);
@@ -2093,6 +2108,8 @@ export default function ClientDetail() {
         setTimeout(() => setSaved(false), 2000);
         load();
       }
+    } catch (e) {
+      setSaveError(e.response?.data?.error || e.response?.data?.message || 'Could not save the client — please try again.');
     } finally { setSaving(false); }
   };
 
@@ -2115,7 +2132,8 @@ export default function ClientDetail() {
 
   const TABS = [
     ['details', 'Details'], ['funding', 'Funding'], ['medical', 'Medical'],
-    ['notes', 'Session Notes'], ['agreements', 'Agreements'], ['forms', 'Forms'], ['billing', 'Billing'], ['reports', 'Reports'], ['files', 'Files'], ['calendar', 'Calendar'], ['history', 'History'],
+    ['notes', 'Session Notes'], ...(user?.permissions?.email ? [['communications', 'Communications']] : []),
+    ['agreements', 'Agreements'], ['forms', 'Forms'], ['billing', 'Billing'], ['reports', 'Reports'], ['files', 'Files'], ['calendar', 'Calendar'], ['history', 'History'],
   ];
 
   return (
@@ -2136,13 +2154,19 @@ export default function ClientDetail() {
             <Badge color={FUNDING_COLOR_FALLBACK[client.active_funding_type] || 'gray'} className="mt-0.5">{client.active_funding_type}</Badge>
           )}
         </div>
+        {!isNew && canEmail && (
+          <button onClick={() => openCompose({ mode: 'new', clientIds: [Number(id)], to: emailTo() })}
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors">
+            <Mail className="h-4 w-4" /> Email
+          </button>
+        )}
         {!isNew && (
           <button onClick={copyPortalLink}
             className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors">
             {portalLinkCopied ? 'Copied!' : 'Copy portal link'}
           </button>
         )}
-        {!isNew && (
+        {!isNew && !client.merged && (
           <button
             onClick={async () => { await api.patch(`/clients/${id}/active`, { active: client.active === 0 ? 1 : 0 }); load(); }}
             className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors ${client.active === 0 ? 'border-green-300 text-green-700 hover:bg-green-50' : 'border-red-200 text-red-500 hover:bg-red-50'}`}
@@ -2150,7 +2174,32 @@ export default function ClientDetail() {
             {client.active === 0 ? <><UserCheck className="h-4 w-4" /> Reactivate</> : <><UserX className="h-4 w-4" /> Deactivate</>}
           </button>
         )}
+        {!isNew && canMerge && !client.merged && (
+          <button onClick={() => setMerging(true)} title="This person has another client record — move everything onto that one"
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors">
+            Merge into…
+          </button>
+        )}
       </div>
+
+      {client.merged && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg bg-amber-50 border border-amber-300 px-4 py-3 text-amber-900">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <p className="flex-1 text-sm">
+            This duplicate record was merged into <button type="button" className="font-medium underline" onClick={() => navigate(`/clients/${client.merged.into_id}`)}>
+              C{String(client.merged.into_id).padStart(4, '0')} {client.merged.into_name}</button>
+            {client.merged.at && <> on {fmtDateOnly(client.merged.at)}</>}{client.merged.by && <> by {client.merged.by}</>}. Its records are now on that client.
+          </p>
+          {canMerge && (
+            <button type="button" className="rounded-md border border-amber-400 px-2.5 py-1 text-sm hover:bg-amber-100"
+              onClick={async () => {
+                if (!await confirm({ title: 'Undo merge', message: 'Move this record\'s appointments, invoices, notes and other items back from the kept client, and restore this client?', confirmLabel: 'Undo merge' })) return;
+                await api.post(`/clients/${id}/unmerge`); load();
+              }}>Undo merge</button>
+          )}
+        </div>
+      )}
+      {merging && <MergeClientModal client={client} onClose={() => setMerging(false)} onMerged={targetId => { setMerging(false); navigate(`/clients/${targetId}`); }} />}
 
       {/* Alert banner */}
       {client.alert && (
@@ -2221,25 +2270,7 @@ export default function ClientDetail() {
                 placeholder="e.g. Latex allergy, do not photograph" />
             </div>
 
-            <div>
-              <p className="text-sm font-medium text-gray-700 mb-2">Emergency contact</p>
-              <div className="grid grid-cols-2 gap-3">
-                <Input label="Name"         value={form.emergency_contact_name}         onChange={e => set('emergency_contact_name',         e.target.value)} />
-                <Input label="Phone"        value={form.emergency_contact_phone}        onChange={e => set('emergency_contact_phone',        e.target.value)} />
-                <Input label="Email" type="email" value={form.emergency_contact_email} onChange={e => set('emergency_contact_email', e.target.value)} />
-                <Input label="Relationship" value={form.emergency_contact_relationship} onChange={e => set('emergency_contact_relationship', e.target.value)} placeholder="e.g. Parent" />
-              </div>
-            </div>
-
-            <div>
-              <p className="text-sm font-medium text-gray-700 mb-2">Case manager / support coordinator</p>
-              <div className="grid grid-cols-2 gap-3">
-                <Input label="Name"         value={form.case_manager_name}         onChange={e => set('case_manager_name',         e.target.value)} />
-                <Input label="Organisation" value={form.case_manager_organisation} onChange={e => set('case_manager_organisation', e.target.value)} />
-                <Input label="Phone"        value={form.case_manager_phone}        onChange={e => set('case_manager_phone',        e.target.value)} />
-                <Input label="Email" type="email" value={form.case_manager_email} onChange={e => set('case_manager_email', e.target.value)} />
-              </div>
-            </div>
+            <ClientContacts clientId={isNew ? null : id} contacts={contacts} onChange={setContacts} />
 
             <div className="space-y-1">
               <label className="block text-sm font-medium text-gray-700">Notes</label>
@@ -2268,6 +2299,7 @@ export default function ClientDetail() {
 
         {tab === 'funding'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to manage funding.</p> : <FundingTab  clientId={id} />)}
         {tab === 'notes'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to add notes.</p> : <SessionNotesTab clientId={id} client={client} />)}
+        {tab === 'communications' && user?.permissions?.email && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to see their emails.</p> : <ClientCommunications clientId={id} defaultTo={emailTo()} />)}
         {tab === 'agreements' && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to create agreements.</p> : <AgreementsTab clientId={id} />)}
         {tab === 'forms'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to fill in forms.</p> : <FormsTab clientId={id} client={client} />)}
         {tab === 'billing'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view billing.</p> : <BillingSummaryTab clientId={id} />)}
@@ -2276,13 +2308,14 @@ export default function ClientDetail() {
         {tab === 'calendar'  && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view calendar.</p> : <EmbeddedCalendar clientId={id} />)}
         {tab === 'history'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view history.</p> : (
           <EntityAuditLog entityType="client" entityId={id} defaultOpen
-            actionColors={{ created: 'text-green-700', updated: 'text-blue-700', deactivated: 'text-red-600', reactivated: 'text-green-700' }} />
+            actionColors={{ created: 'text-green-700', updated: 'text-blue-700', deactivated: 'text-red-600', reactivated: 'text-green-700', contact_added: 'text-green-700', contact_updated: 'text-blue-700', contact_removed: 'text-red-600', email_filed: 'text-green-700', email_unfiled: 'text-red-600' }} />
         ))}
       </div>
 
       {/* Save bar */}
       {(isNew || tab === 'details' || tab === 'medical') && (
-        <div className="flex justify-end gap-2">
+        <div className="flex items-center justify-end gap-3">
+          {saveError && <p className="text-sm text-red-600">{saveError}</p>}
           <Button onClick={save} disabled={saving}>
             {saving ? 'Saving…' : saved ? '✓ Saved' : isNew ? 'Create client' : 'Save changes'}
           </Button>
