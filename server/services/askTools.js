@@ -156,7 +156,13 @@ function clientEmails(clientId) {
     FROM email_messages m JOIN email_message_clients l ON l.message_id = m.id AND l.removed_at IS NULL WHERE l.client_id = ? ORDER BY at DESC`).all(clientId);
 }
 
-async function clientTimeline(clientId, { canEmail }) {
+// Long histories: by default only the last 12 months are listed, with a count of older records,
+// so a client with years of history costs about the same to look at as a new one. `from` / `to`
+// (YYYY-MM-DD) widen or move the window.
+const monthsAgo = n => { const d = new Date(); d.setMonth(d.getMonth() - n); return d.toISOString().slice(0, 10); };
+const inWindow = (at, from, to) => (!from || day(at) >= from) && (!to || day(at) <= to);
+
+async function clientTimeline(clientId, { canEmail }, { from = null, to = null } = {}) {
   const c = db.prepare('SELECT * FROM clients WHERE id = ?').get(clientId);
   if (!c) return { error: `No client with id ${clientId}` };
   const ev = [];
@@ -188,19 +194,25 @@ async function clientTimeline(clientId, { canEmail }) {
     }
   }
   ev.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  const start = from || (to ? null : monthsAgo(12));
+  const shown = ev.filter(e => inWindow(e.at, start, to));
+  const older = ev.filter(e => start && day(e.at) < start);
+  const window = { from: start, to: to || null, shown: shown.length, of_total: ev.length,
+    ...(older.length ? { older_records: older.length, older_span: `${day(older[older.length - 1].at)} to ${day(older[0].at)}`, note: 'Older records are not listed; call client_history again with an earlier "from" date if the answer may be older.' } : {}) };
   return {
+    window,
     client: { client_id: c.id, ref: ref(c.id), name: clientName(c), active: !!c.active, merged_into: c.merged_into || null, address: c.address, date_of_birth: c.date_of_birth, background: c.diagnosis, alert: c.alert, notes: c.notes },
-    records: ev.map(e => `${day(e.at)} ${e.kind} ${e.id}: ${e.text}`),
+    records: shown.map(e => `${day(e.at)} ${e.kind} ${e.id}: ${e.text}`),
   };
 }
 
-async function searchRecords(query, clientId, { canEmail }) {
+async function searchRecords(query, clientId, { canEmail }, { from = null, to = null } = {}) {
   const terms = termsOf(query);
   if (!terms.length) return { error: 'Give some words to search for' };
   const cid = clientId ? Number(clientId) : null;
   const hits = [];
   const add = (kind, id, at, text, extra = {}) => {
-    if (!text) return;
+    if (!text || !inWindow(at, from, to)) return;
     const s = score(text, terms);
     if (s) hits.push({ s, kind, id, date: day(at), ...extra, match: snippet(text, terms) });
   };
@@ -272,7 +284,7 @@ async function searchRecords(query, clientId, { canEmail }) {
     seenName.add(k);
     return true;
   });
-  return { searched_for: terms, total_matches: unique.length, results: unique.slice(0, 20).map(({ s, ...h }) => ({ ...h, words_matched: s })) };
+  return { searched_for: terms, ...(from || to ? { date_range: { from, to } } : {}), total_matches: unique.length, results: unique.slice(0, 20).map(({ s, ...h }) => ({ ...h, words_matched: s })) };
 }
 
 async function readRecord(kind, id, { canEmail, maxChars = 12000 }) {

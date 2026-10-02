@@ -1940,6 +1940,7 @@ try { db.exec(`
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_ask_usage_created ON ask_usage(created_at)'); } catch {}
 try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ask_model', 'au.anthropic.claude-sonnet-5')").run(); } catch {}
 try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ask_monthly_limit_usd', '20')").run(); } catch {}
+try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ask_effort', 'low')").run(); } catch {}
 
 // Backfill the ask permission key (added 2026-10-02): owners and admins to start with.
 {

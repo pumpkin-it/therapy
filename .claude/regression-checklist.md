@@ -450,7 +450,12 @@ copy has no Bedrock access; on a local copy check only the permission/menu point
 - Limit reached: temporarily set the limit to 0.01 (below what's been spent), Save, ask anything →
   "This month's Ask spending limit … has been reached" and no answer. **Set it back to 20 and Save.**
 - Don't change the Model setting permanently; if you try another model, set it back to Claude Sonnet 5.
-- **Filed to clients** (on UAT since 2026-10-02 14:07, not yet in production): each conversation is
+- (On UAT since 2026-10-02 evening, not yet in production.) Settings → Ask (AI) has **How hard it works**
+  (Low default / Medium / High). Answers are short: the answer first, about 120 words, no repeated
+  summary line, "not recorded" with one short phrase of where it looked. Client history lists the last
+  12 months by default and Ask looks further back by itself when needed (status line "Reading the
+  client's history from <date>").
+- **Filed to clients** (in production since 2026-10-02 14:16): each conversation is
   filed automatically to the client it was asked from, clients whose records its answer cited, and
   clients it looked up specifically. Inactive (past) clients are filed too, shown "<name> - INACTIVE" —
   except an inactive record whose name matches an active client in the same conversation (same
@@ -554,7 +559,7 @@ option A, or skip it and say so.
   didn't fully match "what still works" above with enough detail to reproduce.
 
 ## Changed since the last full run (check these first)
-- Item 19, on UAT 2026-10-02 14:07 (not yet in production): Ask conversations are **filed to
+- Item 19, released to production 2026-10-02 14:16: Ask conversations are **filed to
   clients** and listed on the client's Communications tab (shared with everyone who has Ask); see
   item 19 "Filed to clients". Test with existing conversations where possible (questions cost money).
 - Released to production 2026-10-02 13:55 (user requests):

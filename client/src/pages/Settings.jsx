@@ -331,6 +331,15 @@ export default function Settings() {
             {ASK_MODELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
         </div>
+        <div className="space-y-1">
+          <label className="block text-sm font-medium text-gray-700">How hard it works (Claude models)</label>
+          <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+            value={form.ask_effort || 'low'} onChange={e => set('ask_effort', e.target.value)}>
+            <option value="low">Low — as accurate in testing, about a quarter cheaper (recommended)</option>
+            <option value="medium">Medium — searches more before answering</option>
+            <option value="high">High — most thorough, slowest and most expensive</option>
+          </select>
+        </div>
         {field('Monthly spending limit (US$, 0 = no limit)', 'ask_monthly_limit_usd', 'number')}
         {askStatus && <p className="text-xs text-gray-500">Spent this month: US${askStatus.spent_usd.toFixed(2)}{askStatus.limit_usd > 0 ? ` of US$${askStatus.limit_usd}` : ''}. When the limit is reached, Ask stops until next month.</p>}
       </section>

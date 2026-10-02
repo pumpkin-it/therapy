@@ -18,16 +18,21 @@ const MODELS = {
   'au.anthropic.claude-sonnet-5': { label: 'Claude Sonnet 5', provider: 'claude', in: 2.2, out: 11, cacheWrite: 2.75, cacheRead: 0.22, eager: true },
   'au.anthropic.claude-opus-5-5': { label: 'Claude Opus 5.5', provider: 'claude', in: 4.4, out: 22, cacheWrite: 5.5, cacheRead: 0.22, eager: true },
   'au.anthropic.claude-haiku-4-5-20251001-v1:0': { label: 'Claude Haiku 4.5', provider: 'claude', in: 1.1, out: 5.5, cacheWrite: 1.375, cacheRead: 0.11, eager: false },
-  'amazon.nova-pro-v1:0': { label: 'Amazon Nova Pro', provider: 'nova', in: 0.84, out: 3.36, cacheWrite: 0, cacheRead: 0.21 },
+  'amazon.nova-pro-v1:0': { label: 'Amazon Nova Pro', provider: 'converse', in: 0.84, out: 3.36, cacheWrite: 0, cacheRead: 0.21, maxTokens: 5000 },
+  // Open models served by Bedrock in Sydney (in-region), for comparison against Claude.
+  'deepseek.v3.2': { label: 'DeepSeek V3.2', provider: 'converse', in: 0.64, out: 1.91, cacheWrite: 0, cacheRead: 0, maxTokens: 8000 },
+  'qwen.qwen3-235b-a22b-2507-v1:0': { label: 'Qwen 3 235B', provider: 'converse', in: 0.2266, out: 0.9064, cacheWrite: 0, cacheRead: 0, maxTokens: 8000 },
+  'moonshotai.kimi-k2.5': { label: 'Kimi K2.5', provider: 'converse', in: 0.62, out: 3.09, cacheWrite: 0, cacheRead: 0, maxTokens: 8000 },
+  'zai.glm-5': { label: 'GLM 5', provider: 'converse', in: 1.03, out: 3.3, cacheWrite: 0, cacheRead: 0, maxTokens: 8000 },
 };
 const DEFAULT_MODEL = 'au.anthropic.claude-sonnet-5';
 const MAX_ROUNDS = 15;
 const TOOL_RESULT_CHARS = 40000;
 
 const REGION = process.env.ASK_AWS_REGION || 'ap-southeast-2';
-let claudeClient, novaClient;
+let claudeClient, converseClient;
 const claude = () => (claudeClient = claudeClient || new AnthropicBedrock({ awsRegion: REGION }));
-const nova = () => (novaClient = novaClient || new BedrockRuntimeClient({ region: REGION }));
+const bedrockRuntime = () => (converseClient = converseClient || new BedrockRuntimeClient({ region: REGION }));
 const setting = (k, d) => db.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value ?? d;
 
 function config() {
@@ -45,12 +50,16 @@ const SYSTEM = `You answer questions from the staff of an allied health practice
 
 How to work:
 - Find the client first (find_clients), unless the question already gives a client_id. People are often called by a nickname, a first name only, or with spelling variations ("Jupiter" is "TianYun (Jupiter) Li"); a person can have an older inactive duplicate record, so check every matching record.
+- client_history lists the last 12 months by default and says how many older records exist; if the answer may be older (e.g. something from a previous year), call it again with an earlier "from" date.
 - Use client_history to see what is on file, then search_records with a few different wordings, and read_record to read the documents that look relevant in full. Answers usually sit inside reports, quotes, letters and emails rather than in titles, so read the documents before answering.
 - Old-system backups (zip files) contain earlier notes and reports; read their documents with read_record kind "zip_entry".
-- Keep searching until you have the answer or have checked the likely places. Don't stop at the first partial match.
+- Keep searching until you can answer what was asked, or have checked the likely places — don't stop at the first partial match, but don't gather background that wasn't asked for either.
 
 How to answer:
-- Start with the direct answer in one or two sentences, then any detail that matters. Keep it short and plain; use a short list only when listing several items.
+- Start with a one- or two-sentence answer to the question. Then add only the detail needed to answer what was asked — leave out dates, history and background unless asked for (staff can ask a follow-up). State the answer once: no separate "Summary" line, and no closing sentence that repeats it.
+- Aim for about 120 words; go longer only when the question asks for a list of several items. Plain sentences, a short list only when listing items.
+- If something isn't recorded, say so and mention where you looked in one short phrase (e.g. "checked his OT notes, letters and recent emails") — not a list of every record. Don't ask staff to confirm the client or rephrase unless the name genuinely matches more than one person.
+- When the answer was found, don't add a sentence about what you checked.
 - Every fact must be followed by the record it came from, in square brackets, written exactly as kind and id: [note 124], [appointment 528], [file 191], [zip_entry 158:3], [note_file 7], [form 12], [report 4], [email 507], [attachment 2202], [task 16]. Several sources: [file 191] [email 507].
 - Say clearly what the records show and what they don't. Describe things by the stage the records show: "recommended", "quoted", "ordered", "delivered" — never call a quote an order, or a recommendation something the client got, unless a record says so; then say there's no record of the later stage.
 - Don't write notes to yourself while searching. Your final message is shown to staff as the answer, so it must start with the answer itself. If the answer isn't in the records, say it wasn't found and where you looked; never guess or fill gaps with general knowledge.
@@ -65,15 +74,15 @@ const TOOLS = [
   },
   {
     name: 'client_history',
-    description: "A client's details and everything on file for them, newest first: appointments, session notes, files (with the documents inside backup zips), emails, forms, reports and tasks, each with its kind and id for read_record.",
-    input_schema: { type: 'object', properties: { client_id: { type: 'integer' } }, required: ['client_id'], additionalProperties: false },
+    description: "A client's details and what's on file for them, newest first: appointments, session notes, files (with the documents inside backup zips), emails, forms, reports and tasks, each with its kind and id for read_record. Lists the last 12 months unless from/to are given, and says how many older records there are.",
+    input_schema: { type: 'object', properties: { client_id: { type: 'integer' }, from: { type: ['string', 'null'], description: 'YYYY-MM-DD, or null' }, to: { type: ['string', 'null'], description: 'YYYY-MM-DD, or null' } }, required: ['client_id'], additionalProperties: false },
   },
   {
     name: 'search_records',
-    description: "Search the text of session notes, appointments, files (including PDF contents and documents inside backup zips), forms, reports, emails and email attachments. Returns up to 20 matches with a snippet of the matching text. Give client_id to search one client's records (plus unfiled emails that name them); give null to search everything.",
+    description: "Search the text of session notes, appointments, files (including PDF contents and documents inside backup zips), forms, reports, emails and email attachments. Returns up to 20 matches with a snippet of the matching text, best matches first and newer before older. Give client_id to search one client's records (plus unfiled emails that name them); give null to search everything. Optionally limit to a date range with from/to.",
     input_schema: {
       type: 'object',
-      properties: { query: { type: 'string', description: 'Words to look for, e.g. "equipment trial" or "step height back door"' }, client_id: { type: ['integer', 'null'] } },
+      properties: { query: { type: 'string', description: 'Words to look for, e.g. "equipment trial" or "step height back door"' }, client_id: { type: ['integer', 'null'] }, from: { type: ['string', 'null'], description: 'YYYY-MM-DD, or null' }, to: { type: ['string', 'null'], description: 'YYYY-MM-DD, or null' } },
       required: ['query', 'client_id'], additionalProperties: false,
     },
   },
@@ -93,6 +102,8 @@ function checkInput(name, input) {
   const i = input && typeof input === 'object' ? input : null;
   if (!i) return 'input must be an object';
   if (name === 'find_clients') return typeof i.query === 'string' && i.query.trim() ? null : 'query is required';
+  const dateOk = d => d === undefined || d === null || /^\d{4}-\d{2}-\d{2}$/.test(d);
+  if (!dateOk(i.from) || !dateOk(i.to)) return 'from and to must be dates written YYYY-MM-DD, or null';
   if (name === 'client_history') return Number.isInteger(i.client_id) ? null : 'client_id must be a whole number';
   if (name === 'search_records') return typeof i.query === 'string' && i.query.trim() && (i.client_id === null || i.client_id === undefined || Number.isInteger(i.client_id)) ? null : 'query is required and client_id must be a number or null';
   if (name === 'read_record') return KINDS.includes(i.kind) && /^\d+(:\d+)?$/.test(String(i.id)) ? null : 'kind must be one of the listed kinds and id a number (or file:number for zip_entry)';
@@ -101,15 +112,16 @@ function checkInput(name, input) {
 
 async function runTool(name, input, opts) {
   if (name === 'find_clients') return tools.findClients(input.query);
-  if (name === 'client_history') return tools.clientTimeline(input.client_id, opts);
-  if (name === 'search_records') return tools.searchRecords(input.query, input.client_id ?? null, opts);
+  const range = { from: input.from || null, to: input.to || null };
+  if (name === 'client_history') return tools.clientTimeline(input.client_id, opts, range);
+  if (name === 'search_records') return tools.searchRecords(input.query, input.client_id ?? null, opts, range);
   if (name === 'read_record') return (await tools.readRecord(input.kind, input.id, opts)) || { error: `No ${input.kind} with id ${input.id}` };
   return { error: `Unknown tool ${name}` };
 }
 
 function describeTool(name, input) {
   if (name === 'find_clients') return `Looking up "${input.query}"`;
-  if (name === 'client_history') return 'Reading the client\'s history';
+  if (name === 'client_history') return input.from ? `Reading the client's history from ${input.from}` : 'Reading the client\'s history';
   if (name === 'search_records') return `Searching for "${input.query}"`;
   if (name === 'read_record') return `Reading ${input.kind.replace('_', ' ')} ${input.id}`;
   return name;
@@ -149,13 +161,13 @@ function withCacheBreakpoint(messages) {
 
 const claudeTurns = {
   user: text => ({ role: 'user', content: text }),
-  async turn(modelId, model, messages, onText) {
+  async turn(modelId, model, messages, onText, opts = {}) {
     const tools = TOOLS.map((t, i) => ({ ...t, ...(model.eager ? { eager_input_streaming: true } : {}), ...(i === TOOLS.length - 1 ? { cache_control: { type: 'ephemeral' } } : {}) }));
     const stream = claude().messages.stream({
       model: modelId,
       max_tokens: 16000,
       thinking: { type: 'adaptive' },
-      output_config: { effort: 'medium' },
+      output_config: { effort: opts.effort },
       system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
       tools,
       messages: withCacheBreakpoint(messages),
@@ -174,21 +186,22 @@ const claudeTurns = {
   results: rs => ({ role: 'user', content: rs.map(r => ({ type: 'tool_result', tool_use_id: r.id, content: r.content, ...(r.error ? { is_error: true } : {}) })) }),
 };
 
-// Nova's tool schemas: no "null" type unions, so an omitted client_id means "everyone".
+// Converse tool schemas (Nova and the open models): no "null" type unions, so an omitted
+// client_id means "everyone".
 const novaSchema = schema => {
   const props = Object.fromEntries(Object.entries(schema.properties).map(([k, v]) => [k, Array.isArray(v.type) ? { ...v, type: v.type.find(t => t !== 'null') } : v]));
   const required = schema.required.filter(k => !Array.isArray(schema.properties[k].type));
   return { type: 'object', properties: props, required };
 };
-const novaTurns = {
+const converseTurns = {
   user: text => ({ role: 'user', content: [{ text }] }),
   async turn(modelId, model, messages) {
-    const res = await nova().send(new ConverseCommand({
+    const res = await bedrockRuntime().send(new ConverseCommand({
       modelId,
       system: [{ text: SYSTEM }],
       messages,
       toolConfig: { tools: TOOLS.map(t => ({ toolSpec: { name: t.name, description: t.description, inputSchema: { json: novaSchema(t.input_schema) } } })) },
-      inferenceConfig: { maxTokens: 5000, temperature: 0.2 },
+      inferenceConfig: { maxTokens: model.maxTokens || 5000, temperature: 0.2 },
     }));
     const content = res.output?.message?.content || [];
     messages.push({ role: 'assistant', content });
@@ -202,7 +215,7 @@ const novaTurns = {
   },
   results: rs => ({ role: 'user', content: rs.map(r => ({ toolResult: { toolUseId: r.id, content: [{ text: r.content }], ...(r.error ? { status: 'error' } : {}) } })) }),
 };
-const PROVIDERS = { claude: claudeTurns, nova: novaTurns };
+const PROVIDERS = { claude: claudeTurns, converse: converseTurns };
 
 // ---- filing conversations to clients ----
 // The clients a set of answer sources belong to: a record's own client, the clients an email is
@@ -277,7 +290,9 @@ class AskError extends Error { constructor(message, status = 400) { super(messag
 // written, { type: 'restart' } when the model goes back to searching after writing some text.
 // `modelId` overrides the Settings choice (used to compare models side by side); a follow-up
 // always continues with the model the conversation started on.
-async function ask({ user, question, conversationId, clientId, canEmail, modelId }, onEvent = () => {}) {
+// `effort` overrides the Settings choice (Claude only: how hard it thinks and searches). Low is
+// the default: on the 2026-10-02 test it was as accurate as medium and ~23% cheaper.
+async function ask({ user, question, conversationId, clientId, canEmail, modelId, effort }, onEvent = () => {}) {
   const q = String(question || '').trim();
   if (!q) throw new AskError('Type a question');
   const cfg = config();
@@ -292,6 +307,8 @@ async function ask({ user, question, conversationId, clientId, canEmail, modelId
   const useModel = (convo?.model && MODELS[convo.model]) ? convo.model : (modelId && MODELS[modelId] ? modelId : cfg.model);
   const model = MODELS[useModel];
   const provider = PROVIDERS[model.provider];
+  const EFFORTS = ['low', 'medium', 'high'];
+  const useEffort = EFFORTS.includes(effort) ? effort : EFFORTS.includes(setting('ask_effort')) ? setting('ask_effort') : 'low';
   const messages = convo ? JSON.parse(convo.messages_json) : [];
   const turns = convo ? JSON.parse(convo.turns_json) : [];
   const scopeId = convo ? convo.client_id : (clientId ? Number(clientId) : null);
@@ -309,7 +326,7 @@ async function ask({ user, question, conversationId, clientId, canEmail, modelId
   try {
   for (let round = 0; round < MAX_ROUNDS; round++) {
     let wrote = false;
-    const turn = await provider.turn(useModel, model, messages, delta => { wrote = true; onEvent({ type: 'text', text: delta }); });
+    const turn = await provider.turn(useModel, model, messages, delta => { wrote = true; onEvent({ type: 'text', text: delta }); }, { effort: useEffort });
     const c = costOf(turn.usage, model);
     cost += c;
     usageRows.push([turn.usage.input, turn.usage.output, turn.usage.cacheWrite, turn.usage.cacheRead, c]);
