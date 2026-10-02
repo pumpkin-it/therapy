@@ -50,11 +50,12 @@ function AgreementsTab({ clientId }) {
   const [resending, setResending] = useState(false);
   const [resent, setResent] = useState(false);
   const [agreementError, setAgreementError] = useState('');
-  const [meta, setMeta] = useState({ start_date: '', end_date: '', budget_amount: '', reminder_end_date: '' });
+  const [meta, setMeta] = useState({ start_date: '', end_date: '', budget_amount: '' });
   const [savingMeta, setSavingMeta] = useState(false);
   const [fundingPeriods, setFundingPeriods] = useState([]);
   const [spend, setSpend] = useState(null);
   const [reminderDurationDays, setReminderDurationDays] = useState(10);
+  const [reminderIntervalDays, setReminderIntervalDays] = useState(3);
   const [savingReminderEndDate, setSavingReminderEndDate] = useState(false);
   const [clientBudgets, setClientBudgets] = useState([]);
   const [linkBudgetId, setLinkBudgetId] = useState('');
@@ -70,7 +71,10 @@ function AgreementsTab({ clientId }) {
     load();
     api.get('/templates?type=agreement').then(r => setTemplates(r.data));
     api.get(`/funding-periods?client_id=${clientId}`).then(r => setFundingPeriods(r.data)).catch(() => {});
-    api.get('/settings').then(r => setReminderDurationDays(parseInt(r.data.agreement_reminder_duration_days || '10'))).catch(() => {});
+    api.get('/settings').then(r => {
+      setReminderDurationDays(parseInt(r.data.agreement_reminder_duration_days || '10'));
+      setReminderIntervalDays(parseInt(r.data.agreement_reminder_interval_days || '3'));
+    }).catch(() => {});
     loadClientBudgets();
   }, []);
 
@@ -131,17 +135,9 @@ function AgreementsTab({ clientId }) {
 
   useEffect(() => {
     if (!active) { setSpend(null); return; }
-    // Default the draft's reminder end date to today + agreement_reminder_duration_days until
-    // the user (or finalize, server-side) sets a real one.
-    const defaultReminderEnd = active.status === 'draft' && !active.reminder_end_date
-      ? new Date(Date.now() + reminderDurationDays * 86400000).toISOString().slice(0, 10)
-      : (active.reminder_end_date || '');
-    setMeta({
-      start_date: active.start_date || '', end_date: active.end_date || '', budget_amount: active.budget_amount ?? '',
-      reminder_end_date: defaultReminderEnd,
-    });
+    setMeta({ start_date: active.start_date || '', end_date: active.end_date || '', budget_amount: active.budget_amount ?? '' });
     api.get(`/agreements/${active.id}/spend`).then(r => setSpend(r.data)).catch(() => setSpend(null));
-  }, [active?.id, active?.start_date, active?.end_date, active?.budget_amount, active?.reminder_end_date, reminderDurationDays]);
+  }, [active?.id, active?.start_date, active?.end_date, active?.budget_amount]);
 
   // Non-blocking warning if the agreement's dates fall outside the client's funding period
   // for the same funding type — save is never prevented, this is purely informational.
@@ -177,7 +173,6 @@ function AgreementsTab({ clientId }) {
         start_date: meta.start_date || null,
         end_date: meta.end_date || null,
         budget_amount: meta.budget_amount === '' ? null : Number(meta.budget_amount),
-        reminder_end_date: meta.reminder_end_date || null,
       });
       setActive(res.data);
     } catch (e) {
@@ -376,10 +371,9 @@ function AgreementsTab({ clientId }) {
                 <DateInput label="Start date" value={meta.start_date} onChange={v => setMeta(m => ({ ...m, start_date: v }))} />
                 <ClearableDateInput label="End date" value={meta.end_date} onChange={v => setMeta(m => ({ ...m, end_date: v }))} />
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <ClearableDateInput label="Reminder end date" value={meta.reminder_end_date} onChange={v => setMeta(m => ({ ...m, reminder_end_date: v }))} />
-              </div>
-              <p className="text-xs text-gray-400 -mt-2">Signing reminders stop after this date. Defaults to {reminderDurationDays} days from send.</p>
+              <p className="text-xs text-gray-400">
+                Once sent, a signing reminder is emailed every {reminderIntervalDays} days for {reminderDurationDays} days, or until it's signed.
+              </p>
               {fundingWarning && (
                 <div className="flex items-start gap-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm text-amber-700">
                   <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />{fundingWarning}
@@ -492,11 +486,14 @@ function AgreementsTab({ clientId }) {
               </div>
               {active.status !== 'signed' && active.status !== 'voided' && active.status !== 'declined' && (
                 <div className="flex items-center gap-2 pt-1">
-                  <label className="text-xs text-indigo-700">Reminders until:</label>
+                  <label className="text-xs text-indigo-700">Stop signing reminders after:</label>
                   <input type="date" className="rounded border border-indigo-200 px-2 py-1 text-xs bg-white"
                     value={active.reminder_end_date || ''} disabled={savingReminderEndDate}
                     onChange={e => changeReminderEndDate(e.target.value)} />
-                  {active.reminder_count > 0 && <span className="text-xs text-indigo-600">{active.reminder_count} sent so far</span>}
+                  <span className="text-xs text-indigo-600">
+                    {active.reminder_end_date ? `Every ${reminderIntervalDays} days until ${fmtDateOnly(active.reminder_end_date + 'T12:00:00', timezone)}` : `Every ${reminderIntervalDays} days, no end date`}
+                    {active.reminder_count > 0 && ` · ${active.reminder_count} sent so far`}
+                  </span>
                 </div>
               )}
             </div>

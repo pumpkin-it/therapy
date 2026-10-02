@@ -361,7 +361,7 @@ router.post('/:id/finalize', auth, async (req, res) => {
     if (durationDays) {
       const d = new Date(sentAt);
       d.setDate(d.getDate() + durationDays);
-      reminderEndDate = d.toISOString().slice(0, 10);
+      reminderEndDate = d.toLocaleDateString('en-CA'); // local (Sydney) date, not UTC
     }
   }
 
