@@ -168,7 +168,11 @@ function generateAgreementPdf(agreement) {
       if (a.viewed_user_agent) trail.push(`Viewing device/browser: ${a.viewed_user_agent}`);
     }
     trail.push(`Signed by: ${a.signer_name}${a.signer_email ? ` <${a.signer_email}>` : ''}`);
-    if (a.signed_at) trail.push(`Signed: ${fmt(a.signed_at)}${a.signed_ip ? ` from ${a.signed_ip}` : ''}`);
+    if (a.signed_method === 'manual') {
+      // Signed on paper — there's no online IP/device evidence, just who recorded it and when.
+      trail.push(`Signed on paper: ${new Date(a.signed_at).toLocaleDateString('en-AU', { timeZone: 'Australia/Melbourne' })}`);
+      trail.push(`Marked as signed by: ${a.signed_by_name || 'staff'}`);
+    } else if (a.signed_at) trail.push(`Signed: ${fmt(a.signed_at)}${a.signed_ip ? ` from ${a.signed_ip}` : ''}`);
     if (a.signed_user_agent) trail.push(`Signing device/browser: ${a.signed_user_agent}`);
     if (a.viewed_ip && a.signed_ip) {
       const sameIp = a.viewed_ip === a.signed_ip;

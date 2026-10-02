@@ -835,6 +835,14 @@ try { db.exec(`ALTER TABLE agreements ADD COLUMN viewed_ip TEXT`); } catch {}
 try { db.exec(`ALTER TABLE agreements ADD COLUMN viewed_user_agent TEXT`); } catch {}
 try { db.exec(`ALTER TABLE agreements ADD COLUMN content_hash TEXT`); } catch {}
 
+// Agreements signed on paper rather than through the signing link: staff mark them signed by
+// hand (POST /agreements/:id/mark-signed), which also stops the signing reminders. signed_method
+// is 'manual' for those (NULL = signed online), signed_by is the staff member who marked it, and
+// signed_copy_file_id points at the scanned copy in client_files, if one was uploaded.
+try { db.exec(`ALTER TABLE agreements ADD COLUMN signed_method TEXT`); } catch {}
+try { db.exec(`ALTER TABLE agreements ADD COLUMN signed_by INTEGER REFERENCES practitioners(id)`); } catch {}
+try { db.exec(`ALTER TABLE agreements ADD COLUMN signed_copy_file_id INTEGER REFERENCES client_files(id) ON DELETE SET NULL`); } catch {}
+
 const SERVICE_AGREEMENT_PLACEHOLDER_BODY =
   '<p>This Service Agreement is made between {{practice_name}} and {{client_name}} on {{date}}.</p>' +
   '<p>{{practice_name}} agrees to provide the services listed below to {{client_name}}, at the rates specified.</p>' +

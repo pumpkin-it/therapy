@@ -58,6 +58,9 @@ function AgreementsTab({ clientId }) {
   const [savingReminderEndDate, setSavingReminderEndDate] = useState(false);
   const [clientBudgets, setClientBudgets] = useState([]);
   const [linkBudgetId, setLinkBudgetId] = useState('');
+  const [showMarkSigned, setShowMarkSigned] = useState(false);
+  const [uploadingCopy, setUploadingCopy] = useState(false);
+  const signedCopyInputRef = useRef();
   const [showCreateBudgetModal, setShowCreateBudgetModal] = useState(false);
   const pricingTableRef = useRef();
 
@@ -266,6 +269,47 @@ function AgreementsTab({ clientId }) {
     }
   };
 
+  const openMarkSigned = async () => {
+    setAgreementError('');
+    if (active.status === 'draft' && pricingTableRef.current) {
+      const savedOk = await pricingTableRef.current.save();
+      if (!savedOk) return;
+    }
+    setShowMarkSigned(true);
+  };
+
+  const onMarkedSigned = updated => {
+    setShowMarkSigned(false);
+    setActive(updated);
+    load();
+  };
+
+  const uploadSignedCopy = async file => {
+    if (!file) return;
+    setAgreementError('');
+    setUploadingCopy(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await api.post(`/agreements/${activeId}/signed-copy`, form);
+      setActive(res.data);
+    } catch (e) {
+      setAgreementError(e.response?.data?.error || 'Failed to upload signed copy');
+    } finally {
+      setUploadingCopy(false);
+      if (signedCopyInputRef.current) signedCopyInputRef.current.value = '';
+    }
+  };
+
+  const downloadSignedCopy = async () => {
+    setAgreementError('');
+    try {
+      await downloadFile(api, `/client-files/${active.signed_copy_file_id}/download`, active.signed_copy_name || `${active.title} (signed)`);
+    } catch (e) {
+      setAgreementError(e.response?.data?.error || 'Failed to download signed copy');
+    }
+  };
+
   const voidAgreement = async () => {
     if (!await confirm({ title: 'Void agreement', message: 'Void this agreement?', confirmLabel: 'Void agreement', danger: true })) return;
     setAgreementError('');
@@ -440,7 +484,7 @@ function AgreementsTab({ clientId }) {
               <div className="break-all">Signing link: <a href={signingUrl} target="_blank" rel="noreferrer" className="underline">{signingUrl}</a></div>
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="secondary" onClick={copyLink}>{linkCopied ? 'Copied!' : 'Copy link'}</Button>
-                {active.client_email && (
+                {active.client_email && active.signed_method !== 'manual' && (
                   <Button size="sm" variant="secondary" onClick={resendEmail} disabled={resending}>
                     {resending ? 'Sending…' : resent ? 'Sent!' : 'Resend email'}
                   </Button>
@@ -475,13 +519,50 @@ function AgreementsTab({ clientId }) {
             </div>
           )}
 
+          {active.status === 'signed' && (
+            <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 space-y-2">
+              <div>
+                Signed by {active.signer_name} on {fmtDateOnly(active.signed_at, timezone)}
+                {active.signed_method === 'manual' && <> · on paper, marked as signed by {active.signed_by_name || 'staff'}</>}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {active.signed_copy_file_id && active.signed_copy_name ? (
+                  <>
+                    <span className="text-xs text-green-700">Signed copy: {active.signed_copy_name}</span>
+                    <Button size="sm" variant="secondary" onClick={downloadSignedCopy}><Download className="h-3.5 w-3.5" /> Download</Button>
+                  </>
+                ) : active.signed_method === 'manual' && (
+                  <span className="text-xs text-green-700">No signed copy uploaded yet.</span>
+                )}
+                {(active.signed_method === 'manual' || active.signed_copy_file_id) && (
+                  <>
+                    <Button size="sm" variant="secondary" onClick={() => signedCopyInputRef.current?.click()} disabled={uploadingCopy}>
+                      <Upload className="h-3.5 w-3.5" /> {uploadingCopy ? 'Uploading…' : active.signed_copy_file_id ? 'Replace copy' : 'Upload signed copy'}
+                    </Button>
+                    <input ref={signedCopyInputRef} type="file" className="hidden" accept=".pdf,image/*,.doc,.docx"
+                      onChange={e => uploadSignedCopy(e.target.files?.[0])} />
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {showMarkSigned && (
+            <MarkSignedModal agreement={active} onClose={() => setShowMarkSigned(false)} onSaved={onMarkedSigned} />
+          )}
+
           <div className="flex items-center gap-2">
             {active.status === 'draft' && (
               <>
                 <Button size="sm" onClick={() => finalize(true)}>Send by email</Button>
                 <Button size="sm" variant="secondary" onClick={() => finalize(false)}>Get link (sign in person)</Button>
-                <Button size="sm" variant="ghost" onClick={voidAgreement}>Void</Button>
               </>
+            )}
+            {['draft', 'sent', 'viewed'].includes(active.status) && (
+              <Button size="sm" variant="secondary" onClick={openMarkSigned}>Mark as signed</Button>
+            )}
+            {active.status === 'draft' && (
+              <Button size="sm" variant="ghost" onClick={voidAgreement}>Void</Button>
             )}
             {(active.items?.length > 0 || active.linked_budgets?.length > 0) && (
               <Button size="sm" variant="secondary" onClick={downloadPdf}>
@@ -493,12 +574,65 @@ function AgreementsTab({ clientId }) {
           <EntityAuditLog entityType="agreement" entityId={active.id} defaultOpen
             actionColors={{
               created: 'text-green-700', sent: 'text-blue-700', resent: 'text-blue-700',
-              viewed: 'text-amber-600', signed: 'text-green-700', declined: 'text-red-600',
+              viewed: 'text-amber-600', signed: 'text-green-700', signed_copy_uploaded: 'text-green-700', declined: 'text-red-600',
               voided: 'text-red-600', reminder_sent: 'text-indigo-600', reminder_end_date_changed: 'text-gray-500',
             }} />
         </div>
       )}
     </div>
+  );
+}
+
+// Records an agreement signed on paper: date, who signed, and an optional scanned copy. No
+// email goes to the client, and reminders stop because the agreement is no longer outstanding.
+function MarkSignedModal({ agreement, onClose, onSaved }) {
+  const [signedDate, setSignedDate] = useState(localToday());
+  const [signerName, setSignerName] = useState(agreement.client_name || '');
+  const [file, setFile] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async () => {
+    setError('');
+    setSaving(true);
+    try {
+      const form = new FormData();
+      form.append('signed_date', signedDate);
+      form.append('signer_name', signerName);
+      if (file) form.append('file', file);
+      const res = await api.post(`/agreements/${agreement.id}/mark-signed`, form);
+      onSaved(res.data);
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to mark as signed');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title="Mark as signed" onClose={onClose}>
+      <div className="space-y-3">
+        <p className="text-sm text-gray-600">
+          For an agreement signed on paper. It will show as signed and no more signing reminders will be sent. The client is not emailed.
+        </p>
+        {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+        <div className="space-y-1">
+          <label className="block text-sm font-medium text-gray-700">Date signed</label>
+          <input type="date" className="w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+            value={signedDate} max={localToday()} onChange={e => setSignedDate(e.target.value)} />
+        </div>
+        <Input label="Signed by" value={signerName} onChange={e => setSignerName(e.target.value)} />
+        <div className="space-y-1">
+          <label className="block text-sm font-medium text-gray-700">Signed copy (optional)</label>
+          <input type="file" accept=".pdf,image/*,.doc,.docx" className="block w-full text-sm"
+            onChange={e => setFile(e.target.files?.[0] || null)} />
+          <p className="text-xs text-gray-400">Saved to the client's Files. You can also upload it later.</p>
+        </div>
+        <div className="flex justify-end gap-2 pt-1">
+          <Button size="sm" variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button size="sm" onClick={save} disabled={saving || !signedDate || !signerName.trim()}>{saving ? 'Saving…' : 'Mark as signed'}</Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

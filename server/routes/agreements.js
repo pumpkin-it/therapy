@@ -7,6 +7,28 @@ const { renderTemplate, graphSend, getTemplate } = require('../services/mailer')
 const { renderPricingTableHtml, budgetItemsAsPricingRows } = require('../services/templateVars');
 const { generateAgreementPdf } = require('../services/pdf');
 const { getAgreementSpend, computeBudgetSpend } = require('../services/budgets');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+// Same uploads directory and 20MB limit as the client Files tab (routes/clientFiles.js) — a
+// scanned signed copy is stored as an ordinary client file.
+const UPLOAD_DIR = path.join(__dirname, '../../uploads');
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: UPLOAD_DIR,
+    filename: (req, file, cb) => cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname)}`),
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
+const uploadOptionalFile = (req, res, next) => upload.single('file')(req, res, err => {
+  if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+    return res.status(400).json({ error: 'File is too large — the maximum upload size is 20MB.' });
+  }
+  if (err) return res.status(400).json({ error: err.message || 'Failed to upload file' });
+  next();
+});
 
 function getSettings() {
   const rows = db.prepare('SELECT key, value FROM settings').all();
@@ -17,10 +39,14 @@ function getAgreementWithItems(id) {
   const agreement = db.prepare(`
     SELECT a.*, c.first_name || ' ' || c.last_name AS client_name, c.email AS client_email,
       c.address AS client_address,
-      ft.name AS funding_type_name
+      ft.name AS funding_type_name,
+      cf.original_name AS signed_copy_name,
+      p.first_name || ' ' || p.last_name AS signed_by_name
     FROM agreements a
     JOIN clients c ON c.id = a.client_id
     LEFT JOIN funding_types ft ON ft.id = a.funding_type_id
+    LEFT JOIN client_files cf ON cf.id = a.signed_copy_file_id
+    LEFT JOIN practitioners p ON p.id = a.signed_by
     WHERE a.id = ?
   `).get(id);
   if (agreement) {
@@ -392,6 +418,73 @@ router.patch('/:id/reminder-end-date', auth, (req, res) => {
   db.prepare('UPDATE agreements SET reminder_end_date = ? WHERE id = ?').run(reminder_end_date || null, agreement.id);
   audit.log('agreement', agreement.id, 'reminder_end_date_changed',
     `Reminder end date ${reminder_end_date ? `set to ${reminder_end_date}` : 'cleared'}`);
+  res.json(getAgreementWithItems(agreement.id));
+});
+
+// Saves an uploaded signed copy as a client file and links it to the agreement.
+function attachSignedCopy(agreement, file) {
+  const result = db.prepare(`
+    INSERT INTO client_files (client_id, filename, original_name, size, mime_type, label)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(agreement.client_id, file.filename, file.originalname, file.size, file.mimetype, `Signed: ${agreement.title}`);
+  db.prepare('UPDATE agreements SET signed_copy_file_id = ? WHERE id = ?').run(result.lastInsertRowid, agreement.id);
+  return result.lastInsertRowid;
+}
+
+const removeUpload = file => { if (file) fs.unlink(file.path, () => {}); };
+
+// For agreements signed on paper: marks the agreement signed without the online signing flow,
+// optionally with a scanned copy. Setting status to 'signed' is what stops the reminders
+// (sendAgreementReminders only picks up 'sent'/'viewed'). A draft is frozen first, like
+// finalize does, so the agreement keeps a record of what was signed — but no link or email.
+router.post('/:id/mark-signed', auth, uploadOptionalFile, (req, res) => {
+  const agreement = getAgreementWithItems(req.params.id);
+  if (!agreement) { removeUpload(req.file); return res.status(404).json({ error: 'Not found' }); }
+  if (!['draft', 'sent', 'viewed'].includes(agreement.status)) {
+    removeUpload(req.file);
+    return res.status(409).json({ error: `A ${agreement.status} agreement can't be marked as signed` });
+  }
+  if (agreement.status === 'draft' && !agreement.items.length && !agreement.linked_budgets.length) {
+    removeUpload(req.file);
+    return res.status(400).json({ error: 'Add at least one pricing item, or link a budget, before marking as signed' });
+  }
+
+  const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD in the server's local time (TZ=Australia/Sydney)
+  const signedDate = req.body.signed_date || today;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(signedDate) || signedDate > today) {
+    removeUpload(req.file);
+    return res.status(400).json({ error: 'Signed date must be a valid date, not in the future' });
+  }
+  // Today keeps the real time; a back-dated signature is stored at local midday so the date
+  // shows the same in any timezone display.
+  const signedAt = signedDate === today ? new Date().toISOString() : new Date(`${signedDate}T12:00:00`).toISOString();
+  const signerName = req.body.signer_name?.trim() || agreement.client_name;
+
+  db.transaction(() => {
+    const renderedHtml = agreement.rendered_html || renderAgreementContent(agreement, req.user.id);
+    db.prepare(`
+      UPDATE agreements SET status = 'signed', signed_at = ?, signer_name = ?, signed_method = 'manual', signed_by = ?,
+        rendered_html = ?
+      WHERE id = ?
+    `).run(signedAt, signerName, req.user.id, renderedHtml, agreement.id);
+    if (req.file) attachSignedCopy(agreement, req.file);
+  })();
+
+  audit.log('agreement', agreement.id, 'signed',
+    `Marked as signed (on paper) by staff — signed by ${signerName} on ${signedDate}${req.file ? `, copy uploaded: ${req.file.originalname}` : ', no copy uploaded'}`);
+  res.json(getAgreementWithItems(agreement.id));
+});
+
+// Uploads (or replaces) the signed copy of an agreement that's already signed — e.g. when it
+// was marked signed before the paper copy came back.
+router.post('/:id/signed-copy', auth, uploadOptionalFile, (req, res) => {
+  const agreement = db.prepare('SELECT * FROM agreements WHERE id = ?').get(req.params.id);
+  if (!agreement) { removeUpload(req.file); return res.status(404).json({ error: 'Not found' }); }
+  if (!req.file) return res.status(400).json({ error: 'No file' });
+  if (agreement.status !== 'signed') { removeUpload(req.file); return res.status(409).json({ error: 'Only signed agreements can have a signed copy' }); }
+
+  attachSignedCopy(agreement, req.file);
+  audit.log('agreement', agreement.id, 'signed_copy_uploaded', `Signed copy uploaded: ${req.file.originalname}`);
   res.json(getAgreementWithItems(agreement.id));
 });
 
