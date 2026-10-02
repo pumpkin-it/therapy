@@ -3,7 +3,32 @@
 const router = require('express').Router();
 const db = require('../database');
 const perm = require('../middleware/requirePermission');
-const { ask, config, AskError } = require('../services/ask');
+const { ask, config, AskError, filedClients, fileToClients, unfileFromClient, clientsOfSources, clientsLookedUp } = require('../services/ask');
+
+// One-time: file conversations from before filing existed to their clients.
+if (db.prepare("SELECT value FROM settings WHERE key = 'ask_filing_backfilled'").get()?.value !== '4') {
+  db.transaction(() => {
+    // Re-run with v4's rule: inactive (past) clients are filed too, unless an active client of the
+    // same name is in the conversation.
+    for (const c of db.prepare('SELECT id, user_id, client_id, turns_json, messages_json FROM ask_conversations').all()) {
+      if (c.client_id) fileToClients(c.id, [c.client_id], 'started', c.user_id);
+      const sources = JSON.parse(c.turns_json || '[]').flatMap(t => t.sources || []);
+      fileToClients(c.id, clientsOfSources(sources), 'cited', c.user_id);
+      fileToClients(c.id, clientsLookedUp(JSON.parse(c.messages_json || '[]')), 'looked_up', c.user_id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('ask_filing_backfilled', '4') ON CONFLICT(key) DO UPDATE SET value = '4'").run();
+  })();
+}
+
+// A conversation can be read by whoever asked it, and — once it's filed to a client — by
+// everyone with Ask access (it's part of that client's record). Only the asker can continue it.
+function readable(id, user) {
+  const c = db.prepare(`SELECT c.*, p.first_name || ' ' || p.last_name AS asked_by FROM ask_conversations c
+    LEFT JOIN practitioners p ON p.id = c.user_id WHERE c.id = ?`).get(id);
+  if (!c) return null;
+  if (c.user_id === user.id) return c;
+  return db.prepare('SELECT 1 FROM ask_conversation_clients WHERE conversation_id = ? AND removed_at IS NULL').get(id) ? c : null;
+}
 
 router.get('/status', (req, res) => {
   const c = config();
@@ -17,11 +42,33 @@ router.get('/conversations', (req, res) => {
 });
 
 router.get('/conversations/:id', (req, res) => {
-  const c = db.prepare(`SELECT c.id, c.title, c.client_id, c.turns_json, c.updated_at, cl.first_name || ' ' || cl.last_name AS client_name
-    FROM ask_conversations c LEFT JOIN clients cl ON cl.id = c.client_id WHERE c.id = ? AND c.user_id = ?`).get(req.params.id, req.user.id);
+  const c = readable(Number(req.params.id), req.user);
   if (!c) return res.status(404).json({ error: 'Conversation not found' });
-  const { turns_json, ...rest } = c;
-  res.json({ ...rest, turns: JSON.parse(turns_json) });
+  const client = c.client_id && db.prepare("SELECT first_name || ' ' || last_name AS name FROM clients WHERE id = ?").get(c.client_id);
+  res.json({
+    id: c.id, title: c.title, client_id: c.client_id, client_name: client?.name || null, updated_at: c.updated_at,
+    asked_by: c.asked_by, mine: c.user_id === req.user.id, clients: filedClients(c.id), turns: JSON.parse(c.turns_json),
+  });
+});
+
+// Change which clients a conversation is filed to: { add: [clientId], remove: [clientId] }.
+router.post('/conversations/:id/clients', (req, res) => {
+  const c = readable(Number(req.params.id), req.user);
+  if (!c) return res.status(404).json({ error: 'Conversation not found' });
+  const ids = list => (Array.isArray(list) ? list.map(Number).filter(Boolean) : []);
+  db.transaction(() => {
+    fileToClients(c.id, ids(req.body.add), 'manual', req.user.id);
+    for (const cid of ids(req.body.remove)) unfileFromClient(c.id, cid, req.user.id);
+  })();
+  res.json({ clients: filedClients(c.id) });
+});
+
+// Ask conversations filed to one client, newest first (the client's Communications tab).
+router.get('/client/:clientId', (req, res) => {
+  const rows = db.prepare(`SELECT c.id, c.title, c.updated_at, c.turns_json, p.first_name || ' ' || p.last_name AS asked_by, c.user_id = ? AS mine
+    FROM ask_conversation_clients l JOIN ask_conversations c ON c.id = l.conversation_id LEFT JOIN practitioners p ON p.id = c.user_id
+    WHERE l.client_id = ? AND l.removed_at IS NULL ORDER BY c.updated_at DESC`).all(req.user.id, Number(req.params.clientId));
+  res.json(rows.map(({ turns_json, ...r }) => ({ ...r, questions: JSON.parse(turns_json || '[]').length, mine: !!r.mine })));
 });
 
 // A document inside an old-system backup zip, opened from an answer's source link.

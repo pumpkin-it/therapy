@@ -1909,6 +1909,23 @@ try { db.exec(`
 `); } catch {}
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_ask_conversations_user ON ask_conversations(user_id, updated_at)'); } catch {}
 try { db.exec('ALTER TABLE ask_conversations ADD COLUMN model TEXT'); } catch {} // the model a conversation started on; follow-ups stay on it
+// Which clients an Ask conversation is filed to: the client it was asked from ('started'),
+// clients whose records its answers cited ('cited'), or added by a person ('manual'). Filed
+// conversations show on the client's Communications tab to everyone with Ask access.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS ask_conversation_clients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER NOT NULL REFERENCES ask_conversations(id),
+    client_id INTEGER NOT NULL REFERENCES clients(id),
+    method TEXT NOT NULL,
+    added_by INTEGER REFERENCES practitioners(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    removed_at DATETIME,
+    removed_by INTEGER REFERENCES practitioners(id)
+  )
+`); } catch {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_ask_conv_clients_client ON ask_conversation_clients(client_id, removed_at)'); } catch {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_ask_conv_clients_conv ON ask_conversation_clients(conversation_id)'); } catch {}
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS ask_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

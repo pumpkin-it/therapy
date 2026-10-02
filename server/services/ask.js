@@ -8,6 +8,7 @@
 const { AnthropicBedrock } = require('@anthropic-ai/bedrock-sdk');
 const { BedrockRuntimeClient, ConverseCommand } = require('@aws-sdk/client-bedrock-runtime');
 const db = require('../database');
+const audit = require('./audit');
 const tools = require('./askTools');
 
 // Models that keep data in Australia: Claude through Bedrock's AU inference profiles (Sydney and
@@ -203,6 +204,72 @@ const novaTurns = {
 };
 const PROVIDERS = { claude: claudeTurns, nova: novaTurns };
 
+// ---- filing conversations to clients ----
+// The clients a set of answer sources belong to: a record's own client, the clients an email is
+// filed to, and a task's clients.
+function clientsOfSources(sources) {
+  const ids = new Set();
+  for (const s of sources) {
+    if (s.client_id) ids.add(Number(s.client_id));
+    const emailId = s.kind === 'email' ? Number(s.id) : s.kind === 'attachment' ? s.email_id : null;
+    if (emailId) for (const r of db.prepare('SELECT client_id FROM email_message_clients WHERE message_id = ? AND removed_at IS NULL').all(emailId)) ids.add(r.client_id);
+    if (s.kind === 'task') for (const r of db.prepare('SELECT client_id FROM task_clients WHERE task_id = ?').all(Number(s.id))) ids.add(r.client_id);
+  }
+  return [...ids];
+}
+
+// Clients a conversation looked up specifically (their history, or a search limited to them) —
+// what it was about, even when the answer found nothing to cite. Reads the tool calls in either
+// provider's message format.
+function clientsLookedUp(messages) {
+  const ids = new Set();
+  for (const m of messages) {
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) continue;
+    for (const b of m.content) {
+      const call = b.type === 'tool_use' ? b : b.toolUse ? { name: b.toolUse.name, input: b.toolUse.input } : null;
+      if (call && ['client_history', 'search_records'].includes(call.name) && Number.isInteger(call.input?.client_id)) ids.add(call.input.client_id);
+    }
+  }
+  return [...ids];
+}
+
+const filedClients = conversationId => db.prepare(`SELECT c.id, c.first_name || ' ' || c.last_name AS name, c.active, l.method FROM ask_conversation_clients l
+  JOIN clients c ON c.id = l.client_id WHERE l.conversation_id = ? AND l.removed_at IS NULL ORDER BY c.first_name, c.last_name`).all(conversationId);
+
+// File a conversation to clients (skipping ones it's already filed to, and — for automatic filing —
+// ones a person took it off). Each new filing goes in the client's history. Inactive (past)
+// clients are filed like any other, with the same rule as email suggestions: when an active
+// client with the same name is also involved, the inactive duplicate is left out.
+const sameName = c => `${c.first_name} ${c.last_name}`.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+function fileToClients(conversationId, clientIds, method, userId) {
+  const conv = db.prepare('SELECT title FROM ask_conversations WHERE id = ?').get(conversationId);
+  const involved = [...db.prepare('SELECT client_id FROM ask_conversation_clients WHERE conversation_id = ? AND removed_at IS NULL').all(conversationId).map(r => r.client_id), ...clientIds]
+    .map(id => db.prepare('SELECT id, first_name, last_name, active FROM clients WHERE id = ?').get(id)).filter(Boolean);
+  const activeNames = new Set(involved.filter(c => c.active).map(sameName));
+  const added = [];
+  for (const cid of clientIds) {
+    const client = db.prepare('SELECT id, first_name, last_name, merged_into, active FROM clients WHERE id = ?').get(cid);
+    if (!client) continue;
+    if (method !== 'manual' && !client.merged_into && !client.active && activeNames.has(sameName(client))) continue;
+    const target = client.merged_into || client.id;
+    if (db.prepare('SELECT 1 FROM ask_conversation_clients WHERE conversation_id = ? AND client_id = ? AND removed_at IS NULL').get(conversationId, target)) continue;
+    if (method !== 'manual' && db.prepare('SELECT 1 FROM ask_conversation_clients WHERE conversation_id = ? AND client_id = ? AND removed_by IS NOT NULL').get(conversationId, target)) continue;
+    db.prepare('INSERT INTO ask_conversation_clients (conversation_id, client_id, method, added_by) VALUES (?, ?, ?, ?)').run(conversationId, target, method, userId);
+    audit.log('client', target, 'ask_conversation_filed', `Ask conversation filed: "${conv?.title || ''}"`);
+    added.push(target);
+  }
+  return added;
+}
+
+function unfileFromClient(conversationId, clientId, userId) {
+  const r = db.prepare("UPDATE ask_conversation_clients SET removed_at = CURRENT_TIMESTAMP, removed_by = ? WHERE conversation_id = ? AND client_id = ? AND removed_at IS NULL").run(userId, conversationId, clientId);
+  if (r.changes) {
+    const conv = db.prepare('SELECT title FROM ask_conversations WHERE id = ?').get(conversationId);
+    audit.log('client', clientId, 'ask_conversation_removed', `Ask conversation removed from this client: "${conv?.title || ''}"`);
+  }
+  return r.changes > 0;
+}
+
 class AskError extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 
 // Answer one question (optionally continuing a conversation), reporting progress through
@@ -283,10 +350,14 @@ async function ask({ user, question, conversationId, clientId, canEmail, modelId
         .run(user.id, scope ? scope.id : null, useModel, q.slice(0, 120), JSON.stringify(messages), JSON.stringify(turns)).lastInsertRowid;
     }
     for (const r of usageRows) logUsage.run(id, user.id, useModel, ...r);
+    // File it to the client it was asked about, and the clients its answer drew on.
+    if (scope && !convo) fileToClients(id, [scope.id], 'started', user.id);
+    fileToClients(id, clientsOfSources(sources), 'cited', user.id);
+    fileToClients(id, clientsLookedUp(messages), 'looked_up', user.id);
     return id;
   });
   const id = save();
   return { conversation_id: id, answer, sources, model: model.label, cost_usd: Math.round(cost * 10000) / 10000 };
 }
 
-module.exports = { ask, config, MODELS, AskError, sourcesIn };
+module.exports = { ask, config, MODELS, AskError, sourcesIn, filedClients, fileToClients, unfileFromClient, clientsOfSources, clientsLookedUp };

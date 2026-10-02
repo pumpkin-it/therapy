@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Plus, Send, Sparkles, X, Loader2 } from 'lucide-react';
 import api from '../lib/api';
@@ -120,6 +120,49 @@ function SourceList({ sources }) {
   );
 }
 
+// The clients a conversation is filed to (shown on their Communications tab), with remove and add.
+function FiledClients({ convo, onChange }) {
+  const [adding, setAdding] = useState(false);
+  const [all, setAll] = useState([]);
+  const [query, setQuery] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => { if (adding && !all.length) api.get('/clients?active=all').then(r => setAll(r.data)).catch(() => {}); }, [adding, all.length]);
+  const matches = useMemo(() => {
+    const t = query.trim().toLowerCase();
+    return t ? all.filter(c => `${c.first_name} ${c.last_name}`.toLowerCase().includes(t) && !convo.clients.some(x => x.id === c.id)).slice(0, 6) : [];
+  }, [query, all, convo.clients]);
+  const change = async body => {
+    setError('');
+    try { onChange((await api.post(`/ask/conversations/${convo.id}/clients`, body)).data.clients); setQuery(''); setAdding(false); }
+    catch (e) { setError(e.response?.data?.error || 'Could not change the filing'); }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-500">
+      <span>Filed to</span>
+      {convo.clients.length === 0 && <span className="text-gray-400">no client yet</span>}
+      {convo.clients.map(c => (
+        <span key={c.id} className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 font-medium text-indigo-800">
+          <Link to={`/clients/${c.id}?tab=communications`} target="_blank" rel="noopener noreferrer" className="hover:underline">{c.name}{!c.active ? ' - INACTIVE' : ''}</Link>
+          <button type="button" title="Take this conversation off this client" onClick={() => change({ remove: [c.id] })}><X className="h-3 w-3" /></button>
+        </span>
+      ))}
+      {adding ? (
+        <span className="relative">
+          <input autoFocus value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') setAdding(false); }} placeholder="Client name…"
+            className="w-40 rounded-full border border-gray-300 px-2 py-0.5 text-xs focus:border-indigo-500 focus:outline-none" />
+          {matches.length > 0 && (
+            <ul className="absolute z-20 mt-1 w-56 rounded-lg border border-gray-200 bg-white shadow-lg">
+              {matches.map(c => <li key={c.id}><button type="button" onClick={() => change({ add: [c.id] })} className="w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-indigo-50">{c.first_name} {c.last_name}{!c.active ? ' - INACTIVE' : ''}</button></li>)}
+            </ul>
+          )}
+        </span>
+      ) : <button type="button" onClick={() => setAdding(true)} className="inline-flex items-center gap-0.5 text-indigo-600 hover:text-indigo-800"><Plus className="h-3 w-3" /> Add client</button>}
+      {convo.asked_by && !convo.mine && <span className="ml-auto text-gray-400">Asked by {convo.asked_by}</span>}
+      {error && <span className="w-full text-red-600">{error}</span>}
+    </div>
+  );
+}
+
 // Ask questions about clients; Claude searches Therapy's records and answers with links to them.
 export default function Ask() {
   const [params, setParams] = useSearchParams();
@@ -186,6 +229,8 @@ export default function Ask() {
       const turn = { question: q, answer: done.answer, sources: done.sources, cost_usd: done.cost_usd, at: new Date().toISOString() };
       setConvo(c => (c ? { ...c, turns: [...c.turns, turn] } : { id: done.conversation_id, client_id: scopeClientId, client_name: scopeName, turns: [turn] }));
       if (!convo) setParams({ id: String(done.conversation_id) }, { replace: true });
+      // Pick up which clients it's now filed to.
+      api.get(`/ask/conversations/${done.conversation_id}`).then(r => setConvo(r.data)).catch(() => {});
       loadList();
       loadStatus();
     } catch (e) {
@@ -197,7 +242,8 @@ export default function Ask() {
   };
 
   const newConversation = () => setParams({}, { replace: false });
-  const about = convo ? convo.client_name : scopeName;
+  const about = convo ? null : scopeName;
+  const readOnly = convo && convo.mine === false;
   const overLimit = status && status.limit_usd > 0 && status.spent_usd >= status.limit_usd;
 
   return (
@@ -232,6 +278,7 @@ export default function Ask() {
                   <p className="mt-3 text-xs text-gray-400">It searches notes, appointments, files (including PDFs), forms, reports{status?.can_email ? ' and emails' : ''}. Every fact links to where it came from: check the source before relying on it.</p>
                 </div>
               )}
+              {convo?.clients && <FiledClients convo={convo} onChange={clients => setConvo(c => ({ ...c, clients }))} />}
               {convo?.turns.map((t, i) => (
                 <div key={i} className="space-y-2">
                   <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-indigo-600 px-4 py-2 text-sm text-white">{t.question}</div>
@@ -263,6 +310,9 @@ export default function Ask() {
               )}
               {error && <p className="text-sm text-red-600">{error}</p>}
               {overLimit && <p className="text-sm text-amber-700">This month's spending limit has been reached. An owner can raise it in Settings → Ask (AI).</p>}
+              {readOnly ? (
+                <p className="text-sm text-gray-500">Asked by {convo.asked_by}. Only they can ask follow-ups here. <button type="button" onClick={newConversation} className="text-indigo-600 hover:underline">Ask your own question</button></p>
+              ) : (
               <div className="flex items-end gap-2">
                 <textarea rows={2} value={question} onChange={e => setQuestion(e.target.value)} disabled={!!pending}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
@@ -270,6 +320,7 @@ export default function Ask() {
                   className="min-h-[44px] flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
                 <Button onClick={submit} disabled={!question.trim() || !!pending}><Send className="h-4 w-4" /> Ask</Button>
               </div>
+              )}
             </div>
           </div>
         </div>

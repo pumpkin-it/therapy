@@ -23,6 +23,7 @@ import FormFillModal from '../components/FormFillModal';
 import EntityAuditLog from '../components/EntityAuditLog';
 import ClientContacts from '../components/ClientContacts';
 import ClientCommunications from '../components/email/ClientCommunications';
+import ClientAskConversations from '../components/ClientAskConversations';
 import { useCompose } from '../context/ComposeContext';
 import MergeClientModal from '../components/MergeClientModal';
 import BudgetModal from '../components/BudgetModal';
@@ -2263,7 +2264,7 @@ export default function ClientDetail() {
 
   const TABS = [
     ['details', 'Details'], ['funding', 'Funding'], ['medical', 'Medical'],
-    ['notes', 'Session Notes'], ...(user?.permissions?.email ? [['communications', 'Communications']] : []),
+    ['notes', 'Session Notes'], ...(user?.permissions?.email || user?.permissions?.ask ? [['communications', 'Communications']] : []),
     ['agreements', 'Agreements'], ['forms', 'Forms'], ['billing', 'Billing'], ['reports', 'Reports'], ['files', 'Files'], ['calendar', 'Calendar'], ['history', 'History'],
   ];
 
@@ -2436,7 +2437,12 @@ export default function ClientDetail() {
 
         {tab === 'funding'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to manage funding.</p> : <FundingTab  clientId={id} />)}
         {tab === 'notes'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to add notes.</p> : <SessionNotesTab clientId={id} client={client} />)}
-        {tab === 'communications' && user?.permissions?.email && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to see their emails.</p> : <ClientCommunications clientId={id} defaultTo={emailTo()} />)}
+        {tab === 'communications' && (user?.permissions?.email || user?.permissions?.ask) && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to see their emails.</p> : (
+          <div className="space-y-3">
+            {user?.permissions?.ask && <ClientAskConversations clientId={id} />}
+            {user?.permissions?.email && <ClientCommunications clientId={id} defaultTo={emailTo()} />}
+          </div>
+        ))}
         {tab === 'agreements' && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to create agreements.</p> : <AgreementsTab clientId={id} />)}
         {tab === 'forms'     && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to fill in forms.</p> : <FormsTab clientId={id} client={client} />)}
         {tab === 'billing'   && (isNew ? <p className="text-sm text-gray-400 py-8 text-center">Save the client first to view billing.</p> : <BillingSummaryTab clientId={id} />)}

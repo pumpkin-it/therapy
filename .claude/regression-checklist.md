@@ -425,7 +425,7 @@ Also: a **draft** agreement has Mark as signed too (no link or email is created)
 file shows "No signed copy uploaded yet" and **Upload signed copy** adds it later. Signed, declined
 and voided agreements have no Mark as signed button.
 
-## 19. Ask (AI) — questions answered from the records (on UAT since 2026-10-02, not yet in production)
+## 19. Ask (AI) — questions answered from the records (in production since 2026-10-02)
 Claude Sonnet 5 on Amazon Bedrock in Australia reads Therapy's records (read-only) and answers with
 numbered links to its sources. **Every question costs real money (about 1–30 US cents)** and counts
 toward the monthly limit — ask **no more than 6 questions** in a run. UAT only (option A): a local
@@ -450,6 +450,17 @@ copy has no Bedrock access; on a local copy check only the permission/menu point
 - Limit reached: temporarily set the limit to 0.01 (below what's been spent), Save, ask anything →
   "This month's Ask spending limit … has been reached" and no answer. **Set it back to 20 and Save.**
 - Don't change the Model setting permanently; if you try another model, set it back to Claude Sonnet 5.
+- **Filed to clients** (on UAT since 2026-10-02 14:07, not yet in production): each conversation is
+  filed automatically to the client it was asked from, clients whose records its answer cited, and
+  clients it looked up specifically. Inactive (past) clients are filed too, shown "<name> - INACTIVE" —
+  except an inactive record whose name matches an active client in the same conversation (same
+  rule as email). A "Filed to" bar above the
+  conversation shows them; × takes one off, **Add client** adds one. Client → **Communications** tab
+  → **Ask conversations** lists every conversation filed to that client, from anyone with Ask
+  access ("You" or the asker's name). Opening someone else's conversation shows it read-only ("Asked
+  by …", no follow-up box). Filing / unfiling adds "Ask conversation filed / removed" to the client's
+  history with who did it. The Communications tab shows for anyone with Email **or** Ask access (Ask
+  only → no emails section).
 
 ## How to run this (read first)
 **Claude can't sign in to UAT or production** — it may not type a password into a non-local site,
@@ -543,7 +554,10 @@ option A, or skip it and say so.
   didn't fully match "what still works" above with enough detail to reproduce.
 
 ## Changed since the last full run (check these first)
-- On UAT 2026-10-02 (user requests):
+- Item 19, on UAT 2026-10-02 14:07 (not yet in production): Ask conversations are **filed to
+  clients** and listed on the client's Communications tab (shared with everyone who has Ask); see
+  item 19 "Filed to clients". Test with existing conversations where possible (questions cost money).
+- Released to production 2026-10-02 13:55 (user requests):
   - Item 15: **Undo filing.** After filing (File, File — no client, Move back to Unfiled, or the
     bulk bar) the green message names what happened and has **Undo**; Undo puts the email (and any
     earlier emails of its conversation filed with it) back exactly as before — clients, status, tags
@@ -562,7 +576,7 @@ option A, or skip it and say so.
     re-test found "Mark as signed" with no file had no name). Audit Log type filter now also has
     Agreements, Reports, Client files, Client file folders, Session note files, Budgets, Time blocks,
     Report templates, Settings (email filing entries are under Clients).
-- Item 19 (new, on UAT only since 2026-10-02): **Ask (AI)** — sidebar Ask page, client page Ask
+- Item 19 (new, in production since 2026-10-02 13:55): **Ask (AI)** — sidebar Ask page, client page Ask
   button, Settings → Ask (AI) model + monthly limit, new **Ask (AI)** permission. Costs real money per
   question: max 6 questions in a run, and restore the limit (US$20) and model afterwards.
 - Item 18 (new, released 2026-10-02 straight to production): Agreements → **Mark as signed** for
