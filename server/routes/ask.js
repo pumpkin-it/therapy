@@ -5,6 +5,12 @@ const db = require('../database');
 const perm = require('../middleware/requirePermission');
 const { ask, config, AskError, filedClients, fileToClients, unfileFromClient, clientsOfSources, clientsLookedUp } = require('../services/ask');
 
+// A restart in the middle of an answer leaves it "answering" forever; mark those as interrupted.
+for (const c of db.prepare("SELECT id, turns_json FROM ask_conversations WHERE status = 'answering'").all()) {
+  const turns = JSON.parse(c.turns_json || '[]').map(t => (t.pending ? { question: t.question, asked_at: t.asked_at, answer: 'This question was interrupted (Therapy restarted). Please ask it again.', failed: true, sources: [], at: new Date().toISOString() } : t));
+  db.prepare("UPDATE ask_conversations SET turns_json = ?, status = 'done' WHERE id = ?").run(JSON.stringify(turns), c.id);
+}
+
 // One-time: file conversations from before filing existed to their clients.
 if (db.prepare("SELECT value FROM settings WHERE key = 'ask_filing_backfilled'").get()?.value !== '4') {
   db.transaction(() => {
@@ -35,10 +41,92 @@ router.get('/status', (req, res) => {
   res.json({ model_label: c.model_label, limit_usd: c.limit_usd, spent_usd: c.spent_usd, can_email: perm.hasPermission(req.user, 'email') });
 });
 
+// Past conversations: ?scope=mine (default) or ?scope=filed (everyone's, filed to a client),
+// ?q= words in the questions or answers, ?client_id= filed to that client.
 router.get('/conversations', (req, res) => {
-  const rows = db.prepare(`SELECT c.id, c.title, c.client_id, c.updated_at, cl.first_name || ' ' || cl.last_name AS client_name
-    FROM ask_conversations c LEFT JOIN clients cl ON cl.id = c.client_id WHERE c.user_id = ? ORDER BY c.updated_at DESC LIMIT 50`).all(req.user.id);
-  res.json(rows);
+  const where = [];
+  const params = [];
+  const filed = 'EXISTS (SELECT 1 FROM ask_conversation_clients f WHERE f.conversation_id = c.id AND f.removed_at IS NULL';
+  if (req.query.scope === 'filed') where.push(`(c.user_id = ? OR ${filed}))`); else where.push('c.user_id = ?');
+  params.push(req.user.id);
+  if (Number(req.query.client_id)) { where.push(`${filed} AND f.client_id = ?)`); params.push(Number(req.query.client_id)); }
+  const q = String(req.query.q || '').trim().toLowerCase();
+  const words = q.split(/\s+/).filter(w => w.length > 1).slice(0, 6);
+  for (const w of words) { where.push('(lower(c.title) LIKE ? OR lower(c.turns_json) LIKE ?)'); params.push(`%${w}%`, `%${w}%`); }
+  const rows = db.prepare(`SELECT c.id, c.title, c.user_id, c.status, c.updated_at, c.turns_json, p.first_name || ' ' || p.last_name AS asked_by,
+      (SELECT group_concat(cl.first_name || ' ' || cl.last_name, ', ') FROM ask_conversation_clients f JOIN clients cl ON cl.id = f.client_id
+        WHERE f.conversation_id = c.id AND f.removed_at IS NULL) AS client_names
+    FROM ask_conversations c LEFT JOIN practitioners p ON p.id = c.user_id
+    WHERE ${where.join(' AND ')} ORDER BY c.updated_at DESC LIMIT 100`).all(...params);
+  // With a search, show where it matched: a short piece of the first question or answer containing it.
+  const snippetOf = turns => {
+    if (!words.length) return null;
+    for (const t of turns) for (const text of [t.question, t.answer]) {
+      const low = String(text || '').toLowerCase();
+      const i = low.indexOf(words[0]);
+      if (i >= 0) return `${i > 40 ? '…' : ''}${String(text).slice(Math.max(0, i - 40), i + 100).replace(/\[(\w+) [\d:]+\]/g, '').replace(/\s+/g, ' ').trim()}…`;
+    }
+    return null;
+  };
+  res.json(rows.map(({ turns_json, user_id, ...r }) => ({ ...r, mine: user_id === req.user.id, match: snippetOf(JSON.parse(turns_json || '[]')) })));
+});
+
+// "Already answered?" — before running a new question, find earlier questions (yours, or filed to
+// a client) that ask much the same thing. Plain word matching, no AI, so it costs nothing.
+const STOP = new Set('a an the and or of to for in on at by with from is are was were be been did does do has have had what which who whom when where why how her his him she he they them their it its this that these those there any some about please can could would should will me my we our you your up out into over'.split(' '));
+const wordsOf = text => [...new Set(String(text || '').toLowerCase().replace(/\[(\w+) [\d:]+\]/g, ' ').split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 2 && !STOP.has(w)))];
+// Questions about the current state of something go stale; their earlier answers are flagged.
+const STATUS_WORDS = /\b(delivered|delivery|approved|approval|booked|booking|status|latest|current|currently|now|yet|still|recent|recently|next|upcoming|outstanding|pending|paid|due)\b/i;
+
+router.get('/similar', (req, res) => {
+  const qWords = wordsOf(req.query.q);
+  if (qWords.length < 2) return res.json([]);
+  const scopeClient = Number(req.query.client_id) || null;
+  const rows = db.prepare(`SELECT c.id, c.user_id, c.updated_at, c.turns_json, p.first_name || ' ' || p.last_name AS asked_by,
+      (SELECT group_concat(f.client_id) FROM ask_conversation_clients f WHERE f.conversation_id = c.id AND f.removed_at IS NULL) AS client_ids,
+      (SELECT group_concat(cl.first_name || ' ' || cl.last_name, ', ') FROM ask_conversation_clients f JOIN clients cl ON cl.id = f.client_id
+        WHERE f.conversation_id = c.id AND f.removed_at IS NULL) AS client_names
+    FROM ask_conversations c LEFT JOIN practitioners p ON p.id = c.user_id
+    WHERE c.user_id = ? OR EXISTS (SELECT 1 FROM ask_conversation_clients f WHERE f.conversation_id = c.id AND f.removed_at IS NULL)
+    ORDER BY c.updated_at DESC LIMIT 500`).all(req.user.id);
+  const matches = [];
+  for (const r of rows) {
+    const clientIds = String(r.client_ids || '').split(',').filter(Boolean).map(Number);
+    const nameWords = wordsOf(r.client_names);
+    // Same client: either the question was asked from that client's page, or it names them.
+    const sameClient = (scopeClient && clientIds.includes(scopeClient)) || nameWords.some(w => qWords.includes(w));
+    JSON.parse(r.turns_json || '[]').forEach((t, i) => {
+      if (t.pending || t.failed) return;
+      const tWords = wordsOf(t.question);
+      const shared = qWords.filter(w => tWords.includes(w));
+      // How much of the new question the earlier one covers (a short new question can match a
+      // longer earlier one), nudged down when the earlier question was about a lot more.
+      const coverage = shared.length / qWords.length;
+      const score = coverage - 0.05 * Math.max(0, tWords.length - qWords.length) + (sameClient ? 0.25 : 0);
+      if (shared.length >= 2 && (sameClient ? coverage >= 0.6 : coverage >= 0.85)) {
+        matches.push({ conversation_id: r.id, turn: i, score, question: t.question, at: t.at || r.updated_at, asked_by: r.asked_by, mine: r.user_id === req.user.id,
+          clients: r.client_names, preview: String(t.answer || '').replace(/\[(\w+) [\d:]+\]/g, '').replace(/\*\*/g, '').replace(/\s+/g, ' ').trim().slice(0, 240),
+          may_be_out_of_date: STATUS_WORDS.test(req.query.q) || STATUS_WORDS.test(t.question) });
+      }
+    });
+  }
+  // Best match per conversation, and only the newest of identical questions; best three overall.
+  const best = new Map();
+  const seenQuestion = new Set();
+  for (const m of matches.sort((a, b) => b.score - a.score || String(b.at).localeCompare(String(a.at)))) {
+    const same = m.question.trim().toLowerCase();
+    if (best.has(m.conversation_id) || seenQuestion.has(same)) continue;
+    best.set(m.conversation_id, m);
+    seenQuestion.add(same);
+  }
+  res.json([...best.values()].slice(0, 3).map(({ score, ...m }) => m));
+});
+
+// Clients that have Ask conversations this person can see, for the client filter.
+router.get('/clients', (req, res) => {
+  res.json(db.prepare(`SELECT DISTINCT cl.id, cl.first_name || ' ' || cl.last_name AS name, cl.active FROM ask_conversation_clients f
+    JOIN clients cl ON cl.id = f.client_id JOIN ask_conversations c ON c.id = f.conversation_id
+    WHERE f.removed_at IS NULL ORDER BY cl.first_name, cl.last_name`).all());
 });
 
 router.get('/conversations/:id', (req, res) => {
@@ -47,7 +135,7 @@ router.get('/conversations/:id', (req, res) => {
   const client = c.client_id && db.prepare("SELECT first_name || ' ' || last_name AS name FROM clients WHERE id = ?").get(c.client_id);
   res.json({
     id: c.id, title: c.title, client_id: c.client_id, client_name: client?.name || null, updated_at: c.updated_at,
-    asked_by: c.asked_by, mine: c.user_id === req.user.id, clients: filedClients(c.id), turns: JSON.parse(c.turns_json),
+    asked_by: c.asked_by, mine: c.user_id === req.user.id, status: c.status, clients: filedClients(c.id), turns: JSON.parse(c.turns_json),
   });
 });
 

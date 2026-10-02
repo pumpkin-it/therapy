@@ -450,7 +450,18 @@ copy has no Bedrock access; on a local copy check only the permission/menu point
 - Limit reached: temporarily set the limit to 0.01 (below what's been spent), Save, ask anything →
   "This month's Ask spending limit … has been reached" and no answer. **Set it back to 20 and Save.**
 - Don't change the Model setting permanently; if you try another model, set it back to Claude Sonnet 5.
-- (On UAT since 2026-10-02 evening, not yet in production.) Settings → Ask (AI) has **How hard it works**
+- (On UAT since 2026-10-02 night, not yet in production.) Ask list: **search** box (questions and answers,
+  with the matching snippet), **My questions / Everyone's (filed to clients)**, **client filter**. **New
+  question** always clears the screen (an answer still arriving for the old one is dropped). A new
+  question first checks earlier questions for free: close matches show as "This looks like it's been
+  asked before" cards (Open this answer / Ask anyway / Edit my question); status questions (delivered,
+  approved, latest…) carry a "may have changed since" warning.
+  Each question shows "Asked <date time>" and each reply "Answered <date time>". A new question appears
+  in the list straight away marked "Answering…"; switching to another chat (or asking another question
+  there) while it's answering keeps each answer in its own chat; reopening an answering chat shows
+  "Answering…" until it lands. Ask won't take a second question in a chat that's still answering. A
+  restart mid-answer marks the question "interrupted — please ask it again" (red).
+- (In production since 2026-10-02 20:42.) Settings → Ask (AI) has **How hard it works**
   (Low default / Medium / High). Answers are short: the answer first, about 120 words, no repeated
   summary line, "not recorded" with one short phrase of where it looked. Client history lists the last
   12 months by default and Ask looks further back by itself when needed (status line "Reading the

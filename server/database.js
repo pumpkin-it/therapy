@@ -1909,6 +1909,7 @@ try { db.exec(`
 `); } catch {}
 try { db.exec('CREATE INDEX IF NOT EXISTS idx_ask_conversations_user ON ask_conversations(user_id, updated_at)'); } catch {}
 try { db.exec('ALTER TABLE ask_conversations ADD COLUMN model TEXT'); } catch {} // the model a conversation started on; follow-ups stay on it
+try { db.exec("ALTER TABLE ask_conversations ADD COLUMN status TEXT NOT NULL DEFAULT 'done'"); } catch {} // 'answering' while a question is being worked out
 // Which clients an Ask conversation is filed to: the client it was asked from ('started'),
 // clients whose records its answers cited ('cited'), or added by a person ('manual'). Filed
 // conversations show on the client's Communications tab to everyone with Ask access.

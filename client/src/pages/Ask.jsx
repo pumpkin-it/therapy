@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Plus, Send, Sparkles, X, Loader2 } from 'lucide-react';
+import { Plus, Send, Sparkles, X, Loader2, Search } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import { fmtDateTime } from '../lib/utils';
@@ -173,11 +173,28 @@ export default function Ask() {
   const [scopeName, setScopeName] = useState('');
   const [status, setStatus] = useState(null);
   const [question, setQuestion] = useState('');
-  const [pending, setPending] = useState(null); // { question, text, status }
+  // Answers being worked out in this browser, by conversation id (or a "new-N" key until the
+  // server has given a new conversation its id): { question, askedAt, text, status }.
+  const [inflight, setInflight] = useState({});
+  const [draftKey, setDraftKey] = useState(null); // the new conversation on screen, before it has an id
+  const draftKeyRef = useRef(null);
+  useEffect(() => { draftKeyRef.current = draftKey; }, [draftKey]);
+  const patchInflight = (key, change) => setInflight(m => (m[key] ? { ...m, [key]: { ...m[key], ...change(m[key]) } } : m));
+  const dropInflight = key => setInflight(m => { const { [key]: _gone, ...rest } = m; return rest; });
   const [error, setError] = useState('');
   const bottomRef = useRef(null);
 
-  const loadList = useCallback(() => api.get('/ask/conversations').then(r => setList(r.data)).catch(() => {}), []);
+  // The list of past conversations: search words, whose (mine / everyone's filed), and client.
+  const [search, setSearch] = useState('');
+  const [searchQ, setSearchQ] = useState('');
+  const [scope, setScope] = useState('mine');
+  const [clientFilter, setClientFilter] = useState('');
+  const [filterClients, setFilterClients] = useState([]);
+  useEffect(() => { const t = setTimeout(() => setSearchQ(search.trim()), 300); return () => clearTimeout(t); }, [search]);
+  useEffect(() => { api.get('/ask/clients').then(r => setFilterClients(r.data)).catch(() => {}); }, []);
+  const loadList = useCallback(() => api.get('/ask/conversations', { params: { q: searchQ || undefined, scope, client_id: clientFilter || undefined } })
+    .then(r => setList(r.data)).catch(() => {}), [searchQ, scope, clientFilter]);
+  const newKeyRef = useRef(0);
   const loadStatus = useCallback(() => api.get('/ask/status').then(r => setStatus(r.data)).catch(() => {}), []);
   useEffect(() => { loadList(); loadStatus(); }, [loadList, loadStatus]);
   useEffect(() => {
@@ -189,14 +206,44 @@ export default function Ask() {
     if (!scopeClientId || openId) { setScopeName(''); return; }
     api.get(`/clients/${scopeClientId}`).then(r => setScopeName(`${r.data.first_name} ${r.data.last_name}`)).catch(() => setScopeName(''));
   }, [scopeClientId, openId]);
+  // What's being answered in the conversation on screen: from this browser (streaming), or — when
+  // it was asked elsewhere or before a reload — the server's "answering" placeholder.
+  const pending = openId ? inflight[openId] : draftKey ? inflight[draftKey] : null;
+  const serverAnswering = convo?.status === 'answering' && !pending;
+  const busyHere = !!pending || serverAnswering;
   useEffect(() => { bottomRef.current?.scrollIntoView({ block: 'end' }); }, [convo, pending?.text, pending?.status]);
+  // While anything is being answered, refresh the list (and an open "answering" conversation).
+  const anyAnswering = list.some(c => c.status === 'answering') || Object.keys(inflight).length > 0 || serverAnswering;
+  useEffect(() => {
+    if (!anyAnswering) return undefined;
+    const t = setInterval(() => {
+      loadList();
+      if (serverAnswering && openId) api.get(`/ask/conversations/${openId}`).then(r => setConvo(r.data)).catch(() => {});
+    }, 4000);
+    return () => clearInterval(t);
+  }, [anyAnswering, serverAnswering, openId, loadList]);
 
-  const submit = async () => {
-    const q = question.trim();
-    if (!q || pending) return;
+  // Before a new conversation costs anything, check whether much the same question was answered
+  // before; if so, offer those answers first ("Ask anyway" skips the check).
+  const [similar, setSimilar] = useState(null); // { question, matches }
+  const submit = async (text, skipCheck = false) => {
+    const q = (typeof text === 'string' ? text : question).trim();
+    if (!q || busyHere) return;
     setError('');
+    if (!convo && !skipCheck) {
+      try {
+        const found = (await api.get('/ask/similar', { params: { q, client_id: scopeClientId || undefined } })).data;
+        if (found.length) { setSimilar({ question: q, matches: found }); setQuestion(''); return; }
+      } catch { /* no check, just ask */ }
+    }
+    setSimilar(null);
     setQuestion('');
-    setPending({ question: q, text: '', status: 'Starting…' });
+    // Each answer streams into its own conversation, so switching chats (or asking another
+    // question elsewhere) doesn't mix them up.
+    const convoId = convo?.id || null;
+    let key = convoId || `new-${++newKeyRef.current}`;
+    if (!convoId) setDraftKey(key);
+    setInflight(m => ({ ...m, [key]: { question: q, askedAt: new Date().toISOString(), text: '', status: 'Starting…' } }));
     try {
       const res = await fetch('/api/ask', {
         method: 'POST',
@@ -218,30 +265,52 @@ export default function Ask() {
           const line = e.split('\n').find(l => l.startsWith('data: '));
           if (!line) continue;
           const ev = JSON.parse(line.slice(6));
-          if (ev.type === 'status') setPending(p => ({ ...p, status: ev.text }));
-          else if (ev.type === 'text') setPending(p => ({ ...p, text: p.text + ev.text, status: '' }));
-          else if (ev.type === 'restart') setPending(p => ({ ...p, text: '' }));
+          if (ev.type === 'started' && String(key).startsWith('new-')) {
+            // The new conversation now exists: it gets its id, a place in the list ("Answering…"),
+            // and — if it's still the one on screen — the address bar.
+            const oldKey = key;
+            key = ev.conversation_id;
+            setInflight(m => { const { [oldKey]: entry, ...rest } = m; return entry ? { ...rest, [key]: { ...entry, askedAt: ev.asked_at || entry.askedAt } } : rest; });
+            if (draftKeyRef.current === oldKey) { setDraftKey(null); setParams({ id: String(key) }, { replace: true }); }
+            loadList();
+          }
+          else if (ev.type === 'status') patchInflight(key, () => ({ status: ev.text }));
+          else if (ev.type === 'text') patchInflight(key, e => ({ text: e.text + ev.text, status: '' }));
+          else if (ev.type === 'restart') patchInflight(key, () => ({ text: '' }));
           else if (ev.type === 'error') throw new Error(ev.error);
           else if (ev.type === 'done') done = ev;
         }
       }
       if (!done) throw new Error('The answer was cut off. Please try again.');
-      const turn = { question: q, answer: done.answer, sources: done.sources, cost_usd: done.cost_usd, at: new Date().toISOString() };
-      setConvo(c => (c ? { ...c, turns: [...c.turns, turn] } : { id: done.conversation_id, client_id: scopeClientId, client_name: scopeName, turns: [turn] }));
-      if (!convo) setParams({ id: String(done.conversation_id) }, { replace: true });
-      // Pick up which clients it's now filed to.
-      api.get(`/ask/conversations/${done.conversation_id}`).then(r => setConvo(r.data)).catch(() => {});
-      loadList();
-      loadStatus();
+      finish(key, done.conversation_id);
     } catch (e) {
-      setError(e.message || 'Something went wrong.');
-      setQuestion(q);
-    } finally {
-      setPending(null);
+      // The server records the failure on the question; show it if this chat is on screen.
+      finish(key, typeof key === 'number' ? key : null, e.message || 'Something went wrong.');
     }
   };
+  // An answer has finished (or failed): stop showing it as in progress, and reload what's on screen.
+  const openIdRef = useRef(openId);
+  useEffect(() => { openIdRef.current = openId; }, [openId]);
+  const finish = (key, conversationId, failure) => {
+    dropInflight(key);
+    if (String(key).startsWith('new-') && draftKeyRef.current === key) { setDraftKey(null); if (failure) setError(failure); }
+    if (conversationId && openIdRef.current === conversationId) {
+      api.get(`/ask/conversations/${conversationId}`).then(r => setConvo(r.data)).catch(() => {});
+      if (failure) setError(failure);
+    }
+    loadList();
+    loadStatus();
+  };
 
-  const newConversation = () => setParams({}, { replace: false });
+  // A new question leaves any answers in progress running in their own conversations.
+  const newConversation = () => {
+    setDraftKey(null);
+    setConvo(null);
+    setSimilar(null);
+    setQuestion('');
+    setError('');
+    setParams({}, { replace: false });
+  };
   const about = convo ? null : scopeName;
   const readOnly = convo && convo.mine === false;
   const overLimit = status && status.limit_usd > 0 && status.spent_usd >= status.limit_usd;
@@ -255,13 +324,32 @@ export default function Ask() {
       </div>
       <div className="flex min-h-0 flex-1">
         <div className="hidden w-64 shrink-0 overflow-y-auto border-r border-gray-200 bg-white md:block">
-          {list.length === 0 && <p className="px-4 py-8 text-center text-sm text-gray-400">Your questions will appear here.</p>}
+          <div className="space-y-2 border-b border-gray-200 p-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2 top-2 h-4 w-4 text-gray-400" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search questions and answers…"
+                className="w-full rounded-lg border border-gray-300 py-1.5 pl-7 pr-2 text-sm focus:border-indigo-500 focus:outline-none" />
+            </div>
+            <div className="flex gap-1.5">
+              <select value={scope} onChange={e => setScope(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-gray-300 px-1.5 py-1 text-xs text-gray-600">
+                <option value="mine">My questions</option>
+                <option value="filed">Everyone's (filed to clients)</option>
+              </select>
+              <select value={clientFilter} onChange={e => setClientFilter(e.target.value)} className="min-w-0 flex-1 rounded-lg border border-gray-300 px-1.5 py-1 text-xs text-gray-600">
+                <option value="">All clients</option>
+                {filterClients.map(c => <option key={c.id} value={c.id}>{c.name}{!c.active ? ' - INACTIVE' : ''}</option>)}
+              </select>
+            </div>
+          </div>
+          {list.length === 0 && <p className="px-4 py-8 text-center text-sm text-gray-400">{searchQ || clientFilter || scope !== 'mine' ? 'No questions match.' : 'Your questions will appear here.'}</p>}
           <ul className="divide-y divide-gray-100">
             {list.map(c => (
               <li key={c.id}>
                 <button type="button" onClick={() => setParams({ id: String(c.id) })} className={`w-full px-3 py-2.5 text-left ${c.id === openId ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}>
                   <p className="truncate text-sm text-gray-900">{c.title}</p>
-                  <p className="truncate text-xs text-gray-400">{c.client_name ? `${c.client_name} · ` : ''}{fmtDateTime(c.updated_at)}</p>
+                  {(c.status === 'answering' || inflight[c.id]) && <p className="flex items-center gap-1 text-xs font-medium text-indigo-600"><Loader2 className="h-3 w-3 animate-spin" /> Answering…</p>}
+                  {c.match && <p className="line-clamp-2 text-xs text-gray-600">{c.match}</p>}
+                  <p className="truncate text-xs text-gray-400">{c.client_names ? `${c.client_names} · ` : ''}{!c.mine && c.asked_by ? `${c.asked_by} · ` : ''}{fmtDateTime(c.updated_at)}</p>
                 </button>
               </li>
             ))}
@@ -270,7 +358,31 @@ export default function Ask() {
         <div className="flex min-w-0 flex-1 flex-col bg-gray-50">
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <div className="mx-auto max-w-3xl space-y-5">
-              {!convo && !pending && (
+              {similar && !convo && !pending && !draftKey && (
+                <div className="space-y-3">
+                  <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-indigo-600 px-4 py-2 text-sm text-white">{similar.question}</div>
+                  <div className="rounded-2xl rounded-bl-sm border border-amber-200 bg-amber-50 px-4 py-3">
+                    <p className="text-sm font-medium text-amber-900">This looks like it's been asked before{similar.matches.length > 1 ? ` (${similar.matches.length} similar questions)` : ''}.</p>
+                    <p className="mt-0.5 text-xs text-amber-800">Opening an earlier answer is free. Ask anyway for a fresh answer from the records.</p>
+                  </div>
+                  {similar.matches.map(m => (
+                    <div key={`${m.conversation_id}-${m.turn}`} className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+                      <p className="text-sm font-medium text-gray-900">{m.question}</p>
+                      <p className="mt-0.5 text-xs text-gray-500">{m.mine ? 'You' : m.asked_by} · {fmtDateTime(m.at)}{m.clients ? ` · ${m.clients}` : ''}</p>
+                      <p className="mt-2 line-clamp-3 text-sm text-gray-700">{m.preview}</p>
+                      {m.may_be_out_of_date && <p className="mt-1.5 text-xs text-amber-700">This is about the current status of something, so it may have changed since {fmtDateTime(m.at)} — ask again for an up-to-date answer.</p>}
+                      <div className="mt-2 flex gap-2">
+                        <Button size="sm" variant="secondary" onClick={() => { setSimilar(null); setParams({ id: String(m.conversation_id) }); }}>Open this answer</Button>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => submit(similar.question, true)}><Send className="h-4 w-4" /> Ask anyway</Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setQuestion(similar.question); setSimilar(null); }}>Edit my question</Button>
+                  </div>
+                </div>
+              )}
+              {!convo && !pending && !similar && !draftKey && (
                 <div className="py-10 text-center text-sm text-gray-500">
                   <Sparkles className="mx-auto mb-3 h-8 w-8 text-indigo-300" />
                   <p className="font-medium text-gray-700">Ask about a client, and the answer comes from Therapy's records.</p>
@@ -279,18 +391,23 @@ export default function Ask() {
                 </div>
               )}
               {convo?.clients && <FiledClients convo={convo} onChange={clients => setConvo(c => ({ ...c, clients }))} />}
-              {convo?.turns.map((t, i) => (
-                <div key={i} className="space-y-2">
+              {convo?.turns.filter(t => !(t.pending && pending)).map((t, i) => (
+                <div key={i} className="space-y-1">
                   <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-indigo-600 px-4 py-2 text-sm text-white">{t.question}</div>
-                  <div className="rounded-2xl rounded-bl-sm border border-gray-200 bg-white px-4 py-3 shadow-sm">
-                    <Answer text={t.answer} sources={t.sources} />
-                    <SourceList sources={t.sources} />
+                  {(t.asked_at || t.at) && <p className="text-right text-xs text-gray-400">Asked {fmtDateTime(t.asked_at || t.at)}</p>}
+                  <div className={`rounded-2xl rounded-bl-sm border px-4 py-3 shadow-sm ${t.failed ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-white'}`}>
+                    {t.pending ? <p className="flex items-center gap-2 text-xs text-gray-400"><Loader2 className="h-3.5 w-3.5 animate-spin" />Answering…</p> : <>
+                      <Answer text={t.answer} sources={t.sources} />
+                      <SourceList sources={t.sources} />
+                    </>}
                   </div>
+                  {!t.pending && t.at && <p className="text-xs text-gray-400">Answered {fmtDateTime(t.at)}</p>}
                 </div>
               ))}
               {pending && (
-                <div className="space-y-2">
+                <div className="space-y-1">
                   <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-sm bg-indigo-600 px-4 py-2 text-sm text-white">{pending.question}</div>
+                  <p className="text-right text-xs text-gray-400">Asked {fmtDateTime(pending.askedAt)}</p>
                   <div className="rounded-2xl rounded-bl-sm border border-gray-200 bg-white px-4 py-3 shadow-sm">
                     {pending.text && <div className="whitespace-pre-wrap text-sm text-gray-800">{pending.text.replace(CITATION, '')}</div>}
                     {(pending.status || !pending.text) && <p className="flex items-center gap-2 text-xs text-gray-400"><Loader2 className="h-3.5 w-3.5 animate-spin" />{pending.status || 'Thinking…'}</p>}
@@ -314,11 +431,11 @@ export default function Ask() {
                 <p className="text-sm text-gray-500">Asked by {convo.asked_by}. Only they can ask follow-ups here. <button type="button" onClick={newConversation} className="text-indigo-600 hover:underline">Ask your own question</button></p>
               ) : (
               <div className="flex items-end gap-2">
-                <textarea rows={2} value={question} onChange={e => setQuestion(e.target.value)} disabled={!!pending}
+                <textarea rows={2} value={question} onChange={e => setQuestion(e.target.value)} disabled={busyHere}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } }}
                   placeholder={convo ? 'Ask a follow-up question…' : 'Ask a question about a client…'}
                   className="min-h-[44px] flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-                <Button onClick={submit} disabled={!question.trim() || !!pending}><Send className="h-4 w-4" /> Ask</Button>
+                <Button onClick={submit} disabled={!question.trim() || busyHere}><Send className="h-4 w-4" /> Ask</Button>
               </div>
               )}
             </div>

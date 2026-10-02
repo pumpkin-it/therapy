@@ -53,6 +53,9 @@ How to work:
 - client_history lists the last 12 months by default and says how many older records exist; if the answer may be older (e.g. something from a previous year), call it again with an earlier "from" date.
 - Use client_history to see what is on file, then search_records with a few different wordings, and read_record to read the documents that look relevant in full. Answers usually sit inside reports, quotes, letters and emails rather than in titles, so read the documents before answering.
 - Old-system backups (zip files) contain earlier notes and reports; read their documents with read_record kind "zip_entry".
+- Records often use different words from the question: before concluding something isn't recorded, also search the clinical and related terms (e.g. "hearing test" → audiology, audiologist, hearing aid; "wheelchair" → mobility aid, AT; "ramp" → access, home modification, step).
+- Staff use everyday words; records use clinical ones. Treat them as the same thing and answer from the closest matching record, saying how the record describes it (e.g. asked about a "hearing test", answer with the "annual audiologist review" the report recommends). Only say "not recorded" when nothing close is on file.
+- Before saying a detail (a date, frequency, amount, measurement) isn't recorded, read the most relevant document in full with read_record — search snippets are short and often miss it.
 - Keep searching until you can answer what was asked, or have checked the likely places — don't stop at the first partial match, but don't gather background that wasn't asked for either.
 
 How to answer:
@@ -61,6 +64,7 @@ How to answer:
 - If something isn't recorded, say so and mention where you looked in one short phrase (e.g. "checked his OT notes, letters and recent emails") — not a list of every record. Don't ask staff to confirm the client or rephrase unless the name genuinely matches more than one person.
 - When the answer was found, don't add a sentence about what you checked.
 - Every fact must be followed by the record it came from, in square brackets, written exactly as kind and id: [note 124], [appointment 528], [file 191], [zip_entry 158:3], [note_file 7], [form 12], [report 4], [email 507], [attachment 2202], [task 16]. Several sources: [file 191] [email 507].
+- Only state what the records say. Don't add your own reasoning about consequences, risks or likely outcomes; if the question asks for something the records don't cover (e.g. what happens if an appointment is missed), say it isn't stated in the records rather than inferring it.
 - Say clearly what the records show and what they don't. Describe things by the stage the records show: "recommended", "quoted", "ordered", "delivered" — never call a quote an order, or a recommendation something the client got, unless a record says so; then say there's no record of the later stage.
 - Don't write notes to yourself while searching. Your final message is shown to staff as the answer, so it must start with the answer itself. If the answer isn't in the records, say it wasn't found and where you looked; never guess or fill gaps with general knowledge.
 - Write dates as "3 September 2026". Use Australian spelling.
@@ -128,6 +132,18 @@ function describeTool(name, input) {
 }
 
 const costOf = (u, m) => (u.input * m.in + u.output * m.out + u.cacheWrite * m.cacheWrite + u.cacheRead * m.cacheRead) / 1e6;
+
+// A cited record must exist; the AI occasionally mixes up a kind (e.g. "report 46" for file 46).
+const EXISTS_SQL = {
+  note: 'SELECT 1 FROM session_notes WHERE id = ?', appointment: 'SELECT 1 FROM appointments WHERE id = ?', file: 'SELECT 1 FROM client_files WHERE id = ?',
+  zip_entry: 'SELECT 1 FROM client_files WHERE id = ?', note_file: 'SELECT 1 FROM session_note_files WHERE id = ?', form: 'SELECT 1 FROM form_responses WHERE id = ?',
+  report: 'SELECT 1 FROM billable_reports WHERE id = ? AND deleted_at IS NULL', email: 'SELECT 1 FROM email_messages WHERE id = ?',
+  attachment: 'SELECT 1 FROM email_attachments WHERE id = ?', task: 'SELECT 1 FROM tasks WHERE id = ?',
+};
+const citationExists = (kind, id) => !!db.prepare(EXISTS_SQL[kind]).get(Number(String(id).split(':')[0]));
+const CITE = /\[(note|appointment|file|zip_entry|note_file|form|report|email|attachment|task) (\d+(?::\d+)?)\]/g;
+// Remove citations to records that don't exist (and the space before them).
+const dropBadCitations = text => String(text).replace(new RegExp(` ?${CITE.source}`, 'g'), (m, kind, id) => (citationExists(kind, id) ? m : ''));
 
 // Sources cited in an answer, with the client each belongs to so the page can link to it.
 function sourcesIn(text) {
@@ -303,6 +319,7 @@ async function ask({ user, question, conversationId, clientId, canEmail, modelId
   if (conversationId) {
     convo = db.prepare('SELECT * FROM ask_conversations WHERE id = ? AND user_id = ?').get(conversationId, user.id);
     if (!convo) throw new AskError('That conversation was not found', 404);
+    if (convo.status === 'answering') throw new AskError('Still answering the last question in this conversation — wait for it, or start a new question.', 409);
   }
   const useModel = (convo?.model && MODELS[convo.model]) ? convo.model : (modelId && MODELS[modelId] ? modelId : cfg.model);
   const model = MODELS[useModel];
@@ -316,6 +333,21 @@ async function ask({ user, question, conversationId, clientId, canEmail, modelId
   const today = new Date().toLocaleDateString('en-AU', { timeZone: 'Australia/Melbourne', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const intro = messages.length ? '' : `Today is ${today}.${scope ? ` This conversation is about ${scope.first_name} ${scope.last_name} (client_id ${scope.id}).` : ''}\n\n`;
   messages.push(provider.user(`${intro}${q}`));
+
+  // The conversation (and the question, marked as being answered) is saved straight away, so it
+  // shows in the list as "Answering…" and the person can move on — or ask other questions —
+  // while this one is worked out. The answer replaces the pending turn when it's done.
+  const askedAt = new Date().toISOString();
+  const pendingTurn = { question: q, asked_at: askedAt, pending: true };
+  let id = convo?.id;
+  if (id) {
+    db.prepare("UPDATE ask_conversations SET turns_json = ?, status = 'answering', updated_at = datetime('now') WHERE id = ?").run(JSON.stringify([...turns, pendingTurn]), id);
+  } else {
+    id = db.prepare("INSERT INTO ask_conversations (user_id, client_id, model, title, messages_json, turns_json, status) VALUES (?, ?, ?, ?, '[]', ?, 'answering')")
+      .run(user.id, scope ? scope.id : null, useModel, q.slice(0, 120), JSON.stringify([pendingTurn])).lastInsertRowid;
+    if (scope) fileToClients(id, [scope.id], 'started', user.id);
+  }
+  onEvent({ type: 'started', conversation_id: id, asked_at: askedAt });
 
   const opts = { canEmail };
   let cost = 0;
@@ -350,31 +382,27 @@ async function ask({ user, question, conversationId, clientId, canEmail, modelId
     if (round === MAX_ROUNDS - 1) answer = 'I looked through a lot of records without settling on an answer. Try a more specific question.';
   }
   } catch (e) {
-    // Keep the cost of the calls that did happen before the failure.
-    for (const r of usageRows) logUsage.run(convo?.id || null, user.id, useModel, ...r);
+    // Keep the cost of the calls that did happen, and record that this question failed.
+    db.transaction(() => {
+      for (const r of usageRows) logUsage.run(id, user.id, useModel, ...r);
+      const failed = { question: q, asked_at: askedAt, answer: 'This question could not be answered (Ask had a problem). Please ask it again.', failed: true, sources: [], at: new Date().toISOString() };
+      db.prepare("UPDATE ask_conversations SET turns_json = ?, status = 'done', updated_at = datetime('now') WHERE id = ?").run(JSON.stringify([...turns, failed]), id);
+    })();
     throw e;
   }
 
+  answer = dropBadCitations(answer);
   const sources = sourcesIn(answer);
   const now = new Date().toISOString();
-  turns.push({ question: q, answer, sources, cost_usd: Math.round(cost * 10000) / 10000, at: now });
-  const save = db.transaction(() => {
-    let id = convo?.id;
-    if (id) {
-      db.prepare("UPDATE ask_conversations SET messages_json = ?, turns_json = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(messages), JSON.stringify(turns), id);
-    } else {
-      id = db.prepare('INSERT INTO ask_conversations (user_id, client_id, model, title, messages_json, turns_json) VALUES (?, ?, ?, ?, ?, ?)')
-        .run(user.id, scope ? scope.id : null, useModel, q.slice(0, 120), JSON.stringify(messages), JSON.stringify(turns)).lastInsertRowid;
-    }
+  turns.push({ question: q, asked_at: askedAt, answer, sources, cost_usd: Math.round(cost * 10000) / 10000, at: now });
+  db.transaction(() => {
+    db.prepare("UPDATE ask_conversations SET messages_json = ?, turns_json = ?, status = 'done', updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(messages), JSON.stringify(turns), id);
     for (const r of usageRows) logUsage.run(id, user.id, useModel, ...r);
-    // File it to the client it was asked about, and the clients its answer drew on.
-    if (scope && !convo) fileToClients(id, [scope.id], 'started', user.id);
+    // File it to the clients its answer drew on.
     fileToClients(id, clientsOfSources(sources), 'cited', user.id);
     fileToClients(id, clientsLookedUp(messages), 'looked_up', user.id);
-    return id;
-  });
-  const id = save();
+  })();
   return { conversation_id: id, answer, sources, model: model.label, cost_usd: Math.round(cost * 10000) / 10000 };
 }
 
-module.exports = { ask, config, MODELS, AskError, sourcesIn, filedClients, fileToClients, unfileFromClient, clientsOfSources, clientsLookedUp };
+module.exports = { ask, config, MODELS, AskError, sourcesIn, dropBadCitations, filedClients, fileToClients, unfileFromClient, clientsOfSources, clientsLookedUp };
