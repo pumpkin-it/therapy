@@ -471,7 +471,7 @@ router.post('/:id/mark-signed', auth, uploadOptionalFile, (req, res) => {
   })();
 
   audit.log('agreement', agreement.id, 'signed',
-    `Marked as signed (on paper) by staff — signed by ${signerName} on ${signedDate}${req.file ? `, copy uploaded: ${req.file.originalname}` : ', no copy uploaded'}`);
+    `Marked as signed (on paper) — signed by ${signerName} on ${signedDate}${req.file ? `, copy uploaded: ${req.file.originalname}` : ', no copy uploaded'}`);
   res.json(getAgreementWithItems(agreement.id));
 });
 

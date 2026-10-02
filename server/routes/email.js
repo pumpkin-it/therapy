@@ -101,7 +101,9 @@ router.get('/messages', auth, (req, res) => {
   if (Number(req.query.tag)) { where.push('m.id IN (SELECT message_id FROM email_message_tags WHERE tag_id = ?)'); params.push(Number(req.query.tag)); }
   const w = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const total = db.prepare(`SELECT COUNT(*) n FROM email_messages m ${w}`).get(...params).n;
-  const rows = db.prepare(`SELECT ${LIST_COLS} FROM email_messages m ${w} ORDER BY m.received_at DESC, m.id DESC LIMIT ? OFFSET ?`).all(...params, PAGE, (page - 1) * PAGE);
+  // Filed and No client: most recently filed first, so something just filed is at the top.
+  const order = view === 'filed' || view === 'not_client' ? 'm.filed_at DESC, m.received_at DESC, m.id DESC' : 'm.received_at DESC, m.id DESC';
+  const rows = db.prepare(`SELECT ${LIST_COLS} FROM email_messages m ${w} ORDER BY ${order} LIMIT ? OFFSET ?`).all(...params, PAGE, (page - 1) * PAGE);
   res.json({ rows: shape(rows), total, page, page_size: PAGE });
 });
 
@@ -243,6 +245,67 @@ function fileOne(messageId, clientIds, userId, { tagIds = null, noClient = false
   return { alsoFiled };
 }
 
+// Undo for filing. Before a filing, the emails it can change (the email itself and the rest of its
+// conversation, which may be filed along with it) are snapshotted: status, tags, and which client
+// links were current. Undo puts those back: links the filing added are ended as if by the system
+// (so automatic filing may still file them later), links it ended come back, and status and tags
+// return to what they were. Each person can undo their own filings for 24 hours.
+function snapshotForFiling(messageIds) {
+  const ids = new Set(messageIds);
+  for (const id of messageIds) {
+    const m = db.prepare('SELECT mailbox, conversation_id FROM email_messages WHERE id = ?').get(id);
+    if (m?.conversation_id) for (const r of db.prepare('SELECT id FROM email_messages WHERE mailbox = ? AND conversation_id = ?').all(m.mailbox, m.conversation_id)) ids.add(r.id);
+  }
+  const maxLink = db.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM email_message_clients').get().n;
+  return {
+    max_link_id: maxLink,
+    messages: [...ids].map(id => {
+      const m = db.prepare('SELECT status, not_client_reason, filed_at, filed_by FROM email_messages WHERE id = ?').get(id);
+      return {
+        id, ...m,
+        links: db.prepare('SELECT id FROM email_message_clients WHERE message_id = ? AND removed_at IS NULL').all(id).map(r => r.id),
+        tags: db.prepare('SELECT tag_id FROM email_message_tags WHERE message_id = ?').all(id).map(r => r.tag_id),
+      };
+    }),
+  };
+}
+const saveUndo = (userId, snapshot) => db.prepare('INSERT INTO email_filing_undo (user_id, snapshot_json) VALUES (?, ?)').run(userId, JSON.stringify(snapshot)).lastInsertRowid;
+
+router.post('/undo/:id', auth, (req, res) => {
+  const row = db.prepare("SELECT * FROM email_filing_undo WHERE id = ? AND user_id = ? AND used_at IS NULL AND created_at >= datetime('now', '-1 day')").get(req.params.id, req.user.id);
+  if (!row) return res.status(404).json({ error: 'This filing can no longer be undone' });
+  const snap = JSON.parse(row.snapshot_json);
+  const restored = [];
+  db.transaction(() => {
+    for (const m of snap.messages) {
+      const cur = db.prepare('SELECT id, subject FROM email_messages WHERE id = ?').get(m.id);
+      if (!cur) continue;
+      const subject = cur.subject || '(no subject)';
+      // Links added since the snapshot: end them, as the system would.
+      for (const l of db.prepare('SELECT id, client_id FROM email_message_clients WHERE message_id = ? AND id > ? AND removed_at IS NULL').all(m.id, snap.max_link_id)) {
+        db.prepare('UPDATE email_message_clients SET removed_at = CURRENT_TIMESTAMP, removed_by = NULL WHERE id = ?').run(l.id);
+        audit.log('client', l.client_id, 'email_unfiled', `Filing undone: "${subject}"`);
+      }
+      // Links that were current before and have been ended since: bring them back.
+      for (const lid of m.links) {
+        const l = db.prepare('SELECT client_id, removed_at FROM email_message_clients WHERE id = ?').get(lid);
+        if (l?.removed_at) {
+          db.prepare('UPDATE email_message_clients SET removed_at = NULL, removed_by = NULL WHERE id = ?').run(lid);
+          audit.log('client', l.client_id, 'email_filed', `Filing undone, email back on this client: "${subject}"`);
+        }
+      }
+      db.prepare('UPDATE email_messages SET status = ?, not_client_reason = ?, filed_at = ?, filed_by = ? WHERE id = ?')
+        .run(m.status, m.not_client_reason, m.filed_at, m.filed_by, m.id);
+      tags.setTags(m.id, m.tags, req.user.id);
+      restored.push(m.id);
+    }
+    db.prepare('UPDATE email_filing_undo SET used_at = CURRENT_TIMESTAMP WHERE id = ?').run(row.id);
+  })();
+  const unfiled = restored.filter(id => db.prepare("SELECT 1 FROM email_messages WHERE id = ? AND status = 'unfiled'").get(id));
+  if (unfiled.length) linking.refreshSuggestions({ messageIds: unfiled });
+  res.json({ ok: true, restored });
+});
+
 // Everyone on an email except the practice itself — after filing, other unfiled emails with the
 // same people get their suggestions worked out again (they may now match on history).
 function refreshForMessages(messageIds) {
@@ -260,10 +323,16 @@ router.post('/messages/:id/file', auth, (req, res) => {
   if (!ids) return res.status(400).json({ error: 'Unknown client' });
   const tagIds = req.body.tag_ids === undefined ? null : validTagIds(req.body.tag_ids);
   if (tagIds === null && req.body.tag_ids !== undefined) return res.status(400).json({ error: 'Unknown tag' });
-  const result = db.transaction(() => fileOne(Number(req.params.id), ids, req.user.id, { tagIds, noClient: !!req.body.no_client }))();
+  let undoId = null;
+  const result = db.transaction(() => {
+    const snapshot = snapshotForFiling([Number(req.params.id)]);
+    const r = fileOne(Number(req.params.id), ids, req.user.id, { tagIds, noClient: !!req.body.no_client });
+    if (r) undoId = saveUndo(req.user.id, snapshot);
+    return r;
+  })();
   if (!result) return res.status(404).json({ error: 'Email not found' });
   refreshForMessages([Number(req.params.id)]);
-  res.json({ ...loadMessage(req.params.id), also_filed: result.alsoFiled, contact_offer: ids.length ? linking.contactOffer(Number(req.params.id), ids) : null });
+  res.json({ ...loadMessage(req.params.id), also_filed: result.alsoFiled, undo_id: undoId, contact_offer: ids.length ? linking.contactOffer(Number(req.params.id), ids) : null });
 });
 
 // Several emails at once: file them all to the same clients (or as "No client"), and/or add tags
@@ -277,7 +346,9 @@ router.post('/bulk', auth, (req, res) => {
   if (!tagIds) return res.status(400).json({ error: 'Unknown tag' });
   const noClient = !!req.body.no_client;
   if (!ids.length && !noClient && !tagIds.length) return res.status(400).json({ error: 'Choose a client, No client, or a tag' });
+  let undoId = null;
   db.transaction(() => {
+    undoId = saveUndo(req.user.id, snapshotForFiling(messageIds));
     for (const id of messageIds) {
       if (ids.length || noClient) fileOne(id, ids, req.user.id, { noClient });
       if (tagIds.length) {
@@ -287,7 +358,7 @@ router.post('/bulk', auth, (req, res) => {
     }
   })();
   refreshForMessages(messageIds);
-  res.json({ ok: true, count: messageIds.length });
+  res.json({ ok: true, count: messageIds.length, undo_id: undoId });
 });
 
 // "Add as contact" after filing: the email's sender (or recipient) becomes a contact of each

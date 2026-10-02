@@ -27,19 +27,28 @@ export default function Settings() {
     { key: 'invoices',      label: 'Invoices' },
     { key: 'reports',       label: 'Reports' },
     { key: 'email',         label: 'Email' },
+    { key: 'ask',           label: 'Ask (AI)' },
     { key: 'settings',      label: 'Settings' },
   ];
   const ROLE_LABELS = { owner: 'Owner', admin: 'Admin', practitioner: 'Practitioner', finance: 'Finance' };
   const DEFAULT_PERMS = {
-    owner:        { calendar:true,  clients:true,  funding_periods:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  reports:true, email:true,  settings:true  },
-    admin:        { calendar:true,  clients:true,  funding_periods:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  reports:true, email:true,  settings:false },
-    practitioner: { calendar:true,  clients:true,  funding_periods:false, users:false, funds_managers:false, locations:true,  services:true,  invoices:false, reports:true, email:false, settings:false },
-    finance:      { calendar:false, clients:true,  funding_periods:true,  users:false, funds_managers:true,  locations:false, services:true,  invoices:true,  reports:true, email:false, settings:false },
+    owner:        { calendar:true,  clients:true,  funding_periods:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  reports:true, email:true,  ask:true,  settings:true  },
+    admin:        { calendar:true,  clients:true,  funding_periods:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  reports:true, email:true,  ask:true,  settings:false },
+    practitioner: { calendar:true,  clients:true,  funding_periods:false, users:false, funds_managers:false, locations:true,  services:true,  invoices:false, reports:true, email:false, ask:false, settings:false },
+    finance:      { calendar:false, clients:true,  funding_periods:true,  users:false, funds_managers:true,  locations:false, services:true,  invoices:true,  reports:true, email:false, ask:false, settings:false },
   };
   const [perms, setPerms] = useState(DEFAULT_PERMS);
   // Budget alert recipients (server/services/budgets.js) — the same default when never set.
   const BUDGET_ALERT_OPTIONS = [['client_practitioners', "The client's practitioners"], ['owner', 'Owners'], ['admin', 'Admins'], ['practitioner', 'All practitioners'], ['finance', 'Finance']];
   const [budgetAlertTo, setBudgetAlertTo] = useState(['client_practitioners', 'owner', 'admin']);
+  // Ask (server/services/ask.js): Claude models available in Australia on Amazon Bedrock.
+  const ASK_MODELS = [
+    ['au.anthropic.claude-sonnet-5', 'Claude Sonnet 5 — about 5–10 US cents a question'],
+    ['au.anthropic.claude-opus-5-5', 'Claude Opus 5.5 — most thorough, about 10–20 US cents a question'],
+    ['au.anthropic.claude-haiku-4-5-20251001-v1:0', 'Claude Haiku 4.5 — cheaper, about 2–4 US cents a question, misses more'],
+    ['amazon.nova-pro-v1:0', 'Amazon Nova Pro (Sydney) — about 1–3 US cents a question, on trial'],
+  ];
+  const [askStatus, setAskStatus] = useState(null);
 
   useEffect(() => {
     api.get('/settings').then(r => {
@@ -52,6 +61,7 @@ export default function Settings() {
       .then(r => setLogoUrl(URL.createObjectURL(r.data)))
       .catch(() => setLogoUrl(null));
     api.get('/gst-rates').then(r => setGstRates(r.data));
+    api.get('/ask/status').then(r => setAskStatus(r.data)).catch(() => {});
   }, []);
 
   const addGstRate = async () => {
@@ -307,6 +317,22 @@ export default function Settings() {
           <p className="text-xs text-gray-400">"The client's practitioners" means whoever saw the client during the budget's period. A role means every active user with that role.</p>
         </div>
         {field('Practice alert inbox (optional)', 'budget_alert_email', 'email')}
+      </section>
+
+      <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
+        <div>
+          <h2 className="font-semibold text-gray-900">Ask (AI)</h2>
+          <p className="text-sm text-gray-500 mt-1">Answers questions about clients from Therapy's records. It runs on Amazon Bedrock in Australia, so client information stays in Australia. It can only read records. Who can use it is set under Role Permissions below.</p>
+        </div>
+        <div className="space-y-1">
+          <label className="block text-sm font-medium text-gray-700">Model</label>
+          <select className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+            value={form.ask_model || ASK_MODELS[0][0]} onChange={e => set('ask_model', e.target.value)}>
+            {ASK_MODELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </div>
+        {field('Monthly spending limit (US$, 0 = no limit)', 'ask_monthly_limit_usd', 'number')}
+        {askStatus && <p className="text-xs text-gray-500">Spent this month: US${askStatus.spent_usd.toFixed(2)}{askStatus.limit_usd > 0 ? ` of US$${askStatus.limit_usd}` : ''}. When the limit is reached, Ask stops until next month.</p>}
       </section>
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">

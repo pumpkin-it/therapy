@@ -32,7 +32,7 @@ export default function Email() {
   const [unfiledCount, setUnfiledCount] = useState(null);
   const [scheduledCount, setScheduledCount] = useState(null);
   const [selected, setSelected] = useState([]);
-  const [notice, setNotice] = useState('');
+  const [notice, setNotice] = useState(null); // { text, undoId, emailId } after filing
   const [offer, setOffer] = useState(null); // "add the sender as a contact?" after filing
   const terms = useMemo(() => searchTerms(q), [q]);
   const { openCompose } = useCompose();
@@ -87,7 +87,10 @@ export default function Email() {
 
   // After filing: in the queue the email leaves the list and the next one opens.
   const onChanged = updated => {
-    setNotice(updated.also_filed?.length ? `Also filed ${updated.also_filed.length} earlier email${updated.also_filed.length > 1 ? 's' : ''} in the same conversation.` : '');
+    const what = updated.status === 'filed' ? `Filed to ${updated.clients.map(c => c.name).join(', ')}.`
+      : updated.status === 'not_client' ? 'Filed as No client.' : 'Moved back to Unfiled.';
+    const also = updated.also_filed?.length ? ` Also filed ${updated.also_filed.length} earlier email${updated.also_filed.length > 1 ? 's' : ''} in the same conversation.` : '';
+    setNotice({ text: `"${updated.subject || '(no subject)'}": ${what}${also}`, undoId: updated.undo_id, emailId: updated.id });
     setOffer(updated.contact_offer || null);
     refreshCount();
     const leaves = view !== 'all' && updated.status !== view;
@@ -102,6 +105,20 @@ export default function Email() {
     setList(l => ({ ...l, rows, total: Math.max(0, l.total - (l.rows.length - rows.length)) }));
     const next = rows[Math.min(Math.max(idx, 0), rows.length - 1)];
     setParam({ id: next ? next.id : null });
+  };
+
+  // Undo the last filing: everything it changed goes back, and that email opens again.
+  const undoFiling = async () => {
+    const { undoId, emailId } = notice || {};
+    if (!undoId) return;
+    try {
+      await api.post(`/email/undo/${undoId}`);
+      setNotice({ text: 'Filing undone.' });
+      setOffer(null);
+      await load(1);
+      refreshCount();
+      if (emailId) setParam({ id: emailId });
+    } catch (e) { setNotice({ text: e.response?.data?.error || 'Could not undo the filing.' }); }
   };
 
   // j / k (or arrow keys) move through the list when not typing.
@@ -159,7 +176,7 @@ export default function Email() {
       <div className="flex min-h-0 flex-1">
         <div className="flex w-2/5 min-w-[260px] max-w-md shrink-0 flex-col border-r border-gray-200 bg-white">
           {selected.length > 0 && (
-            <BulkBar ids={selected} clients={clients} allTags={allTags} onDone={() => { setSelected([]); setParam({ id: null }); load(1); refreshCount(); }} onCancel={() => setSelected([])} />
+            <BulkBar ids={selected} clients={clients} allTags={allTags} onDone={r => { setNotice({ text: `${selected.length} email${selected.length === 1 ? '' : 's'} updated.`, undoId: r?.undo_id }); setSelected([]); setParam({ id: null }); load(1); refreshCount(); }} onCancel={() => setSelected([])} />
           )}
           <div className="min-h-0 flex-1 overflow-y-auto">
             {!loading && list.rows.length === 0 && (
@@ -198,7 +215,13 @@ export default function Email() {
         </div>
 
         <div ref={viewerRef} className="min-w-0 flex-1 overflow-y-auto bg-white p-6">
-          {notice && <p className="mb-3 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">{notice}</p>}
+          {notice && (
+            <div className="mb-3 flex items-center gap-3 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
+              <p className="min-w-0 flex-1">{notice.text}</p>
+              {notice.undoId && <button type="button" onClick={undoFiling} className="shrink-0 font-medium text-green-900 underline hover:text-green-700">Undo</button>}
+              <button type="button" onClick={() => setNotice(null)} title="Dismiss" className="shrink-0 text-green-700 hover:text-green-900"><X className="h-4 w-4" /></button>
+            </div>
+          )}
           {offer && <ContactOffer offer={offer} onDone={() => setOffer(null)} />}
           {message
             ? <EmailViewer message={message} clients={clients} allTags={allTags} onTagCreated={t => setAllTags(ts => (ts.some(x => x.id === t.id) ? ts : [...ts, { ...t, count: 0 }]))}
@@ -257,7 +280,7 @@ function BulkBar({ ids, clients, allTags, onDone, onCancel }) {
   }, [query, clients, chosen]);
   const run = async body => {
     setSaving(true); setError('');
-    try { await api.post('/email/bulk', { message_ids: ids, tag_ids: tagIds, ...body }); onDone(); }
+    try { onDone((await api.post('/email/bulk', { message_ids: ids, tag_ids: tagIds, ...body })).data); }
     catch (e) { setError(e.response?.data?.error || 'Could not save'); } finally { setSaving(false); }
   };
   const toggleTag = id => setTagIds(t => (t.includes(id) ? t.filter(x => x !== id) : [...t, id]));

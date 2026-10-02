@@ -61,6 +61,15 @@ export default function AuditLog() {
           <option value="invoice">Invoices</option>
           <option value="service">Services</option>
           <option value="series">Recurring Series</option>
+          <option value="agreement">Agreements</option>
+          <option value="billable_report">Reports</option>
+          <option value="client_file">Client files</option>
+          <option value="client_file_folder">Client file folders</option>
+          <option value="session_note_file">Session note files</option>
+          <option value="budget">Budgets</option>
+          <option value="time_block">Time blocks</option>
+          <option value="report_template">Report templates</option>
+          <option value="settings">Settings</option>
         </select>
       </div>
 
@@ -80,7 +89,7 @@ export default function AuditLog() {
                     {log.entity_ref && <span className="text-xs font-mono text-gray-400">{log.entity_ref}</span>}
                   </div>
                   <p className="text-sm text-gray-700 mt-0.5">{log.details}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{fmtDateTime(log.created_at, timezone)}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{fmtDateTime(log.created_at, timezone)}{log.user_name && ` · by ${log.user_name}`}</p>
                   {log.snapshot && (
                     <button onClick={() => setExpanded(expanded === log.id ? null : log.id)}
                       className="text-xs text-indigo-500 hover:underline mt-1">

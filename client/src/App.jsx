@@ -21,6 +21,7 @@ import Invoices from './pages/Invoices';
 import Reports from './pages/Reports';
 import Email from './pages/Email';
 import Tasks from './pages/Tasks';
+import Ask from './pages/Ask';
 // The report editor pulls in TipTap/ProseMirror — loaded only when someone opens it.
 const ReportEditor = lazy(() => import('./pages/ReportEditor'));
 const ReportTemplateEditor = lazy(() => import('./pages/ReportTemplateEditor'));
@@ -113,6 +114,7 @@ function AuthenticatedApp() {
           {p.clients && <Route path="/clients" element={<Clients />} />}
           {p.email && <Route path="/email" element={<Email />} />}
           {p.email && <Route path="/tasks" element={<Tasks />} />}
+          {p.ask && <Route path="/ask" element={<Ask />} />}
           {p.clients && <Route path="/clients/:id" element={<ClientDetail />} />}
           {isAdmin && <Route path="/report-templates" element={<Navigate to="/templates" state={{ tab: 'reports' }} replace />} />}
           {isAdmin && <Route path="/report-templates/:id" element={<Suspense fallback={<div className="p-6 text-sm text-gray-400">Loading editor…</div>}><ReportTemplateEditor /></Suspense>} />}

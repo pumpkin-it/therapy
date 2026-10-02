@@ -1,5 +1,6 @@
 process.env.TZ = 'Australia/Sydney';
 require('dotenv').config();
+require('./lib/requestContext'); // first: wraps file uploads so the audit log knows who made a change
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
@@ -38,6 +39,9 @@ app.use('/api/portal',          require('./routes/clientPortal'));
 // so the editor's <img> tags (which can't send an auth header) and the PDF renderer can load them.
 app.use('/api/report-images',   require('./routes/reportImages'));
 
+// Who is making each request, for the audit log (lib/requestContext.js).
+app.use(require('./lib/requestContext').middleware);
+
 // All routes below require authentication
 app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth') || req.path.startsWith('/cal') || req.path.startsWith('/sign') || req.path.startsWith('/report-view') || req.path.startsWith('/portal') || req.path.startsWith('/report-images') || req.path === '/health') return next();
@@ -49,6 +53,7 @@ app.use('/api/practitioners',   require('./routes/practitioners')); // perm appl
 app.use('/api/clients',         perm('clients'), require('./routes/clients'));
 app.use('/api/email',           perm('email'), require('./routes/email'));
 app.use('/api/tasks',           perm('email'), require('./routes/tasks'));
+app.use('/api/ask',             perm('ask'), require('./routes/ask'));
 app.use('/api/services',        perm('services'), require('./routes/services'));
 app.use('/api/appointments',    require('./routes/appointments')); // perm applied per-route inside
 app.use('/api/time-blocks',     require('./routes/timeBlocks')); // perm applied per-route inside

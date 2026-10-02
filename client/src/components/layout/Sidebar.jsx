@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom';
-import { Mail, ListTodo, CalendarDays, Users, UserCog, Layers, FileText, Settings, Stethoscope, Wallet, MapPin, RefreshCw, ScrollText, LogOut, ClipboardList, BarChart3 } from 'lucide-react';
+import { Mail, ListTodo, Sparkles, CalendarDays, Users, UserCog, Layers, FileText, Settings, Stethoscope, Wallet, MapPin, RefreshCw, ScrollText, LogOut, ClipboardList, BarChart3 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
 import { isUAT } from '../../lib/env';
@@ -9,6 +9,7 @@ import useUnfiledEmailCount from '../../lib/useUnfiledEmailCount';
 const nav = [
   { to: '/calendar',        label: 'Calendar',   icon: CalendarDays, perm: 'calendar' },
   { to: '/clients',         label: 'Clients',    icon: Users,        perm: 'clients' },
+  { to: '/ask',             label: 'Ask',        icon: Sparkles,     perm: 'ask' },
   { to: '/tasks',           label: 'Tasks',      icon: ListTodo,     perm: 'email' },
   { to: '/email',           label: 'Email',      icon: Mail,         perm: 'email' },
   { to: '/practitioners',   label: 'Users',      icon: UserCog,      perm: 'users' },

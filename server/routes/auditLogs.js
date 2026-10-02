@@ -14,10 +14,11 @@ router.get('/', auth, (req, res) => {
   }
   let where = '1=1';
   const params = [];
-  if (entity_type) { where += ' AND entity_type=?'; params.push(entity_type); }
-  if (entity_id)   { where += ' AND entity_id=?';   params.push(entity_id); }
+  if (entity_type) { where += ' AND a.entity_type=?'; params.push(entity_type); }
+  if (entity_id)   { where += ' AND a.entity_id=?';   params.push(entity_id); }
   params.push(Number(limit), Number(offset));
-  const rows = db.prepare(`SELECT * FROM audit_logs WHERE ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`).all(...params);
+  const rows = db.prepare(`SELECT a.*, p.first_name || ' ' || p.last_name AS user_name FROM audit_logs a LEFT JOIN practitioners p ON p.id = a.user_id
+    WHERE ${where} ORDER BY a.created_at DESC LIMIT ? OFFSET ?`).all(...params);
   res.json(rows);
 });
 

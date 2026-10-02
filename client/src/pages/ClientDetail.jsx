@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { format, parseISO } from 'date-fns';
-import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, Folder, FolderPlus, Paperclip, X, UserX, UserCheck, Search, ChevronDown, ChevronRight, Link2, Mail } from 'lucide-react';
+import { ArrowLeft, Plus, Pencil, Trash2, AlertTriangle, Upload, Download, File, Folder, FolderPlus, Paperclip, X, UserX, UserCheck, Search, ChevronDown, ChevronRight, Link2, Mail, Sparkles } from 'lucide-react';
 import api from '../lib/api';
 import AddressAutocomplete from '../components/AddressAutocomplete';
 import Button from '../components/ui/Button';
@@ -2289,6 +2289,12 @@ export default function ClientDetail() {
           <button onClick={() => openCompose({ mode: 'new', clientIds: [Number(id)], to: emailTo() })}
             className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors">
             <Mail className="h-4 w-4" /> Email
+          </button>
+        )}
+        {!isNew && user?.permissions?.ask && (
+          <button onClick={() => navigate(`/ask?client=${id}`)} title="Ask a question about this client"
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors">
+            <Sparkles className="h-4 w-4" /> Ask
           </button>
         )}
         {!isNew && (

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, Paperclip, ArrowUpRight, ArrowDownLeft, Mail, PenSquare } from 'lucide-react';
+import { Search, Paperclip, ArrowUpRight, ArrowDownLeft, Mail, PenSquare, X } from 'lucide-react';
 import { useCompose } from '../../context/ComposeContext';
 import ClientTasks from '../tasks/ClientTasks';
 import api from '../../lib/api';
@@ -7,6 +7,7 @@ import Button from '../ui/Button';
 import Modal from '../ui/Modal';
 import EmailViewer from './EmailViewer';
 import { fmtDateTime } from '../../lib/utils';
+import { refreshEmailCounts } from '../../lib/useUnfiledEmailCount';
 import { senderLabel, recipientsLabel, tagPillClass } from '../../lib/email';
 import { Highlight, searchTerms } from '../../lib/highlight';
 
@@ -21,6 +22,7 @@ export default function ClientCommunications({ clientId, defaultTo = [] }) {
   const [message, setMessage] = useState(null);
   const [clients, setClients] = useState([]);
   const [allTags, setAllTags] = useState([]);
+  const [notice, setNotice] = useState(null); // { text, undoId } after an email is taken off this client
   const terms = searchTerms(q);
 
   useEffect(() => {
@@ -39,6 +41,10 @@ export default function ClientCommunications({ clientId, defaultTo = [] }) {
   useEffect(() => { load(1); }, [clientId, q]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openMessage = id => api.get(`/email/messages/${id}`).then(r => setMessage(r.data));
+  const undoFiling = async () => {
+    try { await api.post(`/email/undo/${notice.undoId}`); setNotice({ text: 'Filing undone.' }); load(1); refreshEmailCounts(); }
+    catch (e) { setNotice({ text: e.response?.data?.error || 'Could not undo the filing.' }); }
+  };
 
   return (
     <div className="space-y-3">
@@ -51,6 +57,14 @@ export default function ClientCommunications({ clientId, defaultTo = [] }) {
           className="w-full rounded-lg border border-gray-300 py-2 pl-8 pr-3 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
       </div>
       </div>
+
+      {notice && (
+        <div className="flex items-center gap-3 rounded-md bg-green-50 px-3 py-2 text-sm text-green-800">
+          <p className="min-w-0 flex-1">{notice.text}</p>
+          {notice.undoId && <button type="button" onClick={undoFiling} className="shrink-0 font-medium text-green-900 underline hover:text-green-700">Undo</button>}
+          <button type="button" onClick={() => setNotice(null)} title="Dismiss" className="shrink-0 text-green-700 hover:text-green-900"><X className="h-4 w-4" /></button>
+        </div>
+      )}
 
       {!loading && list.rows.length === 0 && (
         <div className="flex flex-col items-center gap-2 py-12 text-center text-sm text-gray-400">
@@ -96,7 +110,12 @@ export default function ClientCommunications({ clientId, defaultTo = [] }) {
           <EmailViewer message={message} clients={clients} allTags={allTags} onTagCreated={t => setAllTags(ts => [...ts, t])} onOpen={openMessage} onSent={() => load(1)} terms={terms}
             onChanged={updated => {
               const stillHere = updated.clients.some(c => String(c.id) === String(clientId));
-              if (stillHere) setMessage(updated); else setMessage(null);
+              if (stillHere) setMessage(updated);
+              else {
+                setMessage(null);
+                const where = updated.status === 'filed' ? `now filed to ${updated.clients.map(c => c.name).join(', ')}` : updated.status === 'not_client' ? 'filed as No client' : 'moved back to Unfiled';
+                setNotice({ text: `"${updated.subject || '(no subject)'}" was taken off this client (${where}).`, undoId: updated.undo_id });
+              }
               load(1);
             }} />
         </Modal>

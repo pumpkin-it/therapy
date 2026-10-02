@@ -30,7 +30,7 @@ email suggestions, and its page shows "This duplicate record was merged into …
 Previous / Next. Search (name, full name, email, phone, or client code like C0012) and the
 Active / Inactive / All filter both go back to page 1.
 
-**Contacts** (on UAT since 2026-10-01, not yet in production): the Details tab has a Contacts list
+**Contacts** (in production since 2026-10-02): the Details tab has a Contacts list
 instead of the old Emergency contact / Case manager boxes. Existing emergency contacts appear in it
 (with an Emergency badge). Add contact → pick a role, name, email → Save contact → it appears
 straight away. Saving without a name shows "Name is required"; a bad email shows an error. Ticking
@@ -304,7 +304,7 @@ and folder-picker checks can't be exercised on UAT until such a template exists 
 ## 13. Audit log (in production since 2026-09-29)
 Audit Log page shows the newest 200 entries; **Load older** adds the next 200 ("showing 400").
 Changing the type filter starts again from the newest.
-**Owner/admin/finance only** (UAT only until released, fixed 2026-10-01): a practitioner
+**Owner/admin/finance only** (in production since 2026-10-02): a practitioner
 sign-in has no Audit Log link, /audit-log goes back to their home page, and GET /api/audit-logs
 without entity_id returns 403. A client's or appointment's own History still works for them.
 Also GET /api/settings for a role without the Settings permission has no bank_*, graph_*, smtp_*,
@@ -327,7 +327,7 @@ invoice_counter (practice details, invoicing_mode and the Maps key remain).
 
 ---
 
-## 15. Email — filing (on UAT since 2026-10-01, not yet in production)
+## 15. Email — filing (in production since 2026-10-02)
 UAT copies mail from the test mailbox (therapy-test@i2solutions.org.au). On a local copy, seed sample
 emails through the real sync with a fake Graph server.
 - **Email** in the sidebar (owner/admin only by default — Settings → Permissions → Email). The amber
@@ -360,7 +360,7 @@ emails through the real sync with a fake Graph server.
   allows changing its filing. Filing shows on the client's History tab.
 - A practitioner sign-in doesn't see Email or the Communications tab (API answers 403).
 
-## 16. Email — writing and sending (on UAT since 2026-10-01, not yet in production)
+## 16. Email — writing and sending (in production since 2026-10-02)
 On UAT every email is redirected to UAT_TEST_MAILBOX (peterchen@flexisupport.com.au) with the real
 recipients listed in a yellow box at the top — never to real people. Sent from the test mailbox.
 - Email page → **New email**; an open email → **Reply / Reply all / Forward**; client page → **Email**
@@ -382,7 +382,7 @@ recipients listed in a yellow box at the top — never to real people. Sent from
 - Failure: a red box "Couldn't send …" with Open / Try again / Discard. If it says "may or may not have
   finished", check the mailbox's Sent Items before trying again.
 
-## 17. Tasks — the to-do list (on UAT since 2026-10-01, not yet in production)
+## 17. Tasks — the to-do list (in production since 2026-10-02)
 Tasks start from what's in the Outlook Inbox once it has been fully copied in (one task per
 conversation; newsletters skipped); past mail never creates tasks.
 - Sidebar **Tasks** (red number = To do). Tabs To do / Waiting / Done with counts; Everyone / Mine /
@@ -409,6 +409,47 @@ conversation; newsletters skipped); past mail never creates tasks.
   "Alex Woo" / "Alexander Woo" match "Alexander (Alex) Kaizeng Woo".
 - Moving an email out of the Outlook Inbox does NOT close its task (setting tasks_done_when_left_inbox,
   off by default). Therapy never moves anything in Outlook.
+
+## 18. Agreements — mark as signed on paper (in production since 2026-10-02)
+Client → Agreements → open a **sent** or **viewed** agreement → **Mark as signed**. The dialog has
+Date signed (today by default; future dates are blocked), Signed by (the client's name by default)
+and an optional Signed copy file. Back-date it a few days, attach a PDF, Mark as signed:
+- Status badge turns **Signed**; a green box says "Signed by … on <date> · on paper, marked as
+  signed by <you>", with **Download** (gets the same file) and **Replace copy**. No Resend email
+  button. The list row shows "Signed <date>". History shows "Marked as signed (on paper) …".
+- The file appears in the client's Files tab, labelled "Signed: <agreement title>".
+- **Download PDF** ends with an audit trail saying "Signed on paper: <date>" / "Marked as signed by".
+- No more reminders: the agreement isn't in the sent/viewed list the reminder job reads. The client
+  gets no email.
+Also: a **draft** agreement has Mark as signed too (no link or email is created); marking it with no
+file shows "No signed copy uploaded yet" and **Upload signed copy** adds it later. Signed, declined
+and voided agreements have no Mark as signed button.
+
+## 19. Ask (AI) — questions answered from the records (on UAT since 2026-10-02, not yet in production)
+Claude Sonnet 5 on Amazon Bedrock in Australia reads Therapy's records (read-only) and answers with
+numbered links to its sources. **Every question costs real money (about 1–30 US cents)** and counts
+toward the monthly limit — ask **no more than 6 questions** in a run. UAT only (option A): a local
+copy has no Bedrock access; on a local copy check only the permission/menu points marked (local).
+- Sidebar **Ask** (owner/admin by default). Settings → Role Permissions has an **Ask (AI)** column;
+  practitioner and finance off by default. (local) A practitioner sees no Ask menu, no Ask button on a
+  client page, and `GET /api/ask/status` returns 403.
+- Ask page → "When did Jupiter go for his equipment trial?": grey status lines appear while it
+  searches ("Looking up…", "Searching for…", "Reading file …"), then the answer: **3 September 2026**,
+  recliner and hi-low bed trial at Back to Sleep Balwyn, with a numbered source chip. The chip and the
+  source list under the answer link to the record (file → client's Files tab, note → Session Notes,
+  appointment → the appointment, email → Email page with that email open).
+- Follow-up in the same conversation ("What was quoted for him?") answers without re-asking who
+  "him" is; the conversation appears in the left list and reopens with all its questions and answers.
+- Client page → **Ask** button → Ask page shows "About <client>" above the box; the question is about
+  that client. The × on the chip (before asking) switches back to all clients.
+- A question the records can't answer (e.g. "How high is the recommended step for Nai-Shing's back
+  door?") says it isn't recorded and what IS on file — it must not invent a figure.
+- Settings → **Ask (AI)**: Model (Claude Sonnet 5 default; Claude Opus 5.5, Claude Haiku 4.5 and
+  Amazon Nova Pro also listed), Monthly spending limit (US$20), "Spent this month" — goes up after
+  questions. The Ask page header shows the model and US$ used this month.
+- Limit reached: temporarily set the limit to 0.01 (below what's been spent), Save, ask anything →
+  "This month's Ask spending limit … has been reached" and no answer. **Set it back to 20 and Save.**
+- Don't change the Model setting permanently; if you try another model, set it back to Claude Sonnet 5.
 
 ## How to run this (read first)
 **Claude can't sign in to UAT or production** — it may not type a password into a non-local site,
@@ -502,7 +543,35 @@ option A, or skip it and say so.
   didn't fully match "what still works" above with enough detail to reproduce.
 
 ## Changed since the last full run (check these first)
-On UAT only (2026-10-01), not yet released — check these first:
+- On UAT 2026-10-02 (user requests):
+  - Item 15: **Undo filing.** After filing (File, File — no client, Move back to Unfiled, or the
+    bulk bar) the green message names what happened and has **Undo**; Undo puts the email (and any
+    earlier emails of its conversation filed with it) back exactly as before — clients, status, tags
+    — and reopens it. Also on a client's Communications tab when an email is taken off that client.
+    Undo works once, for your own filings, for 24 hours. The **Filed** and **No client** tabs now
+    list the most recently filed first.
+  - Item 19: Ask source links open in a **new tab**; file / backup-document / note-attachment /
+    email-attachment sources open the document itself (PDFs in a new tab, other types download)
+    instead of the client's Files tab. The source list shows the document's name.
+  - Items 13 and 18: every history entry now records **who** made the change: "… · by <name>" in
+    each record's Change History (client, agreement, appointment) and on the Audit Log page. Entries
+    from before 2026-10-02, automatic changes and the client's own actions (signing link) show no
+    name. "Marked as signed (on paper) by staff" now reads "Marked as signed (on paper)", with the
+    person's name beside the time.
+    Includes changes made through upload forms with no file attached (fixed 03:50 UTC after the
+    re-test found "Mark as signed" with no file had no name). Audit Log type filter now also has
+    Agreements, Reports, Client files, Client file folders, Session note files, Budgets, Time blocks,
+    Report templates, Settings (email filing entries are under Clients).
+- Item 19 (new, on UAT only since 2026-10-02): **Ask (AI)** — sidebar Ask page, client page Ask
+  button, Settings → Ask (AI) model + monthly limit, new **Ask (AI)** permission. Costs real money per
+  question: max 6 questions in a run, and restore the limit (US$20) and model afterwards.
+- Item 18 (new, released 2026-10-02 straight to production): Agreements → **Mark as signed** for
+  paper-signed agreements, with optional signed copy upload.
+- Agreements (released 2026-10-02): a **draft** has no "Reminder end date" field any more, just the
+  line "Once sent, a signing reminder is emailed every 3 days for 10 days, or until it's signed."
+  After sending, the signing-link box shows **Stop signing reminders after** <send date + 10 days,
+  local date> and "Every 3 days until <date>"; changing the date updates that text and History.
+Released to production 2026-10-02 — check these first on the next run:
 - Bug fixes from the 2026-10-01 run (UAT, fixed 2026-10-01 evening):
   - Item 1: a contact with a bad email is rejected at **Save contact** on a NEW client ("… is not
     a valid email address"); any Create client failure now shows a red message by the button.

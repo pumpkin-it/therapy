@@ -162,6 +162,8 @@ try { db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )
 `); } catch {}
+// Who made the change (NULL for automatic changes, the client, or entries from before 2026-10-02).
+try { db.exec('ALTER TABLE audit_logs ADD COLUMN user_id INTEGER'); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN service_date TEXT`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN gst_rate REAL DEFAULT 0`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN gst_amount REAL DEFAULT 0`); } catch {}
@@ -1877,5 +1879,70 @@ for (const sql of [
 try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('email_auto_file', '1')").run(); } catch {}
 try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('tasks_done_when_left_inbox', '0')").run(); } catch {}
 try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('tasks_follow_up_days', '3')").run(); } catch {}
+
+// Undo for email filing (routes/email.js): what the emails looked like just before a filing.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS email_filing_undo (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER REFERENCES practitioners(id),
+    snapshot_json TEXT NOT NULL,
+    used_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+
+// Ask (services/ask.js): questions answered by Claude from the records. A conversation keeps the
+// full model exchange (messages_json, needed to ask follow-ups) and the questions and answers
+// shown on screen (turns_json). ask_usage records every model call's tokens and cost, for the
+// monthly spending limit.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS ask_conversations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES practitioners(id),
+    client_id INTEGER REFERENCES clients(id),  -- asked from a client's page
+    title TEXT,
+    messages_json TEXT NOT NULL,
+    turns_json TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_ask_conversations_user ON ask_conversations(user_id, updated_at)'); } catch {}
+try { db.exec('ALTER TABLE ask_conversations ADD COLUMN model TEXT'); } catch {} // the model a conversation started on; follow-ups stay on it
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS ask_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER REFERENCES ask_conversations(id),
+    user_id INTEGER REFERENCES practitioners(id),
+    model TEXT,
+    input_tokens INTEGER, output_tokens INTEGER, cache_write_tokens INTEGER, cache_read_tokens INTEGER,
+    cost_usd REAL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_ask_usage_created ON ask_usage(created_at)'); } catch {}
+try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ask_model', 'au.anthropic.claude-sonnet-5')").run(); } catch {}
+try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ask_monthly_limit_usd', '20')").run(); } catch {}
+
+// Backfill the ask permission key (added 2026-10-02): owners and admins to start with.
+{
+  const ASK_DEFAULT = { owner: true, admin: true, practitioner: false, finance: false };
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'role_permissions'").get();
+  if (row) {
+    try {
+      const perms = JSON.parse(row.value);
+      let changed = false;
+      for (const role of Object.keys(perms)) {
+        if (perms[role].ask === undefined) {
+          perms[role].ask = ASK_DEFAULT[role] ?? false;
+          changed = true;
+        }
+      }
+      if (changed) {
+        db.prepare("UPDATE settings SET value = ? WHERE key = 'role_permissions'").run(JSON.stringify(perms));
+      }
+    } catch {}
+  }
+}
 
 module.exports = db;

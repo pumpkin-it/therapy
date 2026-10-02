@@ -463,7 +463,7 @@ function AppointmentAuditLog({ appointmentId }) {
           ) : logs.map(log => (
             <div key={log.id} className="text-xs border-l-2 border-gray-200 pl-2 py-1">
               <span className={`font-medium ${ACTION_COLOR[log.action] || 'text-gray-600'}`}>{log.action}</span>
-              <span className="text-gray-400 ml-1.5">{fmtDateTime(log.created_at, timezone)}</span>
+              <span className="text-gray-400 ml-1.5">{fmtDateTime(log.created_at, timezone)}{log.user_name && ` · by ${log.user_name}`}</span>
               <p className="text-gray-600 mt-0.5">{log.details}</p>
             </div>
           ))}

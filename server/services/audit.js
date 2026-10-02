@@ -1,12 +1,14 @@
 const db = require('../database');
+const { currentUserId } = require('../lib/requestContext');
 
 const insert = db.prepare(`
-  INSERT INTO audit_logs (entity_type, entity_id, entity_ref, action, details, snapshot)
-  VALUES (?, ?, ?, ?, ?, ?)
+  INSERT INTO audit_logs (entity_type, entity_id, entity_ref, action, details, snapshot, user_id)
+  VALUES (?, ?, ?, ?, ?, ?, ?)
 `);
 
 function log(entityType, entityId, action, details, { ref, snapshot } = {}) {
-  insert.run(entityType, entityId || null, ref || null, action, details || null, snapshot ? JSON.stringify(snapshot) : null);
+  // The signed-in person making the change; none for automatic jobs and public links.
+  insert.run(entityType, entityId || null, ref || null, action, details || null, snapshot ? JSON.stringify(snapshot) : null, currentUserId());
 }
 
 function diff(oldObj, newObj, fields) {
