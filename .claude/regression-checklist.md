@@ -450,7 +450,7 @@ copy has no Bedrock access; on a local copy check only the permission/menu point
 - Limit reached: temporarily set the limit to 0.01 (below what's been spent), Save, ask anything →
   "This month's Ask spending limit … has been reached" and no answer. **Set it back to 20 and Save.**
 - Don't change the Model setting permanently; if you try another model, set it back to Claude Sonnet 5.
-- (On UAT since 2026-10-02 night, not yet in production.) Ask list: **search** box (questions and answers,
+- (In production since 2026-10-02 21:38, not yet regression-tested.) Ask list: **search** box (questions and answers,
   with the matching snippet), **My questions / Everyone's (filed to clients)**, **client filter**. **New
   question** always clears the screen (an answer still arriving for the old one is dropped). A new
   question first checks earlier questions for free: close matches show as "This looks like it's been
@@ -570,6 +570,11 @@ option A, or skip it and say so.
   didn't fully match "what still works" above with enough detail to reproduce.
 
 ## Changed since the last full run (check these first)
+- On UAT 2026-10-05 (not yet in production): **practitioners can now read templates.** As a practitioner:
+  Session Notes → select a note → **Email** → Subject and Message are pre-filled from the session notes
+  email template (they were blank before); session-note templates are offered when writing a note;
+  Reports → Notify client uses the practice's template. Creating/editing/deleting templates still needs
+  Settings (a practitioner gets 403 on POST/PUT/DELETE /api/templates).
 - Item 19, released to production 2026-10-02 14:16: Ask conversations are **filed to
   clients** and listed on the client's Communications tab (shared with everyone who has Ask); see
   item 19 "Filed to clients". Test with existing conversations where possible (questions cost money).

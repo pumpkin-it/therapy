@@ -135,6 +135,13 @@ router.post('/pdf', auth, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// The session notes email template, for pre-filling the Email session notes window. Readable by
+// anyone who can email notes (the Templates admin page itself needs the Settings permission).
+router.get('/email-template', auth, (req, res) => {
+  const tpl = getTemplate('session_note_email');
+  res.json(tpl ? { subject: tpl.subject || '', body: tpl.body || '' } : null);
+});
+
 router.post('/email', auth, async (req, res, next) => {
   try {
     const { note_ids, to, cc, subject, body } = req.body;

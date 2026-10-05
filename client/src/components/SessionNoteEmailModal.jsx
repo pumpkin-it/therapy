@@ -90,9 +90,10 @@ export default function SessionNoteEmailModal({ clientId, client, noteIds, notes
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
 
+  // Pre-fill from the practice's session notes template (falling back to the default wording if it
+  // can't be loaded), so the person sending sees exactly what will go out.
   useEffect(() => {
-    api.get('/templates?type=email').then(r => {
-      const tpl = (r.data || []).find(t => t.code === 'session_note_email');
+    const fill = tpl => {
       const clientName = `${client?.first_name || ''} ${client?.last_name || ''}`.trim();
       const vars = {
         client_name: clientName,
@@ -106,7 +107,8 @@ export default function SessionNoteEmailModal({ clientId, client, noteIds, notes
         .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n').replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim();
       setSubject(substituteVars(tpl?.subject || `Session notes for ${clientName}`, vars));
       setBody(substituteVars(plain, vars));
-    });
+    };
+    api.get('/session-notes/email-template').then(r => fill(r.data)).catch(() => fill(null));
   }, []);
 
   const send = async () => {

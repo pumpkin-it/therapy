@@ -63,8 +63,8 @@ export default function ReportNotifyModal({ client, file, onClose, onSent }) {
   const templateCode = isReleased ? 'report_released' : 'report_shared_draft';
 
   useEffect(() => {
-    // /templates needs the settings permission, which practitioners don't have — fall back to the
-    // built-in wording rather than leaving the subject and message blank.
+    // Uses the practice's template; if it can't be loaded, fall back to the built-in wording
+    // rather than leaving the subject and message blank.
     const fill = templates => {
       const tpl = templates.find(t => t.code === templateCode);
       const reportTitle = file.label || file.original_name;

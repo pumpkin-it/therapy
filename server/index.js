@@ -74,7 +74,11 @@ app.use('/api/push',            require('./routes/push'));
 app.use('/api/audit-logs',      require('./routes/auditLogs'));
 app.use('/api/gst-rates',       perm('settings'), require('./routes/gstRates'));
 app.use('/api/funding-types',   perm('services'), require('./routes/fundingTypes'));
-app.use('/api/templates',        perm('settings'), require('./routes/templates'));
+// Reading templates (session-note, email, agreement) is for everyone who works with clients —
+// practitioners use them when writing notes and emailing notes or reports. Creating, editing and
+// deleting them still needs the Settings permission (and owner/admin, checked inside the route).
+const templatesRead = perm('clients'), templatesWrite = perm('settings');
+app.use('/api/templates', (req, res, next) => (req.method === 'GET' ? templatesRead : templatesWrite)(req, res, next), require('./routes/templates'));
 app.use('/api/form-templates',  require('./routes/formTemplates')); // perm applied per-route inside
 app.use('/api/form-responses',  perm('clients'), require('./routes/formResponses'));
 app.use('/api/agreements',      perm('clients'), require('./routes/agreements'));
