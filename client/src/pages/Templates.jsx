@@ -309,7 +309,7 @@ export default function Templates() {
   // Email/note/agreement/form templates need the Settings permission; report templates are for
   // owners and admins (who don't have Settings by default) — so an admin sees only that tab.
   const canSettings = !!user?.permissions?.settings;
-  const canReports = ['owner', 'admin'].includes(user?.role);
+  const canReports = ['owner', 'admin'].includes(user?.role) || !!user?.permissions?.report_templates;
   const TABS = [
     ...(canSettings ? [['email', 'Email Templates'], ['session_note', 'Session Note Templates'], ['agreement', 'Agreement Templates'], ['forms', 'Forms']] : []),
     ...(canReports ? [['reports', 'Report Templates']] : []),

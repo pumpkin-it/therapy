@@ -6,7 +6,9 @@ const { acceptImage, discardUpload } = require('./reportImages');
 
 // Report templates for writing reports in the system. Anyone who can see clients can list and
 // open them (to start a report from one); only owner/admin can create, change or delete them.
-const isAdmin = user => ['owner', 'admin'].includes(user.role);
+// Owners and admins manage report templates, as does any role given the "Report templates"
+// permission (Settings → Role Permissions).
+const isAdmin = user => ['owner', 'admin'].includes(user.role) || require('../middleware/requirePermission').hasPermission(user, 'report_templates');
 const validDoc = c => c && c.type === 'doc' && Array.isArray(c.content);
 
 const withNames = `
@@ -29,7 +31,7 @@ router.get('/:id', auth, (req, res) => {
 });
 
 router.post('/', auth, (req, res) => {
-  if (!isAdmin(req.user)) return res.status(403).json({ error: 'Only an owner or admin can create report templates' });
+  if (!isAdmin(req.user)) return res.status(403).json({ error: 'You need the Report templates permission to create report templates' });
   const name = req.body.name?.trim();
   if (!name) return res.status(400).json({ error: 'Enter a template name' });
   // Start from a copy of another template, or empty.
@@ -45,7 +47,7 @@ router.post('/', auth, (req, res) => {
 });
 
 router.put('/:id', auth, (req, res) => {
-  if (!isAdmin(req.user)) return res.status(403).json({ error: 'Only an owner or admin can change report templates' });
+  if (!isAdmin(req.user)) return res.status(403).json({ error: 'You need the Report templates permission to change report templates' });
   const t = db.prepare('SELECT * FROM report_doc_templates WHERE id = ?').get(req.params.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
   const name = req.body.name !== undefined ? req.body.name.trim() : t.name;
@@ -63,7 +65,7 @@ router.put('/:id', auth, (req, res) => {
 
 // Reports already started keep their own copy, so deleting a template never changes them.
 router.delete('/:id', auth, (req, res) => {
-  if (!isAdmin(req.user)) return res.status(403).json({ error: 'Only an owner or admin can delete report templates' });
+  if (!isAdmin(req.user)) return res.status(403).json({ error: 'You need the Report templates permission to delete report templates' });
   const t = db.prepare('SELECT * FROM report_doc_templates WHERE id = ?').get(req.params.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
   db.prepare('UPDATE billable_reports SET template_id = NULL WHERE template_id = ?').run(t.id);
@@ -73,7 +75,7 @@ router.delete('/:id', auth, (req, res) => {
 });
 
 router.post('/:id/images', auth, acceptImage, (req, res) => {
-  if (!isAdmin(req.user)) { discardUpload(req); return res.status(403).json({ error: 'Only an owner or admin can change report templates' }); }
+  if (!isAdmin(req.user)) { discardUpload(req); return res.status(403).json({ error: 'You need the Report templates permission to change report templates' }); }
   if (!db.prepare('SELECT 1 FROM report_doc_templates WHERE id = ?').get(req.params.id)) { discardUpload(req); return res.status(404).json({ error: 'Not found' }); }
   if (!req.file) return res.status(400).json({ error: 'Upload a PNG, JPG, GIF or WebP image.' });
   res.status(201).json({ url: `/api/report-images/${req.file.filename}` });

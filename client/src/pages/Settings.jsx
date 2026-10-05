@@ -28,14 +28,15 @@ export default function Settings() {
     { key: 'reports',       label: 'Reports' },
     { key: 'email',         label: 'Email' },
     { key: 'ask',           label: 'Ask (AI)' },
+    { key: 'report_templates', label: 'Report templates' },
     { key: 'settings',      label: 'Settings' },
   ];
   const ROLE_LABELS = { owner: 'Owner', admin: 'Admin', practitioner: 'Practitioner', finance: 'Finance' };
   const DEFAULT_PERMS = {
-    owner:        { calendar:true,  clients:true,  funding_periods:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  reports:true, email:true,  ask:true,  settings:true  },
-    admin:        { calendar:true,  clients:true,  funding_periods:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  reports:true, email:true,  ask:true,  settings:false },
-    practitioner: { calendar:true,  clients:true,  funding_periods:false, users:false, funds_managers:false, locations:true,  services:true,  invoices:false, reports:true, email:false, ask:false, settings:false },
-    finance:      { calendar:false, clients:true,  funding_periods:true,  users:false, funds_managers:true,  locations:false, services:true,  invoices:true,  reports:true, email:false, ask:false, settings:false },
+    owner:        { calendar:true,  clients:true,  funding_periods:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  reports:true, email:true,  ask:true,  report_templates:true,  settings:true  },
+    admin:        { calendar:true,  clients:true,  funding_periods:true,  users:true,  funds_managers:true,  locations:true,  services:true,  invoices:true,  reports:true, email:true,  ask:true,  report_templates:true,  settings:false },
+    practitioner: { calendar:true,  clients:true,  funding_periods:false, users:false, funds_managers:false, locations:true,  services:true,  invoices:false, reports:true, email:false, ask:false, report_templates:false, settings:false },
+    finance:      { calendar:false, clients:true,  funding_periods:true,  users:false, funds_managers:true,  locations:false, services:true,  invoices:true,  reports:true, email:false, ask:false, report_templates:false, settings:false },
   };
   const [perms, setPerms] = useState(DEFAULT_PERMS);
   // Budget alert recipients (server/services/budgets.js) — the same default when never set.

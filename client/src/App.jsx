@@ -116,8 +116,8 @@ function AuthenticatedApp() {
           {p.email && <Route path="/tasks" element={<Tasks />} />}
           {p.ask && <Route path="/ask" element={<Ask />} />}
           {p.clients && <Route path="/clients/:id" element={<ClientDetail />} />}
-          {isAdmin && <Route path="/report-templates" element={<Navigate to="/templates" state={{ tab: 'reports' }} replace />} />}
-          {isAdmin && <Route path="/report-templates/:id" element={<Suspense fallback={<div className="p-6 text-sm text-gray-400">Loading editor…</div>}><ReportTemplateEditor /></Suspense>} />}
+          {(isAdmin || p.report_templates) && <Route path="/report-templates" element={<Navigate to="/templates" state={{ tab: 'reports' }} replace />} />}
+          {(isAdmin || p.report_templates) && <Route path="/report-templates/:id" element={<Suspense fallback={<div className="p-6 text-sm text-gray-400">Loading editor…</div>}><ReportTemplateEditor /></Suspense>} />}
           {p.clients && <Route path="/clients/:id/reports/:reportId/write" element={<Suspense fallback={<div className="p-6 text-sm text-gray-400">Loading editor…</div>}><ReportEditor /></Suspense>} />}
           {p.users && <Route path="/practitioners" element={<Practitioners />} />}
           {p.funds_managers && <Route path="/funds-managers" element={<FundsManagers />} />}
@@ -128,7 +128,7 @@ function AuthenticatedApp() {
           {p.calendar && <Route path="/recurring-series/:id" element={<RecurringSeriesDetail />} />}
           {p.invoices && <Route path="/invoices" element={<Invoices />} />}
           {p.reports && <Route path="/reports" element={<Reports />} />}
-          {(p.settings || isAdmin) && <Route path="/templates" element={<Templates />} />}
+          {(p.settings || isAdmin || p.report_templates) && <Route path="/templates" element={<Templates />} />}
           {p.settings && <Route path="/templates/forms/:id" element={<FormBuilder />} />}
           {canAuditLog && <Route path="/audit-log" element={<AuditLog />} />}
           {p.settings && <Route path="/settings" element={<Settings />} />}

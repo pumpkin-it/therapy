@@ -570,7 +570,12 @@ option A, or skip it and say so.
   didn't fully match "what still works" above with enough detail to reproduce.
 
 ## Changed since the last full run (check these first)
-- On UAT 2026-10-05 (not yet in production): **practitioners can now read templates.** As a practitioner:
+- On UAT 2026-10-05 (not yet in production): new **Report templates** permission (Settings → Role
+  Permissions; on for owner/admin, off for practitioner/finance by default). With it switched on, a
+  practitioner sees the sidebar **Templates** item with only the **Report Templates** tab, and can create,
+  edit and delete report templates; without it they see no Templates item (but can still pick a template
+  when starting a report).
+- Released to production 2026-10-05 12:28 (not yet regression-tested): **practitioners can now read templates.** As a practitioner:
   Session Notes → select a note → **Email** → Subject and Message are pre-filled from the session notes
   email template (they were blank before); session-note templates are offered when writing a note;
   Reports → Notify client uses the practice's template. Creating/editing/deleting templates still needs

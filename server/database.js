@@ -1943,6 +1943,25 @@ try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ask_model
 try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ask_monthly_limit_usd', '20')").run(); } catch {}
 try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ask_effort', 'low')").run(); } catch {}
 
+// Backfill the report_templates permission key (added 2026-10-05): who can create and edit report
+// templates besides owners and admins (who always can). Off for other roles until switched on.
+{
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'role_permissions'").get();
+  if (row) {
+    try {
+      const perms = JSON.parse(row.value);
+      let changed = false;
+      for (const role of Object.keys(perms)) {
+        if (perms[role].report_templates === undefined) {
+          perms[role].report_templates = role === 'owner' || role === 'admin';
+          changed = true;
+        }
+      }
+      if (changed) db.prepare("UPDATE settings SET value = ? WHERE key = 'role_permissions'").run(JSON.stringify(perms));
+    } catch {}
+  }
+}
+
 // Backfill the ask permission key (added 2026-10-02): owners and admins to start with.
 {
   const ASK_DEFAULT = { owner: true, admin: true, practitioner: false, finance: false };
