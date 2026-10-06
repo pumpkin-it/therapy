@@ -1,79 +1,16 @@
 // The read-only lookups behind "Ask" (services/ask.js) and its command-line twin
 // (scripts/ask/ask.js): find clients, a client's history, search everything on file, and read
-// one record in full. Nothing here writes to the database. Text taken out of PDFs (client files,
-// session-note attachments, email attachments, and PDFs inside old-system backup zips) is cached
-// under /tmp so each document is only read once.
-const path = require('path');
-const fs = require('fs');
+// one record in full. The only thing written is the text store: text taken out of PDFs (client
+// files, session-note attachments, email attachments, and PDFs inside old-system backup zips) is
+// kept by services/documentText.js so each document is only read once.
 const db = require('../database');
 
-const UPLOADS = process.env.ASK_UPLOADS || path.join(__dirname, '../../uploads');
-const CACHE = process.env.ASK_CACHE || '/tmp/therapy-ask-cache';
+const docs = require('./documentText');
+const { strip, isZip, fileText, noteFileText, attachmentText, zipEntries, zipEntryText } = docs;
 
-const strip = html => String(html || '')
-  .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
-  .replace(/<\/(p|div|li|h\d|tr)>|<br\s*\/?>/gi, '\n')
-  .replace(/<[^>]+>/g, ' ')
-  .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#39;|&apos;/g, "'").replace(/&quot;/g, '"')
-  .replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim();
 const day = s => (s ? String(s).slice(0, 10) : '');
 const ref = id => `C${String(id).padStart(4, '0')}`;
 const clientName = c => `${c.first_name} ${c.last_name}`.trim();
-
-// ---- text of documents ----
-let mupdf;
-async function pdfText(buf) {
-  mupdf = mupdf || await import('mupdf');
-  const doc = mupdf.Document.openDocument(buf, 'application/pdf');
-  const pages = [];
-  for (let i = 0; i < doc.countPages(); i++) pages.push(doc.loadPage(i).toStructuredText('preserve-whitespace').asText());
-  return pages.map((t, i) => `[page ${i + 1}]\n${t.trim()}`).join('\n');
-}
-const isPdf = (name, mime) => /\.pdf$/i.test(name || '') || mime === 'application/pdf';
-async function bufferText(buf, name, mime) {
-  if (isPdf(name, mime)) return pdfText(buf);
-  if (/\.(txt|csv|md|html?)$/i.test(name || '') || /^text\//.test(mime || '')) return strip(buf.toString('utf8'));
-  return null; // images, Word, Excel: not read yet
-}
-const NONE = '\u0000';
-async function cachedText(key, load) {
-  fs.mkdirSync(CACHE, { recursive: true });
-  const f = path.join(CACHE, key.replace(/[^\w.-]/g, '_') + '.txt');
-  if (fs.existsSync(f)) { const t = fs.readFileSync(f, 'utf8'); return t === NONE ? null : t; }
-  let text = null;
-  try { text = await load(); } catch { text = null; }
-  fs.writeFileSync(f, text == null ? NONE : text);
-  return text;
-}
-const uploadText = (key, f) => cachedText(key, () => bufferText(fs.readFileSync(path.join(UPLOADS, f.filename)), f.original_name, f.mime_type));
-const fileText = f => uploadText(`file-${f.id}`, f);
-const noteFileText = f => uploadText(`notefile-${f.id}`, f);
-const attachmentText = a => cachedText(`att-${a.id}`, async () => bufferText(await require('./mailStore').get(a.storage_key), a.filename, a.content_type));
-
-// Old-system backups (e.g. "Splose Back Up Data.zip") hold earlier notes and reports as PDFs.
-// Entries are numbered in name order so "zip_entry 158:12" always means the same document.
-async function zipEntries(f) {
-  const listKey = `zip-${f.id}-list`;
-  const cached = await cachedText(listKey, async () => {
-    const JSZip = require('jszip');
-    const zip = await JSZip.loadAsync(fs.readFileSync(path.join(UPLOADS, f.filename)));
-    return JSON.stringify(Object.values(zip.files).filter(e => !e.dir).map(e => e.name).sort());
-  });
-  try { return JSON.parse(cached || '[]'); } catch { return []; }
-}
-async function zipEntryText(f, index) {
-  const names = await zipEntries(f);
-  const name = names[index];
-  if (!name) return { name: null, text: null };
-  const text = await cachedText(`zip-${f.id}-${index}`, async () => {
-    if (!isPdf(name) && !/\.(txt|csv|html?)$/i.test(name)) return null;
-    const JSZip = require('jszip');
-    const zip = await JSZip.loadAsync(fs.readFileSync(path.join(UPLOADS, f.filename)));
-    return bufferText(await zip.file(name).async('nodebuffer'), name);
-  });
-  return { name, text };
-}
-const isZip = f => /\.zip$/i.test(f.original_name || '');
 
 // One document out of a backup zip, for opening it from an Ask answer.
 async function zipEntryFile(fileId, index) {
@@ -81,8 +18,7 @@ async function zipEntryFile(fileId, index) {
   if (!f || !isZip(f)) return null;
   const name = (await zipEntries(f))[index];
   if (!name) return null;
-  const JSZip = require('jszip');
-  const zip = await JSZip.loadAsync(fs.readFileSync(path.join(UPLOADS, f.filename)));
+  const zip = await docs.loadZip(f);
   return { name: name.split('/').pop(), buffer: await zip.file(name).async('nodebuffer') };
 }
 
@@ -269,7 +205,7 @@ async function searchRecords(query, clientId, { canEmail }, { from = null, to = 
         else { if (prev) hits.splice(hits.indexOf(prev), 1); seenThread.set(m.conversation_id, hits[hits.length - 1]); }
       }
       for (const a of atts.all(id)) {
-        if (!isPdf(a.filename, a.content_type)) continue;
+        if (!docs.isPdf(a.filename, a.content_type)) continue;
         add('attachment', a.id, m.at, `${a.filename}\n${(await attachmentText(a)) || ''}`, { email_id: m.id, client_ids: linked, title: a.filename });
       }
     }
@@ -287,8 +223,85 @@ async function searchRecords(query, clientId, { canEmail }, { from = null, to = 
   return { searched_for: terms, ...(from || to ? { date_range: { from, to } } : {}), total_matches: unique.length, results: unique.slice(0, 20).map(({ s, ...h }) => ({ ...h, words_matched: s })) };
 }
 
-async function readRecord(kind, id, { canEmail, maxChars = 12000 }) {
-  const cut = t => (t && t.length > maxChars ? `${t.slice(0, maxChars)}\n… [${t.length - maxChars} more characters not shown]` : t);
+// ---- reading part of a long document ----
+// Most of what Ask costs is the text it reads. A long document is shown in pages: with look_for,
+// only the pages that mention those words; with pages, the pages asked for; otherwise the start.
+// PDFs keep their own pages ("[page 3]"); other long text is split into parts of about 3,000
+// characters. Text up to SHORT characters is always shown whole.
+const SHORT = 6000;
+const FOCUS_CHARS = 8000;
+const STOP = new Set(['the', 'and', 'for', 'with', 'from', 'that', 'this', 'was', 'were', 'are', 'has', 'have', 'had', 'not', 'any', 'his', 'her', 'their', 'what', 'when', 'which', 'who', 'how', 'did', 'does', 'client']);
+function splitPages(text) {
+  if (/^\[page \d+\]/m.test(text)) {
+    return text.split(/^(?=\[page \d+\])/m).filter(p => p.trim()).map(p => ({ n: Number(p.match(/^\[page (\d+)\]/)?.[1]) || 0, text: p }));
+  }
+  const out = [];
+  let rest = text;
+  while (rest.length) {
+    let end = rest.length <= 3000 ? rest.length : rest.lastIndexOf('\n', 3000);
+    if (end < 1500) end = Math.min(3000, rest.length);
+    out.push({ n: out.length + 1, text: `[part ${out.length + 1}]\n${rest.slice(0, end).trim()}` });
+    rest = rest.slice(end);
+  }
+  return out;
+}
+const pageList = ns => ns.join(', ');
+function parsePages(spec, max) {
+  const want = new Set();
+  for (const bit of String(spec).split(',')) {
+    const [a, b] = bit.split('-').map(x => Number(x.trim()));
+    if (!a) continue;
+    for (let i = a; i <= Math.min(b || a, a + 50, max); i++) want.add(i);
+  }
+  return want;
+}
+function focus(text, { lookFor = null, pages = null, maxChars = 12000 } = {}) {
+  if (!text || text.length <= SHORT) return text;
+  const all = splitPages(text);
+  const unit = /^\[page /.test(all[0]?.text || '') ? 'page' : 'part';
+  const total = all.length;
+  const take = (chosen, budget) => {
+    const out = [];
+    let used = 0;
+    for (const p of chosen) {
+      if (used && used + p.text.length > budget) break;
+      out.push(p.text.length > budget ? `${p.text.slice(0, budget)}\n… [rest of this ${unit} not shown]` : p.text);
+      used += p.text.length;
+    }
+    return { text: out.join('\n'), n: out.length };
+  };
+  if (pages) {
+    const want = parsePages(pages, total);
+    const chosen = all.filter(p => want.has(p.n));
+    if (!chosen.length) return `[This document has ${total} ${unit}s; ${unit} ${pages} doesn't exist.]`;
+    const t = take(chosen, maxChars);
+    return `[${unit}s ${pageList(chosen.slice(0, t.n).map(p => p.n))} of ${total}]\n${t.text}`;
+  }
+  if (lookFor) {
+    const terms = termsOf(lookFor).filter(t => !STOP.has(t)).map(t => (t.length > 4 && t.endsWith('s') ? t.slice(0, -1) : t));
+    const scored = all.map(p => {
+      const low = p.text.toLowerCase();
+      const distinct = terms.filter(t => low.includes(t)).length;
+      const count = terms.reduce((c, t) => c + low.split(t).length - 1, 0);
+      return { ...p, distinct, count };
+    }).filter(p => p.distinct);
+    if (!scored.length) {
+      const t = take(all, 3000);
+      return `[None of this document's ${total} ${unit}s mention: ${terms.join(', ')}. Showing the start; read other ${unit}s with pages if needed.]\n${t.text}`;
+    }
+    scored.sort((a, b) => b.distinct - a.distinct || b.count - a.count || a.n - b.n);
+    const t = take(scored, FOCUS_CHARS);
+    const shown = scored.slice(0, t.n);
+    const shownText = [...shown].sort((a, b) => a.n - b.n);
+    const others = scored.slice(t.n).map(p => p.n).sort((a, b) => a - b);
+    return `[Showing ${unit}s ${pageList(shownText.map(p => p.n))} of ${total} — the ones mentioning: ${terms.join(', ')}.${others.length ? ` ${unit[0].toUpperCase() + unit.slice(1)}s ${pageList(others)} also mention them.` : ''} Read other ${unit}s with pages if needed.]\n${shownText.map(p => p.text).join('\n')}`;
+  }
+  const t = take(all, maxChars);
+  return `[${unit}s 1–${t.n} of ${total}${t.n < total ? `; read others with pages, or give look_for to see only the ${unit}s that mention what you need` : ''}]\n${t.text}`;
+}
+
+async function readRecord(kind, id, { canEmail, maxChars = 12000, lookFor = null, pages = null }) {
+  const cut = t => focus(t, { lookFor, pages, maxChars });
   const n = Number(id);
   if (kind === 'note') { const r = db.prepare('SELECT * FROM session_notes WHERE id = ?').get(n); return r && { kind, id: r.id, client_id: r.client_id, appointment_id: r.appointment_id, written: r.created_at, text: cut(strip(r.note)) }; }
   if (kind === 'appointment') {
@@ -347,8 +360,8 @@ function nameOf(kind, id) {
   if (kind === 'note_file') return db.prepare('SELECT original_name FROM session_note_files WHERE id = ?').get(a)?.original_name || null;
   if (kind === 'attachment') return db.prepare('SELECT filename FROM email_attachments WHERE id = ?').get(a)?.filename || null;
   if (kind === 'zip_entry') {
-    const f = db.prepare('SELECT * FROM client_files WHERE id = ?').get(a);
-    const list = f && fs.existsSync(path.join(CACHE, `zip-${f.id}-list.txt`)) ? JSON.parse(fs.readFileSync(path.join(CACHE, `zip-${f.id}-list.txt`), 'utf8')) : [];
+    let list = [];
+    try { list = JSON.parse(db.prepare('SELECT text FROM document_texts WHERE key = ?').get(`zip-${a}-list`)?.text || '[]'); } catch {}
     return list[b]?.split('/').pop() || null;
   }
   return null;
@@ -366,4 +379,4 @@ function clientOf(kind, id) {
   return q ? db.prepare(q).get(n)?.client_id || null : null;
 }
 
-module.exports = { findClients, clientTimeline, searchRecords, readRecord, clientOf, nameOf, zipEntryFile };
+module.exports = { focus, findClients, clientTimeline, searchRecords, readRecord, clientOf, nameOf, zipEntryFile };

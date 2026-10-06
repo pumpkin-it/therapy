@@ -4,10 +4,12 @@ import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import AddressAutocomplete from '../components/AddressAutocomplete';
+import AiOverview from '../components/AiOverview';
 
 export default function Settings() {
   const [form, setForm] = useState({});
   const [saved, setSaved] = useState(false);
+  const [savedCount, setSavedCount] = useState(0);
   const [logoUrl, setLogoUrl] = useState(null);
   const [logoUploading, setLogoUploading] = useState(false);
   const logoInputRef = useRef();
@@ -108,6 +110,7 @@ export default function Settings() {
       .sort((a, b) => Number(a.days) - Number(b.days));
     await api.patch('/settings', { ...form, cancellation_policy: JSON.stringify(sorted), role_permissions: JSON.stringify(perms), budget_alert_to: JSON.stringify(budgetAlertTo) });
     setSaved(true);
+    setSavedCount(n => n + 1);
     setTimeout(() => setSaved(false), 2000);
   };
 
@@ -344,6 +347,8 @@ export default function Settings() {
         {field('Monthly spending limit (US$, 0 = no limit)', 'ask_monthly_limit_usd', 'number')}
         {askStatus && <p className="text-xs text-gray-500">Spent this month: US${askStatus.spent_usd.toFixed(2)}{askStatus.limit_usd > 0 ? ` of US$${askStatus.limit_usd}` : ''}. When the limit is reached, Ask stops until next month.</p>}
       </section>
+
+      <AiOverview form={form} set={set} refreshKey={savedCount} />
 
       <section className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm space-y-4">
         <div>

@@ -8,6 +8,20 @@ import Button from '../components/ui/Button';
 import EmailViewer from '../components/email/EmailViewer';
 import ScheduledList from '../components/email/ScheduledList';
 import { fmtDateOnly } from '../lib/utils';
+
+// The list shows when each email came in: the time for today's, "6 Oct, 4:30 pm" for earlier
+// ones this year, and the year as well for older ones (practice time, like the rest of Therapy).
+function listWhen(utcStr) {
+  if (!utcStr) return '';
+  const tz = 'Australia/Sydney';
+  const d = new Date(utcStr.endsWith('Z') ? utcStr : utcStr + 'Z');
+  const ymd = x => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(x);
+  const time = new Intl.DateTimeFormat('en-AU', { timeZone: tz, hour: 'numeric', minute: '2-digit', hour12: true }).format(d);
+  if (ymd(d) === ymd(new Date())) return time;
+  const sameYear = ymd(d).slice(0, 4) === ymd(new Date()).slice(0, 4);
+  const date = new Intl.DateTimeFormat('en-AU', { timeZone: tz, day: 'numeric', month: 'short', ...(sameYear ? {} : { year: 'numeric' }) }).format(d);
+  return `${date}, ${time}`;
+}
 import { senderLabel, recipientsLabel, preTicked, sortedSuggestions, tagChipClass, tagPillClass } from '../lib/email';
 import { CONTACT_ROLES } from '../lib/clientContacts';
 import { Highlight, searchTerms } from '../lib/highlight';
@@ -207,7 +221,7 @@ export default function Email() {
                         <Highlight text={m.direction === 'out' ? `To: ${recipientsLabel(m)}` : senderLabel(m)} terms={terms} />
                       </span>
                       {!!m.has_attachments && <Paperclip className="h-3.5 w-3.5 shrink-0 text-gray-400" />}
-                      <span className="ml-auto shrink-0 text-xs text-gray-400">{fmtDateOnly(m.received_at)}</span>
+                      <span className="ml-auto shrink-0 text-xs text-gray-400" title={fmtDateOnly(m.received_at)}>{listWhen(m.received_at)}</span>
                     </div>
                     <p className={`truncate text-sm ${m.is_read ? 'text-gray-600' : 'font-medium text-gray-800'}`}>{m.subject ? <Highlight text={m.subject} terms={terms} /> : '(no subject)'}</p>
                     <p className="truncate text-xs text-gray-400"><Highlight text={m.snippet} terms={terms} /></p>

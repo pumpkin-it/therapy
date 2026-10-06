@@ -242,6 +242,7 @@ export default function Ask() {
     // question elsewhere) doesn't mix them up.
     const convoId = convo?.id || null;
     let key = convoId || `new-${++newKeyRef.current}`;
+    let startedFollowUp = false;
     if (!convoId) setDraftKey(key);
     setInflight(m => ({ ...m, [key]: { question: q, askedAt: new Date().toISOString(), text: '', status: 'Starting…' } }));
     try {
@@ -265,6 +266,7 @@ export default function Ask() {
           const line = e.split('\n').find(l => l.startsWith('data: '));
           if (!line) continue;
           const ev = JSON.parse(line.slice(6));
+          if (ev.type === 'started') startedFollowUp = true;
           if (ev.type === 'started' && String(key).startsWith('new-')) {
             // The new conversation now exists: it gets its id, a place in the list ("Answering…"),
             // and — if it's still the one on screen — the address bar.
@@ -284,20 +286,23 @@ export default function Ask() {
       if (!done) throw new Error('The answer was cut off. Please try again.');
       finish(key, done.conversation_id);
     } catch (e) {
-      // The server records the failure on the question; show it if this chat is on screen.
+      // The server records the failure on the question; show it if this chat is on screen. A
+      // question that never got started (e.g. the spending limit was reached) goes back in the box.
+      if (String(key).startsWith('new-') || (convoId && !startedFollowUp)) setQuestion(q);
       finish(key, typeof key === 'number' ? key : null, e.message || 'Something went wrong.');
     }
   };
   // An answer has finished (or failed): stop showing it as in progress, and reload what's on screen.
   const openIdRef = useRef(openId);
   useEffect(() => { openIdRef.current = openId; }, [openId]);
+  // The finished conversation is reloaded before the in-progress copy is dropped, so the thread
+  // never shows without the new question in between.
   const finish = (key, conversationId, failure) => {
-    dropInflight(key);
-    if (String(key).startsWith('new-') && draftKeyRef.current === key) { setDraftKey(null); if (failure) setError(failure); }
-    if (conversationId && openIdRef.current === conversationId) {
-      api.get(`/ask/conversations/${conversationId}`).then(r => setConvo(r.data)).catch(() => {});
+    if (String(key).startsWith('new-') && draftKeyRef.current === key) { dropInflight(key); setDraftKey(null); if (failure) setError(failure); }
+    else if (conversationId && openIdRef.current === conversationId) {
+      api.get(`/ask/conversations/${conversationId}`).then(r => setConvo(r.data)).catch(() => {}).finally(() => dropInflight(key));
       if (failure) setError(failure);
-    }
+    } else dropInflight(key);
     loadList();
     loadStatus();
   };
@@ -425,7 +430,7 @@ export default function Ask() {
                     {!convo && <button type="button" title="Ask about all clients" onClick={() => setParams({})}><X className="h-3 w-3" /></button>}</span>
                 </p>
               )}
-              {error && <p className="text-sm text-red-600">{error}</p>}
+              {error && !(overLimit && /spending limit/i.test(error)) && <p className="text-sm text-red-600">{error}</p>}
               {overLimit && <p className="text-sm text-amber-700">This month's spending limit has been reached. An owner can raise it in Settings → Ask (AI).</p>}
               {readOnly ? (
                 <p className="text-sm text-gray-500">Asked by {convo.asked_by}. Only they can ask follow-ups here. <button type="button" onClick={newConversation} className="text-indigo-600 hover:underline">Ask your own question</button></p>

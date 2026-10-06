@@ -570,6 +570,28 @@ option A, or skip it and say so.
   didn't fully match "what still works" above with enough detail to reproduce.
 
 ## Changed since the last full run (check these first)
+- On UAT 2026-10-06 (not yet in production): **AI foundation** (front desk stage 1). Ask now calls AI
+  through one gateway (server/services/ai/gateway.js) and its usage goes to the new ai_usage table
+  (old ask_usage rows copied in). Check: Ask still answers with sources, streaming text, follow-ups,
+  spending shown in Settings → Ask matches before. Documents (client files, note files, email
+  attachments, backup zips) are now read once into a stored text table by a background queue
+  (every 5 min) — Ask search over PDFs/zips must still find the same documents. New **Settings → AI
+  overview** section: this month's cost per feature and model, overall limit, models per job type
+  (Quick jobs / Everyday / Hardest cases — saved with Settings), documents read/waiting, background
+  work. Nothing else in the app changes.
+- On UAT 2026-10-06 (not yet in production): **Ask reads only the relevant pages** of long documents
+  (read_record look_for / pages; documents over 6,000 characters come back in pages). Check answers
+  still cite the right documents and find details deep inside long reports.
+- On UAT 2026-10-06 (not yet in production): **Ask answer clean-up** — answers never start with a comment on
+  the record just read ("This letter doesn't mention…") and don't end by asking staff to confirm/clarify;
+  a quote headed "urgent order" is described as quoted (ordered only with a PO/confirmation/invoice/email).
+  Re-ask "Which equipment did Jupiter end up getting?" → quoted, no record of order/delivery.
+- On UAT 2026-10-06 (fixes from the AI regression run): Ask limit block shows ONE message and keeps the typed
+  question; AI overview limit updates right after Save; no flicker after a follow-up answer finishes;
+  Nai-Shing step answer has no "in this note…" opener or "if it exists elsewhere" closer; "what was
+  recommended" answers come from the assessment, not quote line items.
+- On UAT 2026-10-06 (not yet in production): **Email list shows the time** each email arrived — today's show
+  only the time ("4:30 pm"), earlier this year "6 Oct, 4:30 pm", older ones with the year.
 - UAT email setup changed 2026-10-06: UAT now **reads and sends from the real practice mailbox
   ahp@i2solutions.org.au** (UAT_MAIL_SYNC_MAILBOX; the therapy-test@ mailbox was removed). It only reads
   (never moves/deletes in Outlook). Every UAT send is still redirected to UAT_TEST_MAILBOX
@@ -674,6 +696,36 @@ Released to production 2026-09-30 — not yet covered by a full run:
   local copy (option B) and say which way it was checked.
 - Item 10: Settings → Budget Alerts "Send to" choices (default: client's practitioners, owners,
   admins — no finance).
+
+## AI features run — 2026-10-06 (UAT option A; item 19 + AI foundation, not yet in production)
+Result: **mostly PASS**; 4 bugs found, all since FIXED and re-tested PASS on UAT. Bugs: memory file
+`project_therapy_regression_bugs_2026-10-02.md`, sections "AI features regression — 2026-10-06",
+"AI bug fixes re-test — 2026-10-06", "Nai-Shing closing sentence re-test — 2026-10-06".
+Spend approved by the user; 13 questions in total (US$4.74 → US$5.27 spent this month).
+
+| Check | Result | Notes |
+|---|---|---|
+| Streaming status/text, Asked/Answered times | PASS | |
+| Known-answer questions (Jupiter trial 3 Sep 2026 [file 191], Bibo bed, Joanne, Jarrod annual) | PASS | Jarrod detail found deep in a long report and via the backup-zip search |
+| Jupiter "end up getting" | PASS | Described as quoted; no order/delivery claim; no leading/trailing comment |
+| Follow-ups, several chats at once, already-asked cards, list search/filters | PASS | "Everyone's" only checked with a single asker |
+| Source links (new tab; file/zip/attachment open) | PASS | Downloads stubbed; appointment sources not exercised; non-PDF download path not testable (no such source) |
+| Filing (auto, manual add/remove, inactive "- INACTIVE", Communications tab, History "· by") | PASS | Old inactive duplicate (C0003) correctly left unfiled |
+| Settings → Ask limit block | PASS | After fix: one message, typed question kept, AI overview Limit cell updates after Save |
+| AI overview (month by feature/model, doc counts, model per job type persists) | PASS | "Past months" not shown (no earlier data) |
+| Reads only relevant pages of long documents | PASS | |
+| Answer clean-up (opener/closer) | PASS after fix | Nai-Shing "not recorded" answer needed 2 fixes: closing "…search more broadly?" removed |
+| Home-mod answers from the assessment, not quote line items | PASS after fix | |
+| Follow-up thread flicker | PASS after fix | Sampled every ~200 ms for 35 s |
+| Email list arrival times | PASS | Today "4:30 pm", earlier this year "5 Oct, 11:33 am"; older-with-year not testable (oldest email Mar 2026) |
+
+Not tested: practitioner/Ask-only role checks for the AI changes (need a local copy), restart
+mid-answer ("interrupted"), auto-filing of an inactive client, "Past months".
+Settings changed and restored: Ask limit 20 → 0.01 → 20; Quick jobs model Haiku 4.5 → Nova Pro →
+Haiku 4.5 (saving now stores ai_tier_models {"fast": Haiku 4.5} explicitly).
+Leftovers on UAT: Ask conversations 83–92 (no delete control; all taken off the real clients they
+auto-filed to, History keeps filed/removed rows); ZZ QA client 66 (inactive).
+Tip for the next run: a "similar question asked before" card appears when re-asking — use "Ask anyway".
 
 ## Last full run — 2026-10-01 (UAT option A + local copy option B)
 Result: **items 1–17 incl. 7b all PASS on their core flows**; 7 minor bugs (1 security), all

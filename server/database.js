@@ -1966,6 +1966,77 @@ try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ask_model
 try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ask_monthly_limit_usd', '20')").run(); } catch {}
 try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ask_effort', 'low')").run(); } catch {}
 
+// AI foundation (services/ai/): every AI call from any feature goes through one gateway and is
+// logged in ai_usage (tokens, cost, how long, whether it worked), so spending can be seen and
+// limited per feature. Ask's earlier ask_usage rows are copied in once.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS ai_usage (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    feature TEXT NOT NULL,            -- 'ask', later 'email_filing', 'drafts', ...
+    task TEXT,                        -- finer detail within the feature
+    model TEXT,
+    user_id INTEGER REFERENCES practitioners(id),
+    ref_type TEXT, ref_id INTEGER,    -- what it was for, e.g. ('ask_conversation', 12)
+    job_id INTEGER,                   -- set when run by the background queue
+    input_tokens INTEGER DEFAULT 0, output_tokens INTEGER DEFAULT 0, cache_write_tokens INTEGER DEFAULT 0, cache_read_tokens INTEGER DEFAULT 0,
+    cost_usd REAL DEFAULT 0,
+    duration_ms INTEGER,
+    ok INTEGER NOT NULL DEFAULT 1,
+    error TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_feature_created ON ai_usage(feature, created_at)'); } catch {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage(created_at)'); } catch {}
+if (db.prepare("SELECT value FROM settings WHERE key = 'ai_usage_backfilled'").get()?.value !== '1') {
+  db.transaction(() => {
+    db.exec(`INSERT INTO ai_usage (feature, model, user_id, ref_type, ref_id, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, cost_usd, created_at)
+      SELECT 'ask', model, user_id, 'ask_conversation', conversation_id, COALESCE(input_tokens,0), COALESCE(output_tokens,0), COALESCE(cache_write_tokens,0), COALESCE(cache_read_tokens,0), COALESCE(cost_usd,0), created_at FROM ask_usage`);
+    db.prepare("INSERT INTO settings (key, value) VALUES ('ai_usage_backfilled', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
+  })();
+}
+// Which model each tier uses (services/ai/models.js). Features ask for a tier, not a model, so a
+// model can be swapped in one place.
+try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ai_tier_models', '{}')").run(); } catch {}
+try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ai_monthly_limit_usd', '0')").run(); } catch {} // all AI features together; 0 = no overall limit
+
+// Background jobs (services/ai/jobs.js): AI and document work done outside a person's request,
+// with retries. A dedupe_key stops the same work being queued twice while it's waiting or running.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS ai_jobs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    dedupe_key TEXT,
+    status TEXT NOT NULL DEFAULT 'queued',  -- queued | running | done | failed
+    priority INTEGER NOT NULL DEFAULT 0,    -- higher first
+    attempts INTEGER NOT NULL DEFAULT 0,
+    max_attempts INTEGER NOT NULL DEFAULT 3,
+    run_after DATETIME DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME,
+    finished_at DATETIME,
+    last_error TEXT,
+    result_json TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+try { db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_jobs_dedupe ON ai_jobs(dedupe_key) WHERE dedupe_key IS NOT NULL AND status IN ('queued', 'running')"); } catch {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_ai_jobs_pick ON ai_jobs(status, run_after, priority)'); } catch {}
+
+// Text taken out of documents (services/documentText.js): client files, session-note files, email
+// attachments and documents inside backup zips. Read once and kept, for Ask and later AI features.
+// status: 'ok' (text found), 'none' (a type that can't be read, or no text in it), 'error'.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS document_texts (
+    key TEXT PRIMARY KEY,             -- 'file-12', 'notefile-3', 'att-88', 'zip-158-12', 'zip-158-list'
+    status TEXT NOT NULL,
+    text TEXT,
+    chars INTEGER DEFAULT 0,
+    error TEXT,
+    extracted_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )
+`); } catch {}
+
 // Backfill the templates permission key (added 2026-10-06): who can create and edit all templates
 // (email, session note, agreement, form, report). Starts on for owners and admins; a role that had
 // the earlier report_templates permission keeps that choice.

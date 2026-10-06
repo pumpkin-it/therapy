@@ -54,6 +54,7 @@ app.use('/api/clients',         perm('clients'), require('./routes/clients'));
 app.use('/api/email',           perm('email'), require('./routes/email'));
 app.use('/api/tasks',           perm('email'), require('./routes/tasks'));
 app.use('/api/ask',             perm('ask'), require('./routes/ask'));
+app.use('/api/ai',              perm('settings'), require('./routes/ai'));
 app.use('/api/services',        perm('services'), require('./routes/services'));
 app.use('/api/appointments',    require('./routes/appointments')); // perm applied per-route inside
 app.use('/api/time-blocks',     require('./routes/timeBlocks')); // perm applied per-route inside
@@ -152,6 +153,9 @@ app.listen(PORT, () => {
   const mailSend = require('./services/mailSend');
   mailSend.recoverInterrupted();
   setInterval(() => mailSend.processOutbox().catch(e => console.error('Mail send error:', e.message)), 5 * 1000);
+
+  // Background AI and document jobs (services/ai/jobs.js).
+  try { require('./services/ai/setup').start(); } catch (e) { console.error('Job queue start error:', e.message); }
 
   // Waiting tasks whose follow-up date has come go back to To do.
   const runFollowUps = () => { try { require('./services/tasks').dueFollowUps(); } catch (e) { console.error('Task follow-up error:', e.message); } };

@@ -2,45 +2,26 @@
 // in Australia) is given read-only search tools (services/askTools.js) and decides which records
 // to look at; every fact in its answer cites the record it came from, e.g. [note 124].
 //
-// Spending is capped per calendar month (setting ask_monthly_limit_usd); every model call's
-// token use and cost is kept in ask_usage. Conversations are kept per person in ask_conversations
+// Model calls go through the AI gateway (services/ai/gateway.js), which logs each call's tokens
+// and cost in ai_usage (feature 'ask') and caps spending per calendar month (setting
+// ask_monthly_limit_usd). Conversations are kept per person in ask_conversations
 // so follow-up questions can build on earlier ones.
-const { AnthropicBedrock } = require('@anthropic-ai/bedrock-sdk');
-const { BedrockRuntimeClient, ConverseCommand } = require('@aws-sdk/client-bedrock-runtime');
 const db = require('../database');
 const audit = require('./audit');
 const tools = require('./askTools');
+const ai = require('./ai/gateway');
+const { MODELS } = require('./ai/models');
 
-// Models that keep data in Australia: Claude through Bedrock's AU inference profiles (Sydney and
-// Melbourne), and Amazon Nova Pro in Sydney itself (Bedrock's Converse API). Prices are US$ per
-// million tokens in those regions (Claude's include AWS's 10% regional premium).
-const MODELS = {
-  'au.anthropic.claude-sonnet-5': { label: 'Claude Sonnet 5', provider: 'claude', in: 2.2, out: 11, cacheWrite: 2.75, cacheRead: 0.22, eager: true },
-  'au.anthropic.claude-opus-5-5': { label: 'Claude Opus 5.5', provider: 'claude', in: 4.4, out: 22, cacheWrite: 5.5, cacheRead: 0.22, eager: true },
-  'au.anthropic.claude-haiku-4-5-20251001-v1:0': { label: 'Claude Haiku 4.5', provider: 'claude', in: 1.1, out: 5.5, cacheWrite: 1.375, cacheRead: 0.11, eager: false },
-  'amazon.nova-pro-v1:0': { label: 'Amazon Nova Pro', provider: 'converse', in: 0.84, out: 3.36, cacheWrite: 0, cacheRead: 0.21, maxTokens: 5000 },
-  // Open models served by Bedrock in Sydney (in-region), for comparison against Claude.
-  'deepseek.v3.2': { label: 'DeepSeek V3.2', provider: 'converse', in: 0.64, out: 1.91, cacheWrite: 0, cacheRead: 0, maxTokens: 8000 },
-  'qwen.qwen3-235b-a22b-2507-v1:0': { label: 'Qwen 3 235B', provider: 'converse', in: 0.2266, out: 0.9064, cacheWrite: 0, cacheRead: 0, maxTokens: 8000 },
-  'moonshotai.kimi-k2.5': { label: 'Kimi K2.5', provider: 'converse', in: 0.62, out: 3.09, cacheWrite: 0, cacheRead: 0, maxTokens: 8000 },
-  'zai.glm-5': { label: 'GLM 5', provider: 'converse', in: 1.03, out: 3.3, cacheWrite: 0, cacheRead: 0, maxTokens: 8000 },
-};
 const DEFAULT_MODEL = 'au.anthropic.claude-sonnet-5';
 const MAX_ROUNDS = 15;
 const TOOL_RESULT_CHARS = 40000;
 
-const REGION = process.env.ASK_AWS_REGION || 'ap-southeast-2';
-let claudeClient, converseClient;
-const claude = () => (claudeClient = claudeClient || new AnthropicBedrock({ awsRegion: REGION }));
-const bedrockRuntime = () => (converseClient = converseClient || new BedrockRuntimeClient({ region: REGION }));
 const setting = (k, d) => db.prepare('SELECT value FROM settings WHERE key = ?').get(k)?.value ?? d;
 
 function config() {
   const model = MODELS[setting('ask_model')] ? setting('ask_model') : DEFAULT_MODEL;
   const limit = Number(setting('ask_monthly_limit_usd', '20')) || 0;
-  const monthStart = new Date(new Date().toLocaleString('en-US', { timeZone: 'Australia/Melbourne' }));
-  const since = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}-01`;
-  const spent = db.prepare("SELECT COALESCE(SUM(cost_usd), 0) AS c FROM ask_usage WHERE created_at >= datetime(?, '-11 hours')").get(since).c;
+  const spent = ai.spentThisMonth('ask');
   return { model, model_label: MODELS[model].label, models: Object.entries(MODELS).map(([id, m]) => ({ id, label: m.label })), limit_usd: limit, spent_usd: Math.round(spent * 100) / 100 };
 }
 
@@ -51,22 +32,24 @@ const SYSTEM = `You answer questions from the staff of an allied health practice
 How to work:
 - Find the client first (find_clients), unless the question already gives a client_id. People are often called by a nickname, a first name only, or with spelling variations ("Jupiter" is "TianYun (Jupiter) Li"); a person can have an older inactive duplicate record, so check every matching record.
 - client_history lists the last 12 months by default and says how many older records exist; if the answer may be older (e.g. something from a previous year), call it again with an earlier "from" date.
-- Use client_history to see what is on file, then search_records with a few different wordings, and read_record to read the documents that look relevant in full. Answers usually sit inside reports, quotes, letters and emails rather than in titles, so read the documents before answering.
+- Use client_history to see what is on file, then search_records with a few different wordings, and read_record to read the documents that look relevant. Give read_record look_for with the words you're after (e.g. "step height back door"): long documents then show only the pages that mention them, which is quicker and cheaper. If those pages don't settle it, read other pages with pages. Answers usually sit inside reports, quotes, letters and emails rather than in titles, so read the documents before answering.
 - Old-system backups (zip files) contain earlier notes and reports; read their documents with read_record kind "zip_entry".
 - Records often use different words from the question: before concluding something isn't recorded, also search the clinical and related terms (e.g. "hearing test" → audiology, audiologist, hearing aid; "wheelchair" → mobility aid, AT; "ramp" → access, home modification, step).
 - Staff use everyday words; records use clinical ones. Treat them as the same thing and answer from the closest matching record, saying how the record describes it (e.g. asked about a "hearing test", answer with the "annual audiologist review" the report recommends). Only say "not recorded" when nothing close is on file.
-- Before saying a detail (a date, frequency, amount, measurement) isn't recorded, read the most relevant document in full with read_record — search snippets are short and often miss it.
+- Before saying a detail (a date, frequency, amount, measurement) isn't recorded, read the most relevant document with read_record (with look_for, and other pages if needed) — search snippets are short and often miss it.
 - Keep searching until you can answer what was asked, or have checked the likely places — don't stop at the first partial match, but don't gather background that wasn't asked for either.
 
 How to answer:
 - Start with a one- or two-sentence answer to the question. Then add only the detail needed to answer what was asked — leave out dates, history and background unless asked for (staff can ask a follow-up). State the answer once: no separate "Summary" line, and no closing sentence that repeats it.
 - Aim for about 120 words; go longer only when the question asks for a list of several items. Plain sentences, a short list only when listing items.
-- If something isn't recorded, say so and mention where you looked in one short phrase (e.g. "checked his OT notes, letters and recent emails") — not a list of every record. Don't ask staff to confirm the client or rephrase unless the name genuinely matches more than one person.
+- If something isn't recorded, say so and mention where you looked in one short phrase (e.g. "checked his OT notes, letters and recent emails") — not a list of every record. Don't ask staff to confirm the client or rephrase unless the name genuinely matches more than one person, and don't end with an offer or question (e.g. "would you like me to search more broadly?").
 - When the answer was found, don't add a sentence about what you checked.
 - Every fact must be followed by the record it came from, in square brackets, written exactly as kind and id: [note 124], [appointment 528], [file 191], [zip_entry 158:3], [note_file 7], [form 12], [report 4], [email 507], [attachment 2202], [task 16]. Several sources: [file 191] [email 507].
 - Only state what the records say. Don't add your own reasoning about consequences, risks or likely outcomes; if the question asks for something the records don't cover (e.g. what happens if an appointment is missed), say it isn't stated in the records rather than inferring it.
 - Say clearly what the records show and what they don't. Describe things by the stage the records show: "recommended", "quoted", "ordered", "delivered" — never call a quote an order, or a recommendation something the client got, unless a record says so; then say there's no record of the later stage.
-- Don't write notes to yourself while searching. Your final message is shown to staff as the answer, so it must start with the answer itself. If the answer isn't in the records, say it wasn't found and where you looked; never guess or fill gaps with general knowledge.
+- When asked what was recommended, answer from the assessment, report or recommendation letter that made the recommendation (e.g. "non-slip paint, contrast stair edges and a new handrail"), not the line items of a quote; mention a quote only as the stage it reached.
+- A quote is still a quote even if it's headed "order", "urgent order" or similar, or lists lead times. Call something ordered only when a record shows the order was placed (a purchase order, an order confirmation, an invoice, or an email saying it was ordered or approved), and delivered only when a record says it arrived. Don't say the client "got", "went ahead with" or "is getting" items without such a record.
+- Don't write notes to yourself while searching. Your final message is shown to staff as the answer, so it must start with the answer itself — never with a comment on the record you just read (e.g. "This letter doesn't mention…", "This answers it"). If the answer isn't in the records, say it wasn't found and where you looked; never guess or fill gaps with general knowledge.
 - Write dates as "3 September 2026". Use Australian spelling.
 - You can only read records. If asked to change, send or book something, explain that you can't do that yet.`;
 
@@ -92,10 +75,15 @@ const TOOLS = [
   },
   {
     name: 'read_record',
-    description: 'Read one record in full: the whole note, document text, email (with its thread and attachments), form answers, report, appointment or task.',
+    description: 'Read one record: a note, document text, email (with its thread and attachments), form answers, report, appointment or task. Short records come back whole. Long documents come back in pages: give look_for to get only the pages that mention those words (recommended), pages to read particular pages, or neither for the start.',
     input_schema: {
       type: 'object',
-      properties: { kind: { type: 'string', enum: KINDS }, id: { type: 'string', description: 'The id as shown, e.g. "191" or "158:3" for a zip_entry' } },
+      properties: {
+        kind: { type: 'string', enum: KINDS },
+        id: { type: 'string', description: 'The id as shown, e.g. "191" or "158:3" for a zip_entry' },
+        look_for: { type: ['string', 'null'], description: 'Words you need from it, e.g. "step height back door", or null' },
+        pages: { type: ['string', 'null'], description: 'Pages (or parts) to read, e.g. "3" or "2-4", or null' },
+      },
       required: ['kind', 'id'], additionalProperties: false,
     },
   },
@@ -110,7 +98,11 @@ function checkInput(name, input) {
   if (!dateOk(i.from) || !dateOk(i.to)) return 'from and to must be dates written YYYY-MM-DD, or null';
   if (name === 'client_history') return Number.isInteger(i.client_id) ? null : 'client_id must be a whole number';
   if (name === 'search_records') return typeof i.query === 'string' && i.query.trim() && (i.client_id === null || i.client_id === undefined || Number.isInteger(i.client_id)) ? null : 'query is required and client_id must be a number or null';
-  if (name === 'read_record') return KINDS.includes(i.kind) && /^\d+(:\d+)?$/.test(String(i.id)) ? null : 'kind must be one of the listed kinds and id a number (or file:number for zip_entry)';
+  if (name === 'read_record') {
+    if (!KINDS.includes(i.kind) || !/^\d+(:\d+)?$/.test(String(i.id))) return 'kind must be one of the listed kinds and id a number (or file:number for zip_entry)';
+    if (i.pages != null && !/^\s*\d+(\s*[-,]\s*\d+)*\s*$/.test(String(i.pages))) return 'pages must look like "3", "2-4" or "2, 5", or be null';
+    return null;
+  }
   return `unknown tool ${name}`;
 }
 
@@ -119,7 +111,7 @@ async function runTool(name, input, opts) {
   const range = { from: input.from || null, to: input.to || null };
   if (name === 'client_history') return tools.clientTimeline(input.client_id, opts, range);
   if (name === 'search_records') return tools.searchRecords(input.query, input.client_id ?? null, opts, range);
-  if (name === 'read_record') return (await tools.readRecord(input.kind, input.id, opts)) || { error: `No ${input.kind} with id ${input.id}` };
+  if (name === 'read_record') return (await tools.readRecord(input.kind, input.id, { ...opts, lookFor: input.look_for || null, pages: input.pages || null })) || { error: `No ${input.kind} with id ${input.id}` };
   return { error: `Unknown tool ${name}` };
 }
 
@@ -131,7 +123,6 @@ function describeTool(name, input) {
   return name;
 }
 
-const costOf = (u, m) => (u.input * m.in + u.output * m.out + u.cacheWrite * m.cacheWrite + u.cacheRead * m.cacheRead) / 1e6;
 
 // A cited record must exist; the AI occasionally mixes up a kind (e.g. "report 46" for file 46).
 const EXISTS_SQL = {
@@ -159,79 +150,6 @@ function sourcesIn(text) {
   }
   return [...seen.values()];
 }
-
-// One model turn, in each provider's own message format. Both return the text written, the tool
-// calls asked for as { id, name, input }, why it stopped, and token use; and both add the turn
-// (and later the tool results) to `messages` in the shape that provider expects back.
-// Each round re-sends the whole conversation so far. A cache breakpoint on the newest message
-// lets the next round read everything before it from Bedrock's prompt cache at a tenth of the
-// input price. Added to a copy for this request only, so at most one message breakpoint is ever
-// sent (plus the system prompt's and the tools'); the stored conversation is left as it was.
-function withCacheBreakpoint(messages) {
-  if (!messages.length) return messages;
-  const last = messages[messages.length - 1];
-  const blocks = typeof last.content === 'string' ? [{ type: 'text', text: last.content }] : last.content;
-  const marked = blocks.map((b, i) => (i === blocks.length - 1 ? { ...b, cache_control: { type: 'ephemeral' } } : b));
-  return [...messages.slice(0, -1), { ...last, content: marked }];
-}
-
-const claudeTurns = {
-  user: text => ({ role: 'user', content: text }),
-  async turn(modelId, model, messages, onText, opts = {}) {
-    const tools = TOOLS.map((t, i) => ({ ...t, ...(model.eager ? { eager_input_streaming: true } : {}), ...(i === TOOLS.length - 1 ? { cache_control: { type: 'ephemeral' } } : {}) }));
-    const stream = claude().messages.stream({
-      model: modelId,
-      max_tokens: 16000,
-      thinking: { type: 'adaptive' },
-      output_config: { effort: opts.effort },
-      system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }],
-      tools,
-      messages: withCacheBreakpoint(messages),
-    });
-    stream.on('text', onText);
-    const msg = await stream.finalMessage();
-    messages.push({ role: 'assistant', content: msg.content });
-    const u = msg.usage || {};
-    return {
-      text: msg.content.filter(b => b.type === 'text').map(b => b.text).join('\n\n').trim(),
-      toolUses: msg.content.filter(b => b.type === 'tool_use').map(b => ({ id: b.id, name: b.name, input: b.input })),
-      stop: msg.stop_reason === 'refusal' ? 'refusal' : msg.stop_reason === 'max_tokens' ? 'max_tokens' : 'ok',
-      usage: { input: u.input_tokens || 0, output: u.output_tokens || 0, cacheWrite: u.cache_creation_input_tokens || 0, cacheRead: u.cache_read_input_tokens || 0 },
-    };
-  },
-  results: rs => ({ role: 'user', content: rs.map(r => ({ type: 'tool_result', tool_use_id: r.id, content: r.content, ...(r.error ? { is_error: true } : {}) })) }),
-};
-
-// Converse tool schemas (Nova and the open models): no "null" type unions, so an omitted
-// client_id means "everyone".
-const novaSchema = schema => {
-  const props = Object.fromEntries(Object.entries(schema.properties).map(([k, v]) => [k, Array.isArray(v.type) ? { ...v, type: v.type.find(t => t !== 'null') } : v]));
-  const required = schema.required.filter(k => !Array.isArray(schema.properties[k].type));
-  return { type: 'object', properties: props, required };
-};
-const converseTurns = {
-  user: text => ({ role: 'user', content: [{ text }] }),
-  async turn(modelId, model, messages) {
-    const res = await bedrockRuntime().send(new ConverseCommand({
-      modelId,
-      system: [{ text: SYSTEM }],
-      messages,
-      toolConfig: { tools: TOOLS.map(t => ({ toolSpec: { name: t.name, description: t.description, inputSchema: { json: novaSchema(t.input_schema) } } })) },
-      inferenceConfig: { maxTokens: model.maxTokens || 5000, temperature: 0.2 },
-    }));
-    const content = res.output?.message?.content || [];
-    messages.push({ role: 'assistant', content });
-    const u = res.usage || {};
-    return {
-      text: content.filter(b => b.text).map(b => b.text).join('\n\n').replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim(),
-      toolUses: content.filter(b => b.toolUse).map(b => ({ id: b.toolUse.toolUseId, name: b.toolUse.name, input: b.toolUse.input })),
-      stop: res.stopReason === 'content_filtered' || res.stopReason === 'guardrail_intervened' ? 'refusal' : res.stopReason === 'max_tokens' ? 'max_tokens' : 'ok',
-      usage: { input: u.inputTokens || 0, output: u.outputTokens || 0, cacheWrite: u.cacheWriteInputTokens || 0, cacheRead: u.cacheReadInputTokens || 0 },
-    };
-  },
-  results: rs => ({ role: 'user', content: rs.map(r => ({ toolResult: { toolUseId: r.id, content: [{ text: r.content }], ...(r.error ? { status: 'error' } : {}) } })) }),
-};
-const PROVIDERS = { claude: claudeTurns, converse: converseTurns };
 
 // ---- filing conversations to clients ----
 // The clients a set of answer sources belong to: a record's own client, the clients an email is
@@ -302,6 +220,43 @@ function unfileFromClient(conversationId, clientId, userId) {
 class AskError extends Error { constructor(message, status = 400) { super(message); this.status = status; } }
 
 // Answer one question (optionally continuing a conversation), reporting progress through
+// The model sometimes starts its answer with a comment on the record it just read ("This letter
+// doesn't mention a back door step — …") or ends a not-found answer by asking staff to confirm the
+// client. Both are against its instructions; remove them so the answer starts with the answer.
+const LEADING_NOTE = /^(?:this|that|these|the above)\s+(?:letter|document|email|note|record|report|file|quote|one|thread|page|pdf|mentions?|doesn't|does not|answers?|confirms?|shows?|gives?|is about|concerns?|only)\b[^.!?\n]*[.!?]\s*/i;
+const TRAILING_ASK = /\s*(?:If (?:a|an|the|this|that|any)\b[^.?\n]*(?:clarify|confirm|check|exists elsewhere|is recorded elsewhere|elsewhere)[^.?\n]*[.?]|(?:Could|Can|Would) you (?:please )?(?:confirm|clarify|check)[^?\n]*\?|Please (?:confirm|clarify)[^.?\n]*[.?])\s*$/i;
+// A first sentence that talks about "this note" / "this letter" is about the record just read.
+const RECORD_WORDS = '(?:note|letter|document|email|record|report|file|quote|thread|page|pdf|attachment)';
+const LEADING_THIS = new RegExp(`^[^.!?\\n]*\\b(?:in|from|of)?\\s*(?:this|that)\\s+${RECORD_WORDS}\\b[^.!?\\n]*[.!?]\\s*`, 'i');
+function tidyAnswer(text) {
+  let t = String(text || '').trim();
+  // Only a "this note" sentence saying what's NOT there is dropped; one that gives the answer
+  // ("According to this report, the trial was on 3 September") is kept.
+  const negativeThis = x => { const m = x.match(LEADING_THIS); return !!m && /\b(?:no|not|doesn't|does not|isn't|only|without|nothing)\b/i.test(m[0]); };
+  for (let i = 0; i < 2 && (LEADING_NOTE.test(t) || negativeThis(t)); i++) {
+    const rest = t.replace(LEADING_NOTE.test(t) ? LEADING_NOTE : LEADING_THIS, '').trim();
+    if (rest.length < 25) break;
+    t = rest.replace(/^[—–-]\s*/, '');
+    t = t.charAt(0).toUpperCase() + t.slice(1);
+  }
+  // An answer never ends by questioning staff ("would you like me to search more broadly?") or
+  // suggesting they meant someone else; drop up to two such closing sentences.
+  let trimmed = t.replace(TRAILING_ASK, '').trim();
+  const lastSentence = /(?:^|(?<=[.!?\]])\s+)([^.!?]*(?:[.!?](?![^\s]))?)\s*$/;
+  for (let i = 0; i < 2; i++) {
+    const m = trimmed.match(lastSentence);
+    const last = m ? m[1].trim() : '';
+    if (!last) break;
+    const isQuestion = last.endsWith('?');
+    const meantElse = /\b(?:different|another|other) (?:client|record|person|name)\b|\byou(?:'re| are| may be| might be) thinking of\b/i.test(last);
+    if (!isQuestion && !meantElse) break;
+    const rest = trimmed.slice(0, trimmed.length - m[0].length).trim();
+    if (rest.length < 40) break;
+    trimmed = rest;
+  }
+  return trimmed.length >= 40 ? trimmed : t;
+}
+
 // onEvent: { type: 'status', text } while searching, { type: 'text', text } as the answer is
 // written, { type: 'restart' } when the model goes back to searching after writing some text.
 // `modelId` overrides the Settings choice (used to compare models side by side); a follow-up
@@ -312,9 +267,7 @@ async function ask({ user, question, conversationId, clientId, canEmail, modelId
   const q = String(question || '').trim();
   if (!q) throw new AskError('Type a question');
   const cfg = config();
-  if (cfg.limit_usd > 0 && cfg.spent_usd >= cfg.limit_usd) {
-    throw new AskError(`This month's Ask spending limit (US$${cfg.limit_usd}) has been reached. An owner can raise it in Settings.`, 402);
-  }
+  try { ai.checkBudget('ask', 'Ask'); } catch (e) { throw new AskError(e.message, 402); }
   let convo = null;
   if (conversationId) {
     convo = db.prepare('SELECT * FROM ask_conversations WHERE id = ? AND user_id = ?').get(conversationId, user.id);
@@ -323,7 +276,7 @@ async function ask({ user, question, conversationId, clientId, canEmail, modelId
   }
   const useModel = (convo?.model && MODELS[convo.model]) ? convo.model : (modelId && MODELS[modelId] ? modelId : cfg.model);
   const model = MODELS[useModel];
-  const provider = PROVIDERS[model.provider];
+  const provider = ai.formatFor(useModel);
   const EFFORTS = ['low', 'medium', 'high'];
   const useEffort = EFFORTS.includes(effort) ? effort : EFFORTS.includes(setting('ask_effort')) ? setting('ask_effort') : 'low';
   const messages = convo ? JSON.parse(convo.messages_json) : [];
@@ -352,16 +305,16 @@ async function ask({ user, question, conversationId, clientId, canEmail, modelId
   const opts = { canEmail };
   let cost = 0;
   let answer = '';
-  const logUsage = db.prepare('INSERT INTO ask_usage (conversation_id, user_id, model, input_tokens, output_tokens, cache_write_tokens, cache_read_tokens, cost_usd) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
-  const usageRows = [];
 
   try {
   for (let round = 0; round < MAX_ROUNDS; round++) {
     let wrote = false;
-    const turn = await provider.turn(useModel, model, messages, delta => { wrote = true; onEvent({ type: 'text', text: delta }); }, { effort: useEffort });
-    const c = costOf(turn.usage, model);
-    cost += c;
-    usageRows.push([turn.usage.input, turn.usage.output, turn.usage.cacheWrite, turn.usage.cacheRead, c]);
+    const turn = await ai.turn({
+      feature: 'ask', model: useModel, system: SYSTEM, tools: TOOLS, messages, effort: useEffort,
+      onText: delta => { wrote = true; onEvent({ type: 'text', text: delta }); },
+      userId: user.id, ref: { type: 'ask_conversation', id }, skipBudget: true,
+    });
+    cost += turn.cost_usd;
 
     if (turn.stop === 'refusal') { answer = 'The AI declined to answer this question. Try rewording it.'; break; }
     if (turn.stop === 'max_tokens' && turn.toolUses.length) { answer = 'The answer got too long to finish. Try a narrower question.'; break; }
@@ -382,22 +335,20 @@ async function ask({ user, question, conversationId, clientId, canEmail, modelId
     if (round === MAX_ROUNDS - 1) answer = 'I looked through a lot of records without settling on an answer. Try a more specific question.';
   }
   } catch (e) {
-    // Keep the cost of the calls that did happen, and record that this question failed.
+    // Record that this question failed (the gateway has already logged the calls that happened).
     db.transaction(() => {
-      for (const r of usageRows) logUsage.run(id, user.id, useModel, ...r);
       const failed = { question: q, asked_at: askedAt, answer: 'This question could not be answered (Ask had a problem). Please ask it again.', failed: true, sources: [], at: new Date().toISOString() };
       db.prepare("UPDATE ask_conversations SET turns_json = ?, status = 'done', updated_at = datetime('now') WHERE id = ?").run(JSON.stringify([...turns, failed]), id);
     })();
     throw e;
   }
 
-  answer = dropBadCitations(answer);
+  answer = dropBadCitations(tidyAnswer(answer));
   const sources = sourcesIn(answer);
   const now = new Date().toISOString();
   turns.push({ question: q, asked_at: askedAt, answer, sources, cost_usd: Math.round(cost * 10000) / 10000, at: now });
   db.transaction(() => {
     db.prepare("UPDATE ask_conversations SET messages_json = ?, turns_json = ?, status = 'done', updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(messages), JSON.stringify(turns), id);
-    for (const r of usageRows) logUsage.run(id, user.id, useModel, ...r);
     // File it to the clients its answer drew on.
     fileToClients(id, clientsOfSources(sources), 'cited', user.id);
     fileToClients(id, clientsLookedUp(messages), 'looked_up', user.id);
@@ -405,4 +356,4 @@ async function ask({ user, question, conversationId, clientId, canEmail, modelId
   return { conversation_id: id, answer, sources, model: model.label, cost_usd: Math.round(cost * 10000) / 10000 };
 }
 
-module.exports = { ask, config, MODELS, AskError, sourcesIn, dropBadCitations, filedClients, fileToClients, unfileFromClient, clientsOfSources, clientsLookedUp };
+module.exports = { tidyAnswer, ask, config, MODELS, AskError, sourcesIn, dropBadCitations, filedClients, fileToClients, unfileFromClient, clientsOfSources, clientsLookedUp };
