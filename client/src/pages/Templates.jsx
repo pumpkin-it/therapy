@@ -306,14 +306,9 @@ function FormTemplates() {
 export default function Templates() {
   const location = useLocation();
   const { user } = useAuth();
-  // Email/note/agreement/form templates need the Settings permission; report templates are for
-  // owners and admins (who don't have Settings by default) — so an admin sees only that tab.
-  const canSettings = !!user?.permissions?.settings;
-  const canReports = ['owner', 'admin'].includes(user?.role) || !!user?.permissions?.report_templates;
-  const TABS = [
-    ...(canSettings ? [['email', 'Email Templates'], ['session_note', 'Session Note Templates'], ['agreement', 'Agreement Templates'], ['forms', 'Forms']] : []),
-    ...(canReports ? [['reports', 'Report Templates']] : []),
-  ];
+  // Every template type is managed by the owner and any role with the Templates permission.
+  const can = user?.role === 'owner' || !!user?.permissions?.templates;
+  const TABS = can ? [['email', 'Email Templates'], ['session_note', 'Session Note Templates'], ['agreement', 'Agreement Templates'], ['forms', 'Forms'], ['reports', 'Report Templates']] : [];
   const requested = location.state?.tab;
   const [tab, setTab] = useState(TABS.some(([id]) => id === requested) ? requested : TABS[0]?.[0]);
 

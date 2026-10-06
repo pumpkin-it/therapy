@@ -101,6 +101,7 @@ function AuthenticatedApp() {
   const isAdmin = ['owner', 'admin'].includes(user.role);
   // The full Audit Log is owner/admin/finance only (server enforces it too).
   const canAuditLog = isAdmin || user.role === 'finance';
+  const canTemplates = user.role === 'owner' || !!p.templates;
   const home = p.calendar ? '/calendar' : p.clients ? '/clients' : p.invoices ? '/invoices' : p.reports ? '/reports' : canAuditLog ? '/audit-log' : null;
 
   return (
@@ -116,8 +117,8 @@ function AuthenticatedApp() {
           {p.email && <Route path="/tasks" element={<Tasks />} />}
           {p.ask && <Route path="/ask" element={<Ask />} />}
           {p.clients && <Route path="/clients/:id" element={<ClientDetail />} />}
-          {(isAdmin || p.report_templates) && <Route path="/report-templates" element={<Navigate to="/templates" state={{ tab: 'reports' }} replace />} />}
-          {(isAdmin || p.report_templates) && <Route path="/report-templates/:id" element={<Suspense fallback={<div className="p-6 text-sm text-gray-400">Loading editor…</div>}><ReportTemplateEditor /></Suspense>} />}
+          {canTemplates && <Route path="/report-templates" element={<Navigate to="/templates" state={{ tab: 'reports' }} replace />} />}
+          {canTemplates && <Route path="/report-templates/:id" element={<Suspense fallback={<div className="p-6 text-sm text-gray-400">Loading editor…</div>}><ReportTemplateEditor /></Suspense>} />}
           {p.clients && <Route path="/clients/:id/reports/:reportId/write" element={<Suspense fallback={<div className="p-6 text-sm text-gray-400">Loading editor…</div>}><ReportEditor /></Suspense>} />}
           {p.users && <Route path="/practitioners" element={<Practitioners />} />}
           {p.funds_managers && <Route path="/funds-managers" element={<FundsManagers />} />}
@@ -128,8 +129,8 @@ function AuthenticatedApp() {
           {p.calendar && <Route path="/recurring-series/:id" element={<RecurringSeriesDetail />} />}
           {p.invoices && <Route path="/invoices" element={<Invoices />} />}
           {p.reports && <Route path="/reports" element={<Reports />} />}
-          {(p.settings || isAdmin || p.report_templates) && <Route path="/templates" element={<Templates />} />}
-          {p.settings && <Route path="/templates/forms/:id" element={<FormBuilder />} />}
+          {canTemplates && <Route path="/templates" element={<Templates />} />}
+          {canTemplates && <Route path="/templates/forms/:id" element={<FormBuilder />} />}
           {canAuditLog && <Route path="/audit-log" element={<AuditLog />} />}
           {p.settings && <Route path="/settings" element={<Settings />} />}
           {p.services && <Route path="/funding-types/:id/rates" element={<FundingTypeRates />} />}

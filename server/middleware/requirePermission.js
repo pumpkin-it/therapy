@@ -41,3 +41,11 @@ module.exports = requirePermission;
 module.exports.permAny = requireAnyPermission;
 module.exports.getPermissions = getPermissions;
 module.exports.hasPermission = hasPermission;
+
+// Creating, editing and deleting templates (email, session note, agreement, form, report): the
+// owner always, and any role given the "Templates" permission. Reading them is open to everyone
+// who works with clients.
+const canManageTemplates = user => user?.role === 'owner' || hasPermission(user, 'templates');
+module.exports.canManageTemplates = canManageTemplates;
+module.exports.requireTemplates = (req, res, next) => (canManageTemplates(req.user)
+  ? next() : res.status(403).json({ error: 'You need the Templates permission to change templates' }));

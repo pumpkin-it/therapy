@@ -1943,8 +1943,9 @@ try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ask_model
 try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ask_monthly_limit_usd', '20')").run(); } catch {}
 try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ask_effort', 'low')").run(); } catch {}
 
-// Backfill the report_templates permission key (added 2026-10-05): who can create and edit report
-// templates besides owners and admins (who always can). Off for other roles until switched on.
+// Backfill the templates permission key (added 2026-10-06): who can create and edit all templates
+// (email, session note, agreement, form, report). Starts on for owners and admins; a role that had
+// the earlier report_templates permission keeps that choice.
 {
   const row = db.prepare("SELECT value FROM settings WHERE key = 'role_permissions'").get();
   if (row) {
@@ -1952,10 +1953,11 @@ try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('ask_effor
       const perms = JSON.parse(row.value);
       let changed = false;
       for (const role of Object.keys(perms)) {
-        if (perms[role].report_templates === undefined) {
-          perms[role].report_templates = role === 'owner' || role === 'admin';
+        if (perms[role].templates === undefined) {
+          perms[role].templates = perms[role].report_templates !== undefined ? !!perms[role].report_templates : (role === 'owner' || role === 'admin');
           changed = true;
         }
+        if (perms[role].report_templates !== undefined) { delete perms[role].report_templates; changed = true; }
       }
       if (changed) db.prepare("UPDATE settings SET value = ? WHERE key = 'role_permissions'").run(JSON.stringify(perms));
     } catch {}

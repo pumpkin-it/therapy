@@ -3,11 +3,7 @@ const db = require('../database');
 const auth = require('../middleware/auth');
 const { acceptImage, discardUpload } = require('./reportImages');
 
-function requireAdminOrOwner(req, res, next) {
-  if (!['owner', 'admin'].includes(req.user?.role))
-    return res.status(403).json({ error: 'Only admin or owner can manage templates' });
-  next();
-}
+const { requireTemplates } = require('../middleware/requirePermission');
 
 router.get('/', auth, (req, res) => {
   const { type } = req.query;
@@ -19,13 +15,13 @@ router.get('/', auth, (req, res) => {
 });
 
 // Pictures in session-note and agreement templates (DocEditor). Stored and served like report pictures.
-router.post('/images', auth, acceptImage, (req, res) => {
+router.post('/images', auth, requireTemplates, acceptImage, (req, res) => {
   if (!['owner', 'admin'].includes(req.user?.role)) { discardUpload(req); return res.status(403).json({ error: 'Only admin or owner can manage templates' }); }
   if (!req.file) return res.status(400).json({ error: 'Upload a PNG, JPG, GIF or WebP image.' });
   res.status(201).json({ url: `/api/report-images/${req.file.filename}` });
 });
 
-router.post('/', auth, requireAdminOrOwner, (req, res) => {
+router.post('/', auth, requireTemplates, (req, res) => {
   const { name, body, type, has_pricing_table } = req.body;
   if (!name || !body) return res.status(400).json({ error: 'name and body required' });
   const result = db.prepare(
@@ -34,7 +30,7 @@ router.post('/', auth, requireAdminOrOwner, (req, res) => {
   res.status(201).json(db.prepare('SELECT * FROM templates WHERE id = ?').get(result.lastInsertRowid));
 });
 
-router.put('/:id', auth, requireAdminOrOwner, (req, res) => {
+router.put('/:id', auth, requireTemplates, (req, res) => {
   const tpl = db.prepare('SELECT * FROM templates WHERE id = ?').get(req.params.id);
   if (!tpl) return res.status(404).json({ error: 'Not found' });
   const { name, subject, body, has_pricing_table } = req.body;
@@ -43,7 +39,7 @@ router.put('/:id', auth, requireAdminOrOwner, (req, res) => {
   res.json(db.prepare('SELECT * FROM templates WHERE id = ?').get(req.params.id));
 });
 
-router.delete('/:id', auth, requireAdminOrOwner, (req, res) => {
+router.delete('/:id', auth, requireTemplates, (req, res) => {
   const tpl = db.prepare('SELECT * FROM templates WHERE id = ?').get(req.params.id);
   if (!tpl) return res.status(404).json({ error: 'Not found' });
   if (tpl.is_system) return res.status(400).json({ error: 'System templates cannot be deleted' });

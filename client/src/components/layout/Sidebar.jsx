@@ -19,9 +19,7 @@ const nav = [
   { to: '/services',        label: 'Services',   icon: Layers,       perm: 'services' },
   { to: '/invoices',        label: 'Invoices',   icon: FileText,     perm: 'invoices' },
   { to: '/reports',         label: 'Reports',    icon: BarChart3,    perm: 'reports' },
-  // Owners/admins always see Templates (for its Report Templates tab); the other tabs still need
-  // the Settings permission (see pages/Templates.jsx).
-  { to: '/templates',        label: 'Templates',  icon: ClipboardList, perm: 'settings', orRoles: ['owner', 'admin'], orPerm: 'report_templates' },
+  { to: '/templates',        label: 'Templates',  icon: ClipboardList, perm: 'templates', orRoles: ['owner'] },
   // Owner/admin/finance only — 'audit_log' isn't a real permission key, so only orRoles shows it.
   { to: '/audit-log',       label: 'Audit Log',  icon: ScrollText,   perm: 'audit_log', orRoles: ['owner', 'admin', 'finance'] },
   { to: '/settings',        label: 'Settings',   icon: Settings,     perm: 'settings' },
@@ -31,7 +29,7 @@ export default function Sidebar() {
   const { user, logout } = useAuth();
   const perms = user?.permissions || {};
 
-  const visibleNav = nav.filter(n => !n.perm || perms[n.perm] || n.orRoles?.includes(user?.role) || (n.orPerm && perms[n.orPerm]));
+  const visibleNav = nav.filter(n => !n.perm || perms[n.perm] || n.orRoles?.includes(user?.role));
   const navigate = useNavigate();
   // Red number on Invoices: report invoices overdue (finance sees them all). Click → that tile.
   const overdue = useOverdueReports(!!perms.invoices && !!perms.clients);

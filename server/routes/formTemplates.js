@@ -3,11 +3,6 @@ const db = require('../database');
 const auth = require('../middleware/auth');
 const perm = require('../middleware/requirePermission');
 
-function requireAdminOrOwner(req, res, next) {
-  if (!['owner', 'admin'].includes(req.user?.role))
-    return res.status(403).json({ error: 'Only admin or owner can manage forms' });
-  next();
-}
 
 function serialize(row) {
   if (!row) return row;
@@ -32,7 +27,7 @@ router.get('/:id', auth, perm.permAny('clients', 'settings'), (req, res) => {
   res.json(serialize(row));
 });
 
-router.post('/', auth, perm('settings'), requireAdminOrOwner, (req, res) => {
+router.post('/', auth, perm.requireTemplates, (req, res) => {
   const { name, description, schema, folder } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'name required' });
   const result = db.prepare(
@@ -41,7 +36,7 @@ router.post('/', auth, perm('settings'), requireAdminOrOwner, (req, res) => {
   res.status(201).json(serialize(db.prepare('SELECT * FROM form_templates WHERE id = ?').get(result.lastInsertRowid)));
 });
 
-router.put('/:id', auth, perm('settings'), requireAdminOrOwner, (req, res) => {
+router.put('/:id', auth, perm.requireTemplates, (req, res) => {
   const tpl = db.prepare('SELECT * FROM form_templates WHERE id = ?').get(req.params.id);
   if (!tpl) return res.status(404).json({ error: 'Not found' });
   const { name, description, schema, folder } = req.body;
@@ -56,7 +51,7 @@ router.put('/:id', auth, perm('settings'), requireAdminOrOwner, (req, res) => {
   res.json(serialize(db.prepare('SELECT * FROM form_templates WHERE id = ?').get(req.params.id)));
 });
 
-router.delete('/:id', auth, perm('settings'), requireAdminOrOwner, (req, res) => {
+router.delete('/:id', auth, perm.requireTemplates, (req, res) => {
   const tpl = db.prepare('SELECT * FROM form_templates WHERE id = ?').get(req.params.id);
   if (!tpl) return res.status(404).json({ error: 'Not found' });
   db.prepare('UPDATE form_templates SET active = 0 WHERE id = ?').run(req.params.id);
