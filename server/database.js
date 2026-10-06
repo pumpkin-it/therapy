@@ -1880,6 +1880,29 @@ try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('email_aut
 try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('tasks_done_when_left_inbox', '0')").run(); } catch {}
 try { db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('tasks_follow_up_days', '3')").run(); } catch {}
 
+// The New view works like an inbox: every incoming email stays there until a person deals with it
+// (files it, replies or forwards, or marks it Done). Automatic filing doesn't count.
+try { db.exec('ALTER TABLE email_messages ADD COLUMN actioned_at DATETIME'); } catch {}
+try { db.exec('ALTER TABLE email_messages ADD COLUMN actioned_by INTEGER REFERENCES practitioners(id)'); } catch {}
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_email_messages_new ON email_messages(direction, actioned_at, received_at)'); } catch {}
+// Only mail from when the inbox started counts (the copied-in history isn't a to-do list): the
+// moment task tracking began, or now.
+try { db.prepare("INSERT OR IGNORE INTO settings (key, value) SELECT 'email_new_since', COALESCE((SELECT value FROM settings WHERE key = 'tasks_started_at'), ?)").run(new Date().toISOString()); } catch {}
+// One-time, when New is introduced: email a person already filed, or replied to / forwarded from
+// Therapy, has been dealt with.
+try {
+  if (!db.prepare("SELECT 1 FROM settings WHERE key = 'email_new_backfilled'").get()) {
+    db.transaction(() => {
+      db.prepare("UPDATE email_messages SET actioned_at = COALESCE(filed_at, CURRENT_TIMESTAMP), actioned_by = filed_by WHERE actioned_at IS NULL AND direction = 'in' AND filed_by IS NOT NULL").run();
+      for (const o of db.prepare("SELECT created_by, payload FROM email_outbox WHERE status = 'sent'").all()) {
+        let src = null; try { src = JSON.parse(o.payload).source_id; } catch {}
+        if (src) db.prepare('UPDATE email_messages SET actioned_at = CURRENT_TIMESTAMP, actioned_by = ? WHERE id = ? AND actioned_at IS NULL').run(o.created_by, src);
+      }
+      db.prepare("INSERT INTO settings (key, value) VALUES ('email_new_backfilled', '1')").run();
+    })();
+  }
+} catch {}
+
 // Undo for email filing (routes/email.js): what the emails looked like just before a filing.
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS email_filing_undo (

@@ -570,7 +570,27 @@ option A, or skip it and say so.
   didn't fully match "what still works" above with enough detail to reproduce.
 
 ## Changed since the last full run (check these first)
-- On UAT 2026-10-06 (not yet in production): one **Templates** permission (Settings → Role Permissions;
+- UAT email setup changed 2026-10-06: UAT now **reads and sends from the real practice mailbox
+  ahp@i2solutions.org.au** (UAT_MAIL_SYNC_MAILBOX; the therapy-test@ mailbox was removed). It only reads
+  (never moves/deletes in Outlook). Every UAT send is still redirected to UAT_TEST_MAILBOX
+  (peterchen@flexisupport.com.au) with "[UAT TEST]", but its copy lands in ahp@'s Sent Items — so
+  production Therapy will also copy it in. Real UAT sends still only with the user's yes.
+- On UAT 2026-10-06 (not yet in production): **email body and My signature use the Word-style
+  editor** (same as notes/templates): fonts, sizes, **font colour**, highlight, alignment, tables and
+  **pictures** (picture button, paste or drag — e.g. a logo in the signature). Pictures are sent as inline
+  attachments (show without "download pictures"); check on a local copy with the fake mail server that a
+  sent email's pictures arrive (the [fake-graph] log lists attachments). Line spacing matches Outlook: no gap between
+  lines (paragraphs) in the editor and in the sent email; an empty line stays a blank line. Email templates
+  keep their paragraph gaps. Templates → pictures in email /
+  note / agreement templates now upload for anyone with the Templates permission (was owner/admin only).
+- On UAT 2026-10-06 (not yet in production): Email **New** tab (now the default, and the sidebar Email
+  number): every incoming email since the inbox started (2 Oct) stays in New — even when filed
+  automatically (it shows where it went) — until a person deals with it: files it (any way, incl. bulk
+  and the client's Communications tab), replies/forwards from Therapy, or clicks **Done** (above the
+  email; bulk **Mark N done**). A dealt-with email shows "Dealt with <date> · Move back to New". Undo
+  filing also restores whether it was in New. Emails already filed by a person or replied to before this
+  release start as dealt with.
+- Released to production 2026-10-06 13:02 (not yet regression-tested): one **Templates** permission (Settings → Role Permissions;
   owner/admin on, practitioner/finance off by default; replaces the short-lived "Report templates" one —
   a role that had it ticked keeps it). With it, the sidebar **Templates** page shows all tabs (Email,
   Session Note, Agreement, Forms, Report) and the person can create, edit and delete templates; without

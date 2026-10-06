@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Search, Paperclip, ArrowUpRight, Inbox, X, PenSquare } from 'lucide-react';
+import { Search, Paperclip, ArrowUpRight, Inbox, X, PenSquare, CheckCircle2 } from 'lucide-react';
 import { useCompose } from '../context/ComposeContext';
 import api from '../lib/api';
 import { refreshEmailCounts } from '../lib/useUnfiledEmailCount';
@@ -12,13 +12,14 @@ import { senderLabel, recipientsLabel, preTicked, sortedSuggestions, tagChipClas
 import { CONTACT_ROLES } from '../lib/clientContacts';
 import { Highlight, searchTerms } from '../lib/highlight';
 
-const VIEWS = [['unfiled', 'Unfiled'], ['filed', 'Filed'], ['not_client', 'No client'], ['all', 'All'], ['scheduled', 'Scheduled']];
+const VIEWS = [['new', 'New'], ['unfiled', 'Unfiled'], ['filed', 'Filed'], ['not_client', 'No client'], ['all', 'All'], ['scheduled', 'Scheduled']];
 
 // Email copied in from the practice mailbox, newest first. In Unfiled: open an email, tick its
 // clients, File — the next one down opens.
 export default function Email() {
   const [params, setParams] = useSearchParams();
-  const view = VIEWS.some(v => v[0] === params.get('view')) ? params.get('view') : 'unfiled';
+  // New is the inbox: every incoming email until someone deals with it (files, replies or Done).
+  const view = VIEWS.some(v => v[0] === params.get('view')) ? params.get('view') : 'new';
   const openId = Number(params.get('id')) || null;
   const tagFilter = Number(params.get('tag')) || null;
   const [allTags, setAllTags] = useState([]);
@@ -30,6 +31,7 @@ export default function Email() {
   const [clients, setClients] = useState([]);
   const [status, setStatus] = useState(null);
   const [unfiledCount, setUnfiledCount] = useState(null);
+  const [newCount, setNewCount] = useState(null);
   const [scheduledCount, setScheduledCount] = useState(null);
   const [selected, setSelected] = useState([]);
   const [notice, setNotice] = useState(null); // { text, undoId, emailId } after filing
@@ -56,7 +58,7 @@ export default function Email() {
 
   const refreshCount = () => {
     refreshEmailCounts();
-    api.get('/email/counts').then(r => setUnfiledCount(r.data.unfiled)).catch(() => {});
+    api.get('/email/counts').then(r => { setUnfiledCount(r.data.unfiled); setNewCount(r.data.new); }).catch(() => {});
     api.get('/email/outbox').then(r => setScheduledCount(r.data.filter(x => x.scheduled && x.status === 'pending').length)).catch(() => {});
   };
 
@@ -87,13 +89,15 @@ export default function Email() {
 
   // After filing: in the queue the email leaves the list and the next one opens.
   const onChanged = updated => {
-    const what = updated.status === 'filed' ? `Filed to ${updated.clients.map(c => c.name).join(', ')}.`
+    const what = updated.done_only ? (updated.actioned_at ? 'Marked done.' : 'Moved back to New.')
+      : updated.status === 'filed' ? `Filed to ${updated.clients.map(c => c.name).join(', ')}.`
       : updated.status === 'not_client' ? 'Filed as No client.' : 'Moved back to Unfiled.';
     const also = updated.also_filed?.length ? ` Also filed ${updated.also_filed.length} earlier email${updated.also_filed.length > 1 ? 's' : ''} in the same conversation.` : '';
     setNotice({ text: `"${updated.subject || '(no subject)'}": ${what}${also}`, undoId: updated.undo_id, emailId: updated.id });
+    if (updated.done_only) refreshEmailCounts();
     setOffer(updated.contact_offer || null);
     refreshCount();
-    const leaves = view !== 'all' && updated.status !== view;
+    const leaves = view === 'new' ? !!updated.actioned_at : view !== 'all' && updated.status !== view;
     if (!leaves) {
       setMessage(updated);
       setList(l => ({ ...l, rows: l.rows.map(x => (x.id === updated.id ? { ...x, status: updated.status, clients: updated.clients, tags: updated.tags } : x)) }));
@@ -105,6 +109,12 @@ export default function Email() {
     setList(l => ({ ...l, rows, total: Math.max(0, l.total - (l.rows.length - rows.length)) }));
     const next = rows[Math.min(Math.max(idx, 0), rows.length - 1)];
     setParam({ id: next ? next.id : null });
+  };
+
+  // Done: the email leaves New (its filing stays as it is); "Move back to New" undoes that.
+  const markDone = async done => {
+    try { onChanged({ ...(await api.post(`/email/messages/${message.id}/done`, { done })).data, done_only: true }); }
+    catch (e) { setNotice({ text: e.response?.data?.error || 'Could not update the email.' }); }
   };
 
   // Undo the last filing: everything it changed goes back, and that email opens again.
@@ -142,9 +152,9 @@ export default function Email() {
         <Button size="sm" onClick={() => openCompose({ mode: 'new', onSent: () => { load(1); refreshCount(); } })}><PenSquare className="h-4 w-4" /> New email</Button>
         <div className="flex gap-1">
           {VIEWS.map(([v, label]) => (
-            <button key={v} type="button" onClick={() => setParam({ view: v === 'unfiled' ? null : v, id: null })}
+            <button key={v} type="button" onClick={() => setParam({ view: v === 'new' ? null : v, id: null })}
               className={`rounded-full px-3 py-1 text-sm ${view === v ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
-              {label}{v === 'unfiled' && unfiledCount != null && <span className={`ml-1.5 ${view === v ? 'text-indigo-100' : 'text-gray-400'}`}>{unfiledCount}</span>}
+              {label}{(v === 'unfiled' ? unfiledCount : v === 'new' ? newCount : null) != null && <span className={`ml-1.5 ${view === v ? 'text-indigo-100' : 'text-gray-400'}`}>{v === 'unfiled' ? unfiledCount : newCount}</span>}
               {v === 'scheduled' && scheduledCount > 0 && <span className={`ml-1.5 ${view === v ? 'text-indigo-100' : 'text-gray-400'}`}>{scheduledCount}</span>}
             </button>
           ))}
@@ -182,7 +192,7 @@ export default function Email() {
             {!loading && list.rows.length === 0 && (
               <div className="flex flex-col items-center gap-2 px-6 py-16 text-center text-sm text-gray-400">
                 <Inbox className="h-8 w-8" />
-                {q || tagFilter ? 'No emails match.' : view === 'unfiled' ? 'Nothing waiting to be filed.' : 'No emails here.'}
+                {q || tagFilter ? 'No emails match.' : view === 'new' ? 'Nothing new — all caught up.' : view === 'unfiled' ? 'Nothing waiting to be filed.' : 'No emails here.'}
               </div>
             )}
             <ul className="divide-y divide-gray-100">
@@ -223,6 +233,21 @@ export default function Email() {
             </div>
           )}
           {offer && <ContactOffer offer={offer} onDone={() => setOffer(null)} />}
+          {message && message.direction === 'in' && (
+            <div className="mb-3 flex items-center gap-2 text-sm">
+              {message.actioned_at ? (
+                <>
+                  <span className="text-gray-500">Dealt with {fmtDateOnly(message.actioned_at)}.</span>
+                  <button type="button" onClick={() => markDone(false)} className="text-indigo-600 hover:underline">Move back to New</button>
+                </>
+              ) : (
+                <>
+                  <Button size="sm" variant="secondary" onClick={() => markDone(true)}><CheckCircle2 className="h-4 w-4" /> Done</Button>
+                  <span className="text-xs text-gray-400">Takes it out of New. Filing it or replying does this too.</span>
+                </>
+              )}
+            </div>
+          )}
           {message
             ? <EmailViewer message={message} clients={clients} allTags={allTags} onTagCreated={t => setAllTags(ts => (ts.some(x => x.id === t.id) ? ts : [...ts, { ...t, count: 0 }]))}
                 onChanged={onChanged} onOpen={id => setParam({ id })} onSent={() => load(1)} terms={terms} />
@@ -325,6 +350,7 @@ function BulkBar({ ids, clients, allTags, onDone, onCancel }) {
         ) : (
           <>
             <Button size="sm" variant="secondary" disabled={saving} onClick={() => run({ client_ids: [], no_client: true })}>File {ids.length} — no client</Button>
+            <Button size="sm" variant="secondary" disabled={saving} onClick={() => run({ client_ids: [], done: true })} title="Leave their filing as it is; take them out of New">Mark {ids.length} done</Button>
             {tagIds.length > 0 && <Button size="sm" variant="ghost" disabled={saving} onClick={() => run({ client_ids: [] })}>Only add tags</Button>}
           </>
         )}

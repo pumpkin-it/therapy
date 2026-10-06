@@ -34,7 +34,8 @@ export default function Sidebar() {
   // Red number on Invoices: report invoices overdue (finance sees them all). Click → that tile.
   const overdue = useOverdueReports(!!perms.invoices && !!perms.clients);
   const overdueCount = overdue?.groups?.length || 0;
-  const unfiledEmails = useUnfiledEmailCount(!!perms.email);
+  // The Email number is the New (inbox) count: incoming email no one has dealt with yet.
+  const unfiledEmails = useUnfiledEmailCount(!!perms.email, '/email/counts', 'new');
   const todoCount = useUnfiledEmailCount(!!perms.email, '/tasks/counts', 'todo');
 
   return (
@@ -82,7 +83,7 @@ export default function Sidebar() {
               </span>
             )}
             {to === '/email' && unfiledEmails > 0 && (
-              <span title={`${unfiledEmails} email${unfiledEmails === 1 ? '' : 's'} waiting to be filed`}
+              <span title={`${unfiledEmails} new email${unfiledEmails === 1 ? '' : 's'} to deal with`}
                 className="ml-auto rounded-full bg-amber-500 px-2 py-0.5 text-[11px] font-semibold leading-none text-white">
                 {unfiledEmails}
               </span>

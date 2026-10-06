@@ -65,7 +65,8 @@ async function graphSend({ from, to, cc, subject, html, text, attachments, debug
 
   const rows = db.prepare("SELECT key,value FROM settings WHERE key LIKE 'graph_%'").all();
   const cfg = Object.fromEntries(rows.map(r => [r.key, r.value]));
-  const mailbox = cfg.graph_mailbox;
+  // UAT sends from its own test mailbox when one is set, never from the real practice mailbox.
+  const mailbox = (isUAT && process.env.UAT_SEND_MAILBOX) ? process.env.UAT_SEND_MAILBOX.trim() : cfg.graph_mailbox;
   if (!mailbox) throw new Error('graph_mailbox not configured');
 
   const token = await getGraphToken();

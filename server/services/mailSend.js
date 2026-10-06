@@ -26,7 +26,10 @@ const CHUNK = 320 * 1024 * 10;                    // 3.2 MB, a multiple of 320 K
 const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const recipients = list => (list || []).map(r => ({ emailAddress: { address: r.address, name: r.name || undefined } }));
 
+// UAT can read the real practice mailbox (UAT_MAIL_SYNC_MAILBOX) while sending from a separate
+// test mailbox (UAT_SEND_MAILBOX), so its test emails never land in the real mailbox's Sent Items.
 function sendingMailbox() {
+  if (isUAT && process.env.UAT_SEND_MAILBOX) return process.env.UAT_SEND_MAILBOX.trim();
   const { mailbox } = mailSync.config();
   if (!mailbox) throw new Error("Email isn't connected — no practice mailbox is set up for sending");
   return mailbox;
@@ -72,6 +75,39 @@ async function addAttachment(mb, draftId, upload) {
   }
 }
 
+// Pictures written into an email or signature (a logo, a photo) are uploaded to Therapy as
+// /api/report-images/<file>, or pasted as data: URIs. Linked pictures are blocked by most email
+// programs ("click to download pictures"), so each is attached inline and the <img> points at it
+// with a cid: reference — the way Outlook sends signature logos.
+const IMAGE_DIR = require('path').join(__dirname, '../../uploads/report-images');
+const IMAGE_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+function inlineImages(html) {
+  const fs = require('fs');
+  const pathMod = require('path');
+  const inline = [];
+  const seen = new Map();
+  const out = String(html || '').replace(/(<img\b[^>]*?\bsrc=)(["'])([^"']+)\2/gi, (whole, pre, q, src) => {
+    const file = src.match(/\/api\/report-images\/([\w.-]+)$/);
+    const key = file ? `file:${file[1]}` : src;
+    if (seen.has(key)) return `${pre}${q}cid:${seen.get(key)}${q}`;
+    let bytes = null, type = null, name = null;
+    const data = src.match(/^data:(image\/(?:png|jpeg|gif|webp));base64,(.+)$/i);
+    if (file) {
+      const full = pathMod.join(IMAGE_DIR, pathMod.basename(file[1]));
+      const ext = pathMod.extname(full).slice(1).toLowerCase();
+      if (IMAGE_TYPES[ext] && fs.existsSync(full)) { bytes = fs.readFileSync(full).toString('base64'); type = IMAGE_TYPES[ext]; name = pathMod.basename(full); }
+    } else if (data) {
+      bytes = data[2]; type = data[1].toLowerCase(); name = `image${inline.length + 1}.${type.split('/')[1].replace('jpeg', 'jpg')}`;
+    }
+    if (!bytes) return whole;
+    const cid = `img${inline.length + 1}.${Date.now()}@therapy`;
+    seen.set(key, cid);
+    inline.push({ name, contentType: type, contentBytes: bytes, contentId: cid });
+    return `${pre}${q}cid:${cid}${q}`;
+  });
+  return { html: out, inline };
+}
+
 // Sends one outbox item. Returns { messageId } of the sent copy in Therapy (null if it was sent
 // but couldn't be copied in — the sync files it later). Errors carry .stage: 'prepare' (nothing
 // sent; the half-made draft is removed), 'send' (unknown whether it went).
@@ -82,6 +118,7 @@ async function deliver(item) {
   const canThread = source?.graph_id && !source.mailbox_removed_at && source.mailbox === item.mailbox;
 
   let draft, raw, internetMessageId;
+  const { html: bodyHtml, inline } = inlineImages(require('../lib/emailHtml').tightParagraphs(payload.html));
   try {
     // 1. Draft: a reply/forward of the original when it's still in the mailbox, else a new email.
     if (payload.mode !== 'new' && canThread) {
@@ -94,7 +131,7 @@ async function deliver(item) {
         body: {
           subject: payload.subject,
           toRecipients: recipients(payload.to), ccRecipients: recipients(payload.cc), bccRecipients: recipients(payload.bcc),
-          body: { contentType: 'HTML', content: `${payload.html || ''}${quoted ? `<br>${quoted}` : ''}` },
+          body: { contentType: 'HTML', content: `${bodyHtml}${quoted ? `<br>${quoted}` : ''}` },
         },
       });
     } else {
@@ -103,11 +140,17 @@ async function deliver(item) {
         body: {
           subject: payload.subject,
           toRecipients: recipients(payload.to), ccRecipients: recipients(payload.cc), bccRecipients: recipients(payload.bcc),
-          body: { contentType: 'HTML', content: payload.html || '' },
+          body: { contentType: 'HTML', content: bodyHtml },
         },
       });
     }
-    // 2. Attachments.
+    // 2. Attachments: pictures in the text (inline), then the attached files.
+    for (const img of inline) {
+      await graph(`/users/${mb}/messages/${draft.id}/attachments`, {
+        method: 'POST',
+        body: { '@odata.type': '#microsoft.graph.fileAttachment', name: img.name, contentType: img.contentType, contentBytes: img.contentBytes, isInline: true, contentId: img.contentId },
+      });
+    }
     for (const uploadId of payload.upload_ids || []) {
       const upload = db.prepare('SELECT * FROM email_uploads WHERE id = ?').get(uploadId);
       if (upload) await addAttachment(mb, draft.id, upload);
@@ -165,6 +208,8 @@ async function processOutbox() {
         const { messageId } = await deliver(item);
         db.prepare("UPDATE email_outbox SET status = 'sent', sent_message_id = ?, error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(messageId, item.id);
         const p = JSON.parse(item.payload);
+        // Replying to or forwarding an email deals with it: it leaves the New view.
+        if (p.source_id) db.prepare('UPDATE email_messages SET actioned_at = CURRENT_TIMESTAMP, actioned_by = ? WHERE id = ? AND actioned_at IS NULL').run(item.created_by, p.source_id);
         for (const cid of p.client_ids || []) audit.log('client', Number(cid), 'email_sent', `Email sent: "${p.subject || '(no subject)'}"`);
       } catch (e) {
         // Throttled before anything was sent: try again in a minute (a few times).
@@ -185,4 +230,5 @@ function recoverInterrupted() {
     WHERE status = 'sending'`).run();
 }
 
-module.exports = { UNDO_SECONDS, sendingMailbox, processOutbox, recoverInterrupted, uatRedirect };
+module.exports = {
+  inlineImages, UNDO_SECONDS, sendingMailbox, processOutbox, recoverInterrupted, uatRedirect };

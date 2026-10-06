@@ -235,6 +235,8 @@ function status() {
   const count = (sql, ...p) => db.prepare(sql).get(...p).n;
   return {
     mailbox, enabled,
+    // Where email written in Therapy is sent from (UAT may send from a test mailbox).
+    sending_mailbox: (isUAT && process.env.UAT_SEND_MAILBOX) ? process.env.UAT_SEND_MAILBOX.trim() : mailbox,
     folders: mailbox ? db.prepare('SELECT folder_name, initial_done_at, last_run_at, last_success_at, last_error, next_link IS NOT NULL AS in_progress FROM email_sync_state WHERE mailbox = ? ORDER BY folder_name').all(mailbox) : [],
     messages: mailbox ? count('SELECT COUNT(*) n FROM email_messages WHERE mailbox = ?', mailbox) : 0,
     unfiled: mailbox ? count("SELECT COUNT(*) n FROM email_messages WHERE mailbox = ? AND status = 'unfiled'", mailbox) : 0,

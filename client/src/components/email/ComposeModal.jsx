@@ -3,7 +3,7 @@ import { Paperclip, X, Send, Search, Trash2, PenLine, ChevronDown, ChevronRight,
 import api from '../../lib/api';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
-import EmailEditor from './EmailEditor';
+import DocEditor from '../reportEditor/DocEditor';
 import RecipientInput, { EMAIL_RE } from './RecipientInput';
 import { preTicked, tagChipClass, fmtBytes, personLabel, INACTIVE_SUFFIX } from '../../lib/email';
 import { fmtDateTime } from '../../lib/utils';
@@ -53,6 +53,7 @@ export default function ComposeModal({ options, onClose, onQueued }) {
   const [state, setState] = useState(null);
   const [restoredDraft, setRestoredDraft] = useState(false);
   const [mailbox, setMailbox] = useState(undefined);
+  const [fromMailbox, setFromMailbox] = useState('');
   const [clients, setClients] = useState([]);
   const [allTags, setAllTags] = useState([]);
   const [showCc, setShowCc] = useState(false);
@@ -69,7 +70,7 @@ export default function ComposeModal({ options, onClose, onQueued }) {
   const key = options.replacesOutboxId ? `therapy-email-draft:outbox:${options.replacesOutboxId}` : draftKey(mode, sourceId, options.clientIds);
 
   useEffect(() => {
-    api.get('/email/status').then(r => setMailbox(r.data.mailbox || '')).catch(() => setMailbox(''));
+    api.get('/email/status').then(r => { setMailbox(r.data.mailbox || ''); setFromMailbox(r.data.sending_mailbox || r.data.mailbox || ''); }).catch(() => setMailbox(''));
     api.get('/clients?active=all').then(r => setClients(r.data)).catch(() => {});
     api.get('/email/tags').then(r => setAllTags(r.data)).catch(() => {});
     if (!options.source && sourceId) api.get(`/email/messages/${sourceId}`).then(r => setSource(r.data)).catch(() => {});
@@ -188,7 +189,7 @@ export default function ComposeModal({ options, onClose, onQueued }) {
         {options.wasScheduledFor && <p className="rounded-md bg-indigo-50 px-3 py-1.5 text-xs text-indigo-800">Editing an email scheduled for {fmtWhen(options.wasScheduledFor)}. Sending or scheduling replaces it; closing without sending leaves it scheduled as it was.</p>}
 
         <div>
-          <p className="py-1 text-sm text-gray-500"><span className="inline-block w-10">From</span> <span className="text-gray-800">{mailbox || '—'}</span></p>
+          <p className="py-1 text-sm text-gray-500"><span className="inline-block w-10">From</span> <span className="text-gray-800">{fromMailbox || mailbox || '—'}</span></p>
           <RecipientInput label="To" value={state.to} onChange={to => set({ to })} clientIds={state.clientIds} autoFocus={!state.to.length} />
           {showCc ? (
             <>
@@ -204,7 +205,8 @@ export default function ComposeModal({ options, onClose, onQueued }) {
           </div>
         </div>
 
-        <EmailEditor value={state.html} onChange={html => set({ html })} autoFocus={state.to.length > 0} />
+        {/* The same Word-style editor as notes and templates: fonts, colours, tables, pictures. */}
+        <div className="email-compose"><DocEditor layout="plain" value={state.html} onChange={html => set({ html })} uploadUrl="/email/images" placeholder="Write your email…" /></div>
 
         <div className="flex flex-wrap items-center gap-2">
           <button type="button" onClick={() => fileRef.current?.click()} className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1 text-sm text-gray-700 hover:bg-gray-50">
@@ -319,7 +321,7 @@ export default function ComposeModal({ options, onClose, onQueued }) {
         <Modal title="My email signature" size="lg" onClose={() => setEditingSignature(null)} z="z-[70]">
           <div className="space-y-3">
             <p className="text-sm text-gray-500">Added to the end of every email you write. It's yours only — each person has their own.</p>
-            <EmailEditor value={editingSignature} onChange={setEditingSignature} placeholder="e.g. your name, role, phone" minHeight={120} />
+            <div className="email-compose"><DocEditor layout="plain" value={editingSignature} onChange={setEditingSignature} uploadUrl="/email/images" placeholder="e.g. your name, role, phone — add your logo with the picture button" /></div>
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setEditingSignature(null)}>Cancel</Button>
               <Button onClick={saveSignature}>Save signature</Button>

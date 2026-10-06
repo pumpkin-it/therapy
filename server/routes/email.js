@@ -49,7 +49,7 @@ function linksFor(ids) {
 }
 
 const LIST_COLS = `m.id, m.direction, m.from_address, m.from_name, m.to_json, m.subject, m.snippet, m.received_at, m.sent_at,
-  m.has_attachments, m.is_read, m.status, m.graph_folder_name, m.mailbox_removed_at, m.auto_hint, m.task_id,
+  m.has_attachments, m.is_read, m.status, m.graph_folder_name, m.mailbox_removed_at, m.auto_hint, m.task_id, m.actioned_at,
   (SELECT status FROM tasks WHERE id = m.task_id) AS task_status`;
 
 function shape(rows) {
@@ -85,17 +85,43 @@ router.post('/tags', auth, (req, res) => {
 router.get('/status', auth, (req, res) => res.json(mailSync.status()));
 
 // Sidebar number: how many emails are waiting to be filed.
+// The New view: incoming email since the inbox started that no one has dealt with yet.
+const NEW_WHERE = "m.direction = 'in' AND m.actioned_at IS NULL AND m.received_at >= COALESCE((SELECT value FROM settings WHERE key = 'email_new_since'), '')";
 router.get('/counts', auth, (req, res) => {
-  res.json({ unfiled: db.prepare("SELECT COUNT(*) n FROM email_messages WHERE status = 'unfiled'").get().n });
+  res.json({
+    unfiled: db.prepare("SELECT COUNT(*) n FROM email_messages WHERE status = 'unfiled'").get().n,
+    new: db.prepare(`SELECT COUNT(*) n FROM email_messages m WHERE ${NEW_WHERE}`).get().n,
+  });
 });
 
-// ?view=unfiled|filed|not_client|all  &q=search  &tag=<tag id>  &page=N
+// Pictures in emails and signatures (e.g. a logo), from the email editor. Stored like report
+// pictures; when the email is sent they're attached inline so they show without "download pictures".
+router.post('/images', auth, require('./reportImages').acceptImage, (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Upload a PNG, JPG, GIF or WebP image.' });
+  res.status(201).json({ url: `/api/report-images/${req.file.filename}` });
+});
+
+// Mark emails as dealt with (they leave New), or put them back: { done: true|false }.
+const markActioned = (ids, userId, done = true) => {
+  const set = db.prepare(done ? 'UPDATE email_messages SET actioned_at = CURRENT_TIMESTAMP, actioned_by = ? WHERE id = ? AND actioned_at IS NULL'
+    : 'UPDATE email_messages SET actioned_at = NULL, actioned_by = NULL WHERE id = ? AND ? IS NOT NULL');
+  for (const id of ids) done ? set.run(userId, id) : set.run(id, userId);
+};
+router.post('/messages/:id/done', auth, (req, res) => {
+  const id = Number(req.params.id);
+  if (!db.prepare('SELECT 1 FROM email_messages WHERE id = ?').get(id)) return res.status(404).json({ error: 'Email not found' });
+  markActioned([id], req.user.id, req.body.done !== false);
+  res.json(loadMessage(id));
+});
+
+// ?view=new|unfiled|filed|not_client|all  &q=search  &tag=<tag id>  &page=N
 router.get('/messages', auth, (req, res) => {
-  const view = ['unfiled', 'filed', 'not_client', 'all'].includes(req.query.view) ? req.query.view : 'unfiled';
+  const view = ['new', 'unfiled', 'filed', 'not_client', 'all'].includes(req.query.view) ? req.query.view : 'new';
   const page = Math.max(1, Number(req.query.page) || 1);
   const where = [];
   const params = [];
-  if (view !== 'all') { where.push('m.status = ?'); params.push(view); }
+  if (view === 'new') where.push(NEW_WHERE);
+  else if (view !== 'all') { where.push('m.status = ?'); params.push(view); }
   const q = ftsQuery(req.query.q || '');
   if (q) { where.push('m.id IN (SELECT rowid FROM email_fts WHERE email_fts MATCH ?)'); params.push(q); }
   if (Number(req.query.tag)) { where.push('m.id IN (SELECT message_id FROM email_message_tags WHERE tag_id = ?)'); params.push(Number(req.query.tag)); }
@@ -139,7 +165,7 @@ function loadMessage(id) {
     id: m.id, direction: m.direction, from_address: m.from_address, from_name: m.from_name,
     to: parseList(m.to_json), cc: parseList(m.cc_json), bcc: parseList(m.bcc_json), reply_to: parseList(m.reply_to_json),
     subject: m.subject, body_text: m.body_text, has_html: !!m.body_html_key, sent_at: m.sent_at, received_at: m.received_at,
-    status: m.status, filed_at: m.filed_at,
+    status: m.status, filed_at: m.filed_at, actioned_at: m.actioned_at,
     filed_by_name: filedBy ? `${filedBy.first_name} ${filedBy.last_name}` : null,
     folder: m.graph_folder_name, mailbox_removed_at: m.mailbox_removed_at, is_read: m.is_read, auto_hint: m.auto_hint,
     attachments, clients, suggestions, tags: tagList, tag_suggestions, thread, task, auto_filed: autoFiled,
@@ -260,7 +286,7 @@ function snapshotForFiling(messageIds) {
   return {
     max_link_id: maxLink,
     messages: [...ids].map(id => {
-      const m = db.prepare('SELECT status, not_client_reason, filed_at, filed_by FROM email_messages WHERE id = ?').get(id);
+      const m = db.prepare('SELECT status, not_client_reason, filed_at, filed_by, actioned_at, actioned_by FROM email_messages WHERE id = ?').get(id);
       return {
         id, ...m,
         links: db.prepare('SELECT id FROM email_message_clients WHERE message_id = ? AND removed_at IS NULL').all(id).map(r => r.id),
@@ -294,8 +320,8 @@ router.post('/undo/:id', auth, (req, res) => {
           audit.log('client', l.client_id, 'email_filed', `Filing undone, email back on this client: "${subject}"`);
         }
       }
-      db.prepare('UPDATE email_messages SET status = ?, not_client_reason = ?, filed_at = ?, filed_by = ? WHERE id = ?')
-        .run(m.status, m.not_client_reason, m.filed_at, m.filed_by, m.id);
+      db.prepare('UPDATE email_messages SET status = ?, not_client_reason = ?, filed_at = ?, filed_by = ?, actioned_at = ?, actioned_by = ? WHERE id = ?')
+        .run(m.status, m.not_client_reason, m.filed_at, m.filed_by, m.actioned_at ?? null, m.actioned_by ?? null, m.id);
       tags.setTags(m.id, m.tags, req.user.id);
       restored.push(m.id);
     }
@@ -327,7 +353,7 @@ router.post('/messages/:id/file', auth, (req, res) => {
   const result = db.transaction(() => {
     const snapshot = snapshotForFiling([Number(req.params.id)]);
     const r = fileOne(Number(req.params.id), ids, req.user.id, { tagIds, noClient: !!req.body.no_client });
-    if (r) undoId = saveUndo(req.user.id, snapshot);
+    if (r) { markActioned([Number(req.params.id)], req.user.id); undoId = saveUndo(req.user.id, snapshot); }
     return r;
   })();
   if (!result) return res.status(404).json({ error: 'Email not found' });
@@ -345,12 +371,14 @@ router.post('/bulk', auth, (req, res) => {
   if (!ids) return res.status(400).json({ error: 'Unknown client' });
   if (!tagIds) return res.status(400).json({ error: 'Unknown tag' });
   const noClient = !!req.body.no_client;
-  if (!ids.length && !noClient && !tagIds.length) return res.status(400).json({ error: 'Choose a client, No client, or a tag' });
+  const done = req.body.done === true;
+  if (!ids.length && !noClient && !tagIds.length && !done) return res.status(400).json({ error: 'Choose a client, No client, a tag, or Done' });
   let undoId = null;
   db.transaction(() => {
     undoId = saveUndo(req.user.id, snapshotForFiling(messageIds));
     for (const id of messageIds) {
       if (ids.length || noClient) fileOne(id, ids, req.user.id, { noClient });
+      if (ids.length || noClient || done) markActioned([id], req.user.id);
       if (tagIds.length) {
         const have = db.prepare('SELECT tag_id FROM email_message_tags WHERE message_id = ?').all(id).map(r => r.tag_id);
         tags.setTags(id, [...new Set([...have, ...tagIds])], req.user.id);

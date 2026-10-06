@@ -1,7 +1,7 @@
 const router = require('express').Router();
 const db = require('../database');
 const auth = require('../middleware/auth');
-const { acceptImage, discardUpload } = require('./reportImages');
+const { acceptImage } = require('./reportImages');
 
 const { requireTemplates } = require('../middleware/requirePermission');
 
@@ -16,7 +16,6 @@ router.get('/', auth, (req, res) => {
 
 // Pictures in session-note and agreement templates (DocEditor). Stored and served like report pictures.
 router.post('/images', auth, requireTemplates, acceptImage, (req, res) => {
-  if (!['owner', 'admin'].includes(req.user?.role)) { discardUpload(req); return res.status(403).json({ error: 'Only admin or owner can manage templates' }); }
   if (!req.file) return res.status(400).json({ error: 'Upload a PNG, JPG, GIF or WebP image.' });
   res.status(201).json({ url: `/api/report-images/${req.file.filename}` });
 });
