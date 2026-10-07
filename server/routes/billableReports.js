@@ -86,12 +86,16 @@ function reportWithDetails(report) {
   `).get(report.id);
   const entries = db.prepare(`
     SELECT a.id, a.start_time, a.status, a.report_progress_pct, a.myob_exported_at, a.myob_invoice_number,
-      a.myob_status, a.myob_amount_due, ai.quantity AS hours, ai.unit_rate
+      a.myob_status, a.myob_amount_due, a.report_linked_at,
+      -- An entry made here has one line. A linked calendar appointment may have more (e.g.
+      -- travel): its hours are the lines for the report's service, else its first line.
+      COALESCE((SELECT SUM(quantity) FROM appointment_items WHERE appointment_id = a.id AND service_id = ?),
+               (SELECT quantity FROM appointment_items WHERE appointment_id = a.id ORDER BY id LIMIT 1)) AS hours,
+      (SELECT unit_rate FROM appointment_items WHERE appointment_id = a.id ORDER BY id LIMIT 1) AS unit_rate
     FROM appointments a
-    LEFT JOIN appointment_items ai ON ai.appointment_id = a.id
     WHERE a.billable_report_id = ?
     ORDER BY a.start_time, a.id
-  `).all(report.id).map(e => ({ ...e, ref: aptRef(e.id), amount: computeAppointmentTotal(e.id), voided: e.status === 'cancelled' }));
+  `).all(report.service_id, report.id).map(e => ({ ...e, ref: aptRef(e.id), amount: computeAppointmentTotal(e.id), voided: e.status === 'cancelled' }));
   const file = report.client_file_id ? db.prepare(`
     SELECT cf.id, cf.label, cf.original_name, cf.mime_type, cf.created_at,
       cfr.status AS report_status, cfr.view_token AS report_view_token, cfr.released_at AS report_released_at,
@@ -287,6 +291,88 @@ router.post('/:id/entries', auth, async (req, res) => {
     audit.log('billable_report', report.id, 'updated', `${aptRef(apptId)} could not be emailed to accounts: ${sendError}`);
   }
   res.status(201).json({ report: reportWithDetails(getReport(report.id)), sendError });
+});
+
+// ---- linking billing done on the calendar ----
+// The client's past appointments that were billed but aren't on any report, newest first, for
+// "Add a calendar billing". Report-writing services come first. A percentage written in the
+// invoice note (e.g. "FCA 60% done") is offered as the report's progress.
+router.get('/:id/linkable', auth, (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+  if (!canManage(req.user, report)) return res.status(403).json({ error: 'Not allowed' });
+  const rows = db.prepare(`
+    SELECT a.id, a.start_time, a.end_time, a.status, a.myob_exported_at, a.myob_invoice_number, a.myob_status,
+      p.first_name || ' ' || p.last_name AS practitioner_name, a.practitioner_id
+    FROM appointments a JOIN practitioners p ON p.id = a.practitioner_id
+    WHERE a.client_id = ? AND a.billable_report_id IS NULL AND a.status != 'cancelled'
+      AND substr(a.start_time, 1, 10) <= ? AND EXISTS (SELECT 1 FROM appointment_items WHERE appointment_id = a.id)
+    ORDER BY a.start_time DESC LIMIT 100
+  `).all(report.client_id, localToday());
+  const items = db.prepare('SELECT ai.service_id, ai.quantity, ai.item_notes, COALESCE(s.name, ai.description) AS service FROM appointment_items ai LEFT JOIN services s ON s.id = ai.service_id WHERE ai.appointment_id = ? ORDER BY ai.id');
+  const out = rows.map(a => {
+    const lines = items.all(a.id);
+    const notes = lines.map(l => l.item_notes).filter(Boolean).join(' · ');
+    const pct = notes.match(/(\d{1,3})\s*%/);
+    return {
+      ...a, ref: aptRef(a.id), amount: computeAppointmentTotal(a.id),
+      services: lines.map(l => `${l.service}${l.quantity ? ` × ${l.quantity}` : ''}`).join(', '),
+      notes, suggested_pct: pct && Number(pct[1]) >= 1 && Number(pct[1]) <= 100 ? Number(pct[1]) : null,
+      same_service: lines.some(l => l.service_id === report.service_id),
+      report_like: lines.some(l => /report|assessment|fca/i.test(l.service || '')),
+    };
+  }).sort((x, y) => (y.same_service - x.same_service) || (y.report_like - x.report_like) || (y.start_time > x.start_time ? 1 : -1));
+  res.json(out);
+});
+
+// The progress has to keep going up through the report's entries in date order, wherever the
+// linked appointment falls among them.
+function progressProblem(reportId, date, pct, exceptId = null) {
+  const live = getReportInstalments(reportId).filter(e => e.id !== exceptId);
+  const before = live.filter(e => e.start_time.slice(0, 10) <= date).map(e => e.report_progress_pct);
+  const after = live.filter(e => e.start_time.slice(0, 10) > date).map(e => e.report_progress_pct);
+  const lo = before.length ? Math.max(...before) : 1;
+  const hi = after.length ? Math.min(...after) : 100;
+  if (pct < lo || pct > hi) return `On that date the report has to be between ${lo}% and ${hi}% complete (the running total, going up over time).`;
+  return null;
+}
+
+router.post('/:id/link', auth, (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+  if (!canManage(req.user, report)) return res.status(403).json({ error: 'You can only change your own reports' });
+  if (report.status === 'released') return res.status(400).json({ error: 'This report has already been released.' });
+  const appt = db.prepare('SELECT * FROM appointments WHERE id = ?').get(Number(req.body.appointment_id));
+  if (!appt || appt.client_id !== report.client_id) return res.status(404).json({ error: 'That appointment isn’t one of this client’s' });
+  if (appt.billable_report_id) return res.status(409).json({ error: 'That appointment is already on a report.' });
+  if (appt.status === 'cancelled') return res.status(400).json({ error: 'That appointment was cancelled.' });
+  if (!isAdmin(req.user) && appt.practitioner_id !== req.user.id) return res.status(403).json({ error: 'You can only add your own appointments' });
+  const pct = Number(req.body.progress_pct);
+  if (!Number.isInteger(pct) || pct < 1 || pct > 100) return res.status(400).json({ error: 'Enter how complete the report was after this work, from 1 to 100%' });
+  const problem = progressProblem(report.id, appt.start_time.slice(0, 10), pct);
+  if (problem) return res.status(400).json({ error: problem });
+  // The invoice was already raised from the calendar, so nothing is emailed to accounts and the
+  // invoice line stays as it was billed.
+  db.prepare("UPDATE appointments SET billable_report_id = ?, report_progress_pct = ?, report_linked_at = datetime('now'), report_linked_by = ? WHERE id = ?")
+    .run(report.id, pct, req.user.id, appt.id);
+  audit.log('appointment', appt.id, 'updated', `${aptRef(appt.id)} added to report "${report.title}" as ${pct}% complete (billed from the calendar)`, { ref: aptRef(appt.id) });
+  audit.log('billable_report', report.id, 'updated', `Added ${aptRef(appt.id)} (billed from the calendar on ${appt.start_time.slice(0, 10)}) — ${pct}% complete`);
+  releasePaidReportsInBackground([report.id]);
+  res.json(reportWithDetails(getReport(report.id)));
+});
+
+// Takes a linked calendar appointment off the report again; it goes back on the calendar as it was.
+router.post('/:id/entries/:apptId/unlink', auth, (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+  if (!canManage(req.user, report)) return res.status(403).json({ error: 'You can only change your own reports' });
+  const appt = db.prepare('SELECT * FROM appointments WHERE id = ? AND billable_report_id = ?').get(req.params.apptId, report.id);
+  if (!appt) return res.status(404).json({ error: 'Not found' });
+  if (!appt.report_linked_at) return res.status(400).json({ error: 'This entry was billed from the report itself — void it instead.' });
+  db.prepare('UPDATE appointments SET billable_report_id = NULL, report_progress_pct = NULL, report_linked_at = NULL, report_linked_by = NULL WHERE id = ?').run(appt.id);
+  audit.log('appointment', appt.id, 'updated', `${aptRef(appt.id)} taken off report "${report.title}" — back on the calendar`, { ref: aptRef(appt.id) });
+  audit.log('billable_report', report.id, 'updated', `Took ${aptRef(appt.id)} off the report (it was billed from the calendar)`);
+  res.json(reportWithDetails(getReport(report.id)));
 });
 
 router.post('/:id/entries/:apptId/resend', auth, async (req, res) => {

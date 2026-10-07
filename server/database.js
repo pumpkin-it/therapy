@@ -1358,6 +1358,12 @@ try { db.exec(`ALTER TABLE appointments ADD COLUMN billable_report_id INTEGER RE
 // Cumulative — "the report is now 80% done", not "this entry was 30% of it".
 try { db.exec(`ALTER TABLE appointments ADD COLUMN report_progress_pct INTEGER`); } catch {}
 try { db.exec(`CREATE INDEX idx_appointments_billable_report ON appointments(billable_report_id)`); } catch {}
+// A calendar appointment billed for report work before the Reports tab existed (or billed from
+// the calendar by habit) can be linked to a report afterwards. It then counts as one of the
+// report's entries (progress, release, overdue alerts) and leaves the calendar like any other
+// report entry. report_linked_at marks these so the link can be undone.
+try { db.exec(`ALTER TABLE appointments ADD COLUMN report_linked_at TEXT`); } catch {}
+try { db.exec(`ALTER TABLE appointments ADD COLUMN report_linked_by INTEGER REFERENCES practitioners(id)`); } catch {}
 // In-system report writing (prototype, 2026-09-25). One working draft per report, saved whole by
 // the editor's autosave. `revision` goes up on every save; a save must name the revision it
 // started from, so two open copies can't silently overwrite each other. Snapshots are a rolling

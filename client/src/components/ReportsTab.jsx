@@ -237,6 +237,68 @@ function LogHoursModal({ report, onClose, onSaved }) {
   );
 }
 
+// Adds billing that was done from the calendar (before the Reports tab, or by habit) to a report,
+// so its invoice is tracked with the report. Nothing is sent to accounts again.
+function LinkBillingModal({ report, onClose, onSaved }) {
+  const [rows, setRows] = useState(null);
+  const [picked, setPicked] = useState(null);
+  const [pct, setPct] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api.get(`/billable-reports/${report.id}/linkable`).then(r => setRows(r.data)).catch(e => { setRows([]); setError(e.response?.data?.error || 'Could not load the appointments'); });
+  }, [report.id]);
+  const pick = a => { setPicked(a); setPct(a.suggested_pct ? String(a.suggested_pct) : ''); setError(''); };
+  const save = async () => {
+    const p = Number(pct);
+    if (!Number.isInteger(p) || p < 1 || p > 100) return setError('Enter how complete the report was after this work, 1–100%');
+    setSaving(true);
+    try {
+      const { data } = await api.post(`/billable-reports/${report.id}/link`, { appointment_id: picked.id, progress_pct: p });
+      onSaved(data, picked);
+    } catch (e) {
+      setError(e.response?.data?.error || 'Could not add it');
+      setSaving(false);
+    }
+  };
+  return (
+    <Modal title={`Add a calendar billing — ${report.title}`} onClose={onClose} size="lg">
+      <div className="space-y-4">
+        <p className="text-sm text-gray-600">Pick an appointment that was billed from the calendar for this report. It joins the report's entries, so its invoice is tracked here and counts towards releasing the report. It's already been billed, so nothing is sent to accounts again. It leaves the calendar like other report entries.</p>
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        {rows === null ? <p className="text-sm text-gray-500">Loading…</p> : rows.length === 0 ? <p className="text-sm text-gray-500">No billed appointments for this client that aren't already on a report.</p> : (
+          <div className="max-h-72 overflow-y-auto rounded-lg border border-gray-200 divide-y divide-gray-100">
+            {rows.map(a => (
+              <label key={a.id} className={`flex cursor-pointer items-start gap-3 px-3 py-2 text-sm ${picked?.id === a.id ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}>
+                <input type="radio" name="link-appt" className="mt-1 accent-indigo-600" checked={picked?.id === a.id} onChange={() => pick(a)} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-medium text-gray-900">{fmtDMY(a.start_time)}</span>
+                    <span className="text-xs text-gray-500">{a.ref} · {a.practitioner_name}</span>
+                    <span className="ml-auto text-gray-700">{currency(a.amount)}</span>
+                  </div>
+                  <p className="text-xs text-gray-600">{a.services}{a.notes ? ` — “${a.notes}”` : ''}</p>
+                  <p className="text-xs text-gray-400">{a.myob_invoice_number ? `MYOB inv ${a.myob_invoice_number}${a.myob_status ? ` · ${a.myob_status}` : ''}` : a.myob_exported_at ? 'Sent to MYOB' : 'Not sent to MYOB yet'}{!a.same_service ? ' · different service from the report' : ''}</p>
+                </div>
+              </label>
+            ))}
+          </div>
+        )}
+        {picked && (
+          <div className="space-y-1">
+            <Input label="Report complete after this work (%)" type="number" min="1" max="100" step="1" value={pct} onChange={e => setPct(e.target.value)} placeholder="60" />
+            <p className="text-xs text-gray-500">The running total at that date{picked.suggested_pct ? ` — taken from the invoice note (${picked.suggested_pct}%)` : ''}.</p>
+          </div>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" size="sm" onClick={onClose}>Cancel</Button>
+          <Button size="sm" onClick={save} disabled={!picked || saving}>{saving ? 'Adding…' : 'Add to report'}</Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function InvoiceNumberCell({ report, entry, onChanged }) {
   const { user } = useAuth();
   const [editing, setEditing] = useState(false);
@@ -266,6 +328,7 @@ function ReportCard({ report, client, onChanged, onDeleted, justCommitted }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [logging, setLogging] = useState(false);
+  const [linking, setLinking] = useState(false);
   const [notifying, setNotifying] = useState(false);
   // Arriving from the editor right after a commit: the client needs the new version's link.
   useEffect(() => {
@@ -348,6 +411,14 @@ function ReportCard({ report, client, onChanged, onDeleted, justCommitted }) {
     setMessage({ type: 'ok', text: `${entry.ref} emailed to accounts` });
   });
 
+  const unlink = async entry => {
+    if (!await confirm({ title: 'Take off the report', message: `Take ${entry.ref} (${fmtDMY(entry.start_time)}) off "${report.title}"?\n\nIt goes back on the calendar as it was billed. Its invoice isn't changed.`, confirmLabel: 'Take off' })) return;
+    act(`unlink-${entry.id}`, async () => {
+      const { data } = await api.post(`/billable-reports/${report.id}/entries/${entry.id}/unlink`);
+      onChanged(data);
+    });
+  };
+
   const voidEntry = async entry => {
     const reason = await confirm({ title: 'Void entry', message: `Void ${entry.ref} (${entry.hours} hrs, ${currency(entry.amount)})?\n\nIf it's already invoiced in MYOB, raise a credit note there too.`, input: { label: 'Reason', required: true, multiline: true }, confirmLabel: 'Void entry', danger: true });
     if (!reason) return;
@@ -424,7 +495,7 @@ function ReportCard({ report, client, onChanged, onDeleted, justCommitted }) {
             <tbody>
               {report.entries.map(e => (
                 <tr key={e.id} className={`border-t border-gray-100 ${e.voided ? 'text-gray-400 line-through decoration-gray-300' : ''}`}>
-                  <td className="py-2 pr-3" title={e.ref}>{fmtDMY(e.start_time)}</td>
+                  <td className="py-2 pr-3" title={e.ref}>{fmtDMY(e.start_time)}{e.report_linked_at && <span className="ml-1.5 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 no-underline" title="Billed from the calendar, added to this report afterwards">calendar</span>}</td>
                   <td className="py-2 pr-3">{Number(e.hours).toFixed(2)}</td>
                   <td className="py-2 pr-3">{e.report_progress_pct}%</td>
                   <td className="py-2 pr-3">{currency(e.amount)}</td>
@@ -435,6 +506,9 @@ function ReportCard({ report, client, onChanged, onDeleted, justCommitted }) {
                       <button className="text-indigo-600 hover:text-indigo-800 text-xs mr-3 inline-flex items-center gap-1" disabled={!!busy} onClick={() => resend(e)}>
                         <RotateCw className="h-3 w-3" /> Resend
                       </button>
+                    )}
+                    {!e.voided && e.report_linked_at && mine && !released && (
+                      <button className="text-xs text-gray-500 hover:text-indigo-700 mr-3" title="Take this calendar billing off the report" disabled={!!busy} onClick={() => unlink(e)}>Take off</button>
                     )}
                     {!e.voided && isAccounts(user) && (
                       <button className="text-gray-400 hover:text-red-600" title="Void this entry" disabled={!!busy} onClick={() => voidEntry(e)}>
@@ -521,6 +595,9 @@ function ReportCard({ report, client, onChanged, onDeleted, justCommitted }) {
           <Button size="sm" onClick={() => setLogging(true)}><Clock className="h-3.5 w-3.5" /> Log hours</Button>
         )}
         {mine && !released && (
+          <Button size="sm" variant="secondary" onClick={() => setLinking(true)}><Link2 className="h-3.5 w-3.5" /> Add calendar billing</Button>
+        )}
+        {mine && !released && (
           <Button size="sm" variant="secondary" onClick={() => fileRef.current.click()} disabled={busy === 'upload'}>
             <Upload className="h-3.5 w-3.5" /> {busy === 'upload' ? 'Uploading…' : report.file ? 'Replace report' : 'Upload final report'}
           </Button>
@@ -561,6 +638,13 @@ function ReportCard({ report, client, onChanged, onDeleted, justCommitted }) {
             </div>
           </div>
         </Modal>
+      )}
+      {linking && (
+        <LinkBillingModal report={report} onClose={() => setLinking(false)} onSaved={(data, appt) => {
+          setLinking(false);
+          onChanged(data);
+          setMessage({ type: 'ok', text: `${appt.ref} added to the report — its invoice is now tracked here.` });
+        }} />
       )}
       {logging && (
         <LogHoursModal report={report} onClose={() => setLogging(false)} onSaved={(data, sendError) => {

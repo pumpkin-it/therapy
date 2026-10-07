@@ -570,6 +570,13 @@ option A, or skip it and say so.
   didn't fully match "what still works" above with enough detail to reproduce.
 
 ## Changed since the last full run (check these first)
+- On UAT 2026-10-07 (not yet in production): **Reports tab → "Add calendar billing"** on a report: lists the
+  client's past billed appointments not on any report (report services first, invoice # / MYOB status shown,
+  % pre-filled from an invoice note like "FCA 60% done"). Adding one: it shows in the report's entries with
+  a "calendar" tag, counts towards progress/total/release, leaves the calendar, nothing is emailed to
+  accounts, invoice line unchanged. Progress must fit in date order among the other entries (error
+  otherwise). "Take off" puts it back on the calendar. Real case: Cameron Noble APT-00597 (17 Sep 2026,
+  5 hrs NDIS OT Report, inv 00000984, "FCA 60% done") → create an FCA report, add it at 60%.
 - On UAT 2026-10-06 (not yet in production): **AI foundation** (front desk stage 1). Ask now calls AI
   through one gateway (server/services/ai/gateway.js) and its usage goes to the new ai_usage table
   (old ask_usage rows copied in). Check: Ask still answers with sources, streaming text, follow-ups,
