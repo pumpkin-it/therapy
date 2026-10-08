@@ -2,7 +2,7 @@ const router = require('express').Router();
 const db = require('../database');
 const auth = require('../middleware/auth');
 const audit = require('../services/audit');
-const { getClientSpend } = require('../services/budgets');
+const { getClientSpend, getClientSpendByDiscipline } = require('../services/budgets');
 const contacts = require('../services/clientContacts');
 const clientMerge = require('../services/clientMerge');
 
@@ -139,7 +139,9 @@ router.get('/:id/spend', auth, (req, res) => {
     d.setFullYear(d.getFullYear() - 1);
     from = d.toISOString().slice(0, 10);
   }
-  res.json({ from, to, ...getClientSpend(req.params.id, from, to) });
+  // discipline_id narrows the figures to one discipline; by_discipline is always the full split.
+  const disciplineId = req.query.discipline_id ? Number(req.query.discipline_id) : null;
+  res.json({ from, to, discipline_id: disciplineId, ...getClientSpend(req.params.id, from, to, disciplineId), by_discipline: getClientSpendByDiscipline(req.params.id, from, to) });
 });
 
 router.post('/', auth, (req, res) => {

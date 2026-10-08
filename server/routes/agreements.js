@@ -77,6 +77,18 @@ function getAgreementWithItems(id) {
       WHERE ab.agreement_id = ? AND ab.superseded_at IS NOT NULL
       ORDER BY ab.superseded_at DESC
     `).all(id));
+    // What the client would see now vs what was sent: lets the screen flag a frozen agreement
+    // whose budget has moved on (revised, or switched before this was blocked).
+    agreement.current_total = Math.round(pricingTotal(agreement) * 100) / 100;
+    agreement.budget_revised = agreement.linked_budgets.some(b => b.superseded_by);
+    // A draft for the same client already using the current version of these budgets (so the
+    // screen can point to it instead of starting another).
+    const heads = agreement.linked_budgets.map(b => currentBudgetHead(b.id));
+    agreement.newer_draft_id = heads.length ? (db.prepare(`
+      SELECT a.id FROM agreements a JOIN agreement_budgets ab ON ab.agreement_id = a.id AND ab.superseded_at IS NULL
+      WHERE a.client_id = ? AND a.status = 'draft' AND a.id != ? AND ab.budget_id IN (${heads.map(() => '?').join(',')})
+      ORDER BY a.id DESC LIMIT 1
+    `).get(agreement.client_id, agreement.id, ...heads)?.id || null) : null;
   }
   return agreement;
 }
@@ -119,6 +131,12 @@ function assertDraft(agreement, res) {
 // Builds the rendered HTML for an agreement from its current template + items. Used both to
 // persist the immutable snapshot at finalize time, and to render a live (unsaved) preview for
 // PDF download while still a draft.
+// The pricing rows the agreement shows: its linked budgets' items, or (no budget linked) its own.
+const pricingRows = agreement => (agreement.linked_budgets?.length
+  ? agreement.linked_budgets.flatMap(b => budgetItemsAsPricingRows(b.items))
+  : agreement.items);
+const pricingTotal = agreement => pricingRows(agreement).reduce((s, r) => s + Number(r.line_total || 0), 0);
+
 function renderAgreementContent(agreement, practitionerId) {
   const template = db.prepare('SELECT * FROM templates WHERE id = ?').get(agreement.template_id);
   const settings = getSettings();
@@ -148,11 +166,7 @@ function renderAgreementContent(agreement, practitionerId) {
     // travel/km/notes, current rate) — once one's linked, it's the source of truth for what
     // gets shown to the client, so the separately-maintained agreement_items table is only
     // still used as a fallback for agreements with no linked budget at all.
-    pricing_table: renderPricingTableHtml(
-      agreement.linked_budgets?.length
-        ? agreement.linked_budgets.flatMap(b => budgetItemsAsPricingRows(b.items))
-        : agreement.items
-    ),
+    pricing_table: renderPricingTableHtml(pricingRows(agreement)),
   };
   return renderTemplate(template.body, vars);
 }
@@ -239,12 +253,39 @@ router.get('/:id/spend', auth, (req, res) => {
 // Link/unlink a real Billing-tab budget to this agreement (server/database.js's agreement_budgets
 // join table) — an agreement's pricing table isn't itself discipline-scoped, so it can link to
 // more than one budget (e.g. its OT items to the OT budget, its Physio items to the Physio one).
+// What the client sees is frozen when the agreement is sent (rendered_html), so a budget change
+// can't quietly happen underneath it:
+//   - draft: change freely;
+//   - sent/viewed (not signed yet): only with confirm_reissue — the agreement goes back to draft,
+//     its signing link stops working and reminders stop; staff check it and send it again
+//     themselves (nothing is emailed here);
+//   - signed/voided: no changes — a revised budget needs a new agreement (POST /:id/new-from-current).
+// Returns true when the change may go ahead (after reopening a sent agreement).
+function budgetChangeAllowed(agreement, req, res) {
+  if (agreement.status === 'draft') return true;
+  if (['sent', 'viewed'].includes(agreement.status)) {
+    if (!req.body?.confirm_reissue) {
+      res.status(409).json({ error: 'This agreement has already been sent. Changing its budget takes it back to draft and the client’s link stops working.', needs_reissue: true });
+      return false;
+    }
+    db.prepare(`UPDATE agreements SET status = 'draft', rendered_html = NULL, signing_token = NULL, agreed_total = NULL,
+      viewed_at = NULL, viewed_ip = NULL, viewed_user_agent = NULL, last_reminder_at = NULL, reminder_count = 0 WHERE id = ?`).run(agreement.id);
+    audit.log('agreement', agreement.id, 'reopened', `Taken back to draft to change its budget (was ${agreement.status}${agreement.agreed_total != null ? `, sent for $${agreement.agreed_total.toFixed(2)}` : ''}) — the client's earlier signing link no longer works; send it again when ready`);
+    return true;
+  }
+  res.status(409).json({ error: agreement.status === 'signed'
+    ? 'This agreement is signed, so its budget can’t change. Create a new agreement from the current budget instead.'
+    : 'This agreement is voided.' });
+  return false;
+}
+
 router.post('/:id/budgets', auth, (req, res) => {
   const agreement = db.prepare('SELECT * FROM agreements WHERE id = ?').get(req.params.id);
   if (!agreement) return res.status(404).json({ error: 'Not found' });
   const { budget_id } = req.body;
   const budget = db.prepare('SELECT * FROM budgets WHERE id = ? AND client_id = ?').get(budget_id, agreement.client_id);
   if (!budget) return res.status(404).json({ error: 'Budget not found for this client' });
+  if (!budgetChangeAllowed(agreement, req, res)) return;
 
   // ON CONFLICT rather than INSERT OR IGNORE: re-linking a budget that's currently sitting in
   // this agreement's history (e.g. reverting a switch) should bring it back as current, not
@@ -260,6 +301,7 @@ router.post('/:id/budgets', auth, (req, res) => {
 router.delete('/:id/budgets/:budgetId', auth, (req, res) => {
   const agreement = db.prepare('SELECT * FROM agreements WHERE id = ?').get(req.params.id);
   if (!agreement) return res.status(404).json({ error: 'Not found' });
+  if (!budgetChangeAllowed(agreement, req, res)) return;
   db.prepare('DELETE FROM agreement_budgets WHERE agreement_id = ? AND budget_id = ?').run(agreement.id, req.params.budgetId);
   audit.log('agreement', agreement.id, 'budget_unlinked', `Unlinked budget #${req.params.budgetId}`);
   res.json(getAgreementWithItems(agreement.id));
@@ -282,6 +324,7 @@ router.post('/:id/budgets/:budgetId/switch', auth, (req, res) => {
   const newBudgetId = currentBudgetHead(oldBudgetId);
   if (newBudgetId === oldBudgetId) return res.status(400).json({ error: 'This budget has not been revised' });
   const newBudget = db.prepare('SELECT * FROM budgets WHERE id = ?').get(newBudgetId);
+  if (!budgetChangeAllowed(agreement, req, res)) return;
 
   db.transaction(() => {
     db.prepare('UPDATE agreement_budgets SET superseded_at = ? WHERE agreement_id = ? AND budget_id = ?')
@@ -294,6 +337,27 @@ router.post('/:id/budgets/:budgetId/switch', auth, (req, res) => {
 
   audit.log('agreement', agreement.id, 'budget_switched', `Switched from budget #${oldBudgetId} to its current revision #${newBudgetId} ($${newBudget.total_amount.toFixed(2)})`);
   res.json(getAgreementWithItems(agreement.id));
+});
+
+// A signed agreement whose budget has since been revised: start a new draft agreement for the
+// same client and template, linked to the current version of each budget. Nothing is sent.
+router.post('/:id/new-from-current', auth, (req, res) => {
+  const agreement = getAgreementWithItems(req.params.id);
+  if (!agreement) return res.status(404).json({ error: 'Not found' });
+  const heads = [...new Set(agreement.linked_budgets.map(b => currentBudgetHead(b.id)))];
+  if (!heads.length) return res.status(400).json({ error: 'This agreement has no linked budget' });
+  const today = new Date().toISOString().slice(0, 10);
+  const newId = db.transaction(() => {
+    const r = db.prepare(`
+      INSERT INTO agreements (client_id, template_id, funding_type_id, effective_date, start_date, end_date, budget_amount, title, status, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?)
+    `).run(agreement.client_id, agreement.template_id, agreement.funding_type_id, today, agreement.start_date || today, agreement.end_date || null, agreement.budget_amount || null, agreement.title, req.user.id);
+    for (const b of heads) db.prepare('INSERT INTO agreement_budgets (agreement_id, budget_id, superseded_at) VALUES (?, ?, NULL)').run(r.lastInsertRowid, b);
+    return r.lastInsertRowid;
+  })();
+  audit.log('agreement', newId, 'created', `Agreement "${agreement.title}" drafted for ${agreement.client_name} from the current budget (replacing agreement #${agreement.id}, ${agreement.status})`);
+  audit.log('agreement', agreement.id, 'updated', `New draft agreement #${newId} started from the current budget`);
+  res.status(201).json(getAgreementWithItems(newId));
 });
 
 // Bulk replace-in-place for pricing table rows — draft-only, server recomputes line_total
@@ -366,8 +430,8 @@ router.post('/:id/finalize', auth, async (req, res) => {
   }
 
   db.prepare(`
-    UPDATE agreements SET rendered_html = ?, signing_token = ?, status = 'sent', sent_at = ?, reminder_end_date = ? WHERE id = ?
-  `).run(renderedHtml, token, sentAt, reminderEndDate, agreement.id);
+    UPDATE agreements SET rendered_html = ?, signing_token = ?, status = 'sent', sent_at = ?, reminder_end_date = ?, agreed_total = ? WHERE id = ?
+  `).run(renderedHtml, token, sentAt, reminderEndDate, Math.round(pricingTotal(agreement) * 100) / 100, agreement.id);
 
   const signingUrl = `${process.env.APP_URL || ''}/sign/${token}`;
 
@@ -464,9 +528,9 @@ router.post('/:id/mark-signed', auth, uploadOptionalFile, (req, res) => {
     const renderedHtml = agreement.rendered_html || renderAgreementContent(agreement, req.user.id);
     db.prepare(`
       UPDATE agreements SET status = 'signed', signed_at = ?, signer_name = ?, signed_method = 'manual', signed_by = ?,
-        rendered_html = ?
+        rendered_html = ?, agreed_total = COALESCE(agreed_total, ?)
       WHERE id = ?
-    `).run(signedAt, signerName, req.user.id, renderedHtml, agreement.id);
+    `).run(signedAt, signerName, req.user.id, renderedHtml, Math.round(pricingTotal(agreement) * 100) / 100, agreement.id);
     if (req.file) attachSignedCopy(agreement, req.file);
   })();
 

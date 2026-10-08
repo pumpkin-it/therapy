@@ -844,6 +844,14 @@ try { db.exec(`ALTER TABLE agreements ADD COLUMN content_hash TEXT`); } catch {}
 try { db.exec(`ALTER TABLE agreements ADD COLUMN signed_method TEXT`); } catch {}
 try { db.exec(`ALTER TABLE agreements ADD COLUMN signed_by INTEGER REFERENCES practitioners(id)`); } catch {}
 try { db.exec(`ALTER TABLE agreements ADD COLUMN signed_copy_file_id INTEGER REFERENCES client_files(id) ON DELETE SET NULL`); } catch {}
+// The pricing table's grand total as it was sent to the client (frozen with rendered_html), so the
+// agreement screen can show it next to the linked budget's current amount. Agreements sent before
+// this column existed get it read back from their frozen copy once.
+try { db.exec(`ALTER TABLE agreements ADD COLUMN agreed_total REAL`); } catch {}
+for (const a of db.prepare('SELECT id, rendered_html FROM agreements WHERE agreed_total IS NULL AND rendered_html IS NOT NULL').all()) {
+  const m = a.rendered_html.match(/Grand Total<\/td>\s*<td[^>]*>\$([\d,]+\.\d{2})/i);
+  if (m) db.prepare('UPDATE agreements SET agreed_total = ? WHERE id = ?').run(Number(m[1].replace(/,/g, '')), a.id);
+}
 
 const SERVICE_AGREEMENT_PLACEHOLDER_BODY =
   '<p>This Service Agreement is made between {{practice_name}} and {{client_name}} on {{date}}.</p>' +

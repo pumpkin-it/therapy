@@ -570,6 +570,27 @@ option A, or skip it and say so.
   didn't fully match "what still works" above with enough detail to reproduce.
 
 ## Changed since the last full run (check these first)
+- On UAT 2026-10-08 (not yet in production): **PDF table header lines** — the grey header row of tables in
+  agreement / session-note / report PDFs was missing some column lines (e.g. between Code and Qty in the
+  agreement pricing table). Download an agreement PDF with a linked budget: every header and body column line
+  shows, including on a page where the table continues.
+- On UAT 2026-10-08 (not yet in production): **agreement budgets can't silently change after sending**.
+  Draft: link/unlink/switch/create budget as before. Sent/viewed: any of those asks first ("Agreement already
+  sent… takes it back to draft"); confirming puts it back to Draft, the client's old link shows "This link is no
+  longer valid…", reminders stop, NOTHING is emailed; then Send it again by hand. Signed/voided: no
+  Link/Unlink/Switch/Create budget controls (API refuses with 409). Every sent/signed budget-linked agreement
+  shows "Sent/Signed for $X" — amber when the linked budget now differs or was revised, with (signed) "Create a
+  new agreement from the current budget" or "Open the draft agreement on the current budget (#N)" if one exists.
+  Real case: Stuart Nethercott agreement #22 (signed for $4,402.52, budget now $5,082.54) → button should open
+  existing draft #23. DO NOT send agreements to real clients while testing.
+- On UAT 2026-10-08 (not yet in production): **client → Billing → Billed period by discipline**. A "By
+  discipline" table under the Invoiced / Scheduled / Total boxes splits the chosen range (rows add up to the
+  total; services with no discipline show as "No discipline"). No dropdown filter (user: the table is enough). Joanne Cushing (C0048),
+  08/10/2025–08/10/2026: OT $4,676.09 (matches her OT budget), Physio $9,373.73 + $695.98 scheduled.
+- On UAT 2026-10-07 (not yet in production): **email window no longer says "Email isn't connected" when the
+  status check simply failed** (e.g. during a restart) — it retries for ~15 s, then says Therapy can't reach
+  email right now; Send stays disabled until the mailbox is known. Deploy scripts now clear the old build and
+  skip macOS "._" files (UAT cleaned up: 1,164 stray files and 441 old build files removed).
 - On UAT 2026-10-07 (not yet in production): **Reports tab → "Add calendar billing"** on a report: lists the
   client's past billed appointments not on any report (report services first, invoice # / MYOB status shown,
   % pre-filled from an invoice note like "FCA 60% done"). Adding one: it shows in the report's entries with
@@ -703,6 +724,31 @@ Released to production 2026-09-30 — not yet covered by a full run:
   local copy (option B) and say which way it was checked.
 - Item 10: Settings → Budget Alerts "Send to" choices (default: client's practitioners, owners,
   admins — no finance).
+
+## Agreements, billing, compose, calendar billing run — 2026-10-08 (UAT option A, nothing sent)
+Result: all 4 changes **PASS**; 3 bugs (A–C) found, all FIXED and re-tested PASS on UAT. Memory file:
+`project_therapy_regression_bugs_2026-10-08.md` (sections for the run and "Re-test of bugs A–C").
+Nothing was sent (no agreement sends/resends, emails, WhatsApp/SMS); no real data changed (Stuart
+Nethercott #22/#23 and Joanne Cushing's Billing opened read-only).
+
+| Check | Result | Notes |
+|---|---|---|
+| Agreements: budget changes after sending | PASS | Draft free; Sent/Viewed Link/Unlink/Switch/+Create budget ask first, confirm → Draft, old /sign link "no longer valid", nothing emailed; Signed/Voided controls hidden + API 409; "Sent/Signed for $X" green, amber when revised; "Create a new agreement from the current budget" → "Open the draft agreement on the current budget (#N)" |
+| Bug A: paper-signed draft stored no amount | PASS after fix | Mark as signed now shows "Signed for $X"; older #27/#28 backfilled |
+| Bug B: "+ Create budget" on Sent/Viewed saved before asking | PASS after fix | Asks first; Cancel creates nothing; Continue + save → Draft with the new budget linked |
+| Bug C: Change History stale until reload | PASS after fix | Updates after budget action, Mark as signed, Void |
+| Voided agreement signing-link box | PASS after fix | Voided shows only Download PDF |
+| Client → Billing → "By discipline" | PASS | Joanne Cushing C0048, 08/10/2025–08/10/2026: OT $4,676.09; Physio $9,373.73 + $695.98 scheduled; total $14,745.80; no dropdown. "No discipline" row not testable |
+| Email compose connection state | PASS | From ahp@; failing /email/status → retries ~12 s → "Therapy can't reach email right now…", Send/Schedule disabled; no false "isn't connected" |
+| Reports "Add calendar billing" | PASS | Picker, "FCA 60% done" prefill, "calendar" tag, appointment leaves calendar, out-of-order/blank % rejected, Take off restores. MYOB status text for exported appointments and release on payment not tested |
+
+Open points: real Stuart Nethercott agreement #22 is **Viewed** on UAT (mirror 2026-10-02), so the
+"Open the draft (#23)" button (signed agreements only) was only seen on the ZZ equivalent; a signed-by-link
+agreement still shows its "Signing link" box (decision pending with the dev session); "Resend" on a
+never-exported linked report entry is by design (emails accounts). Agent cleared localStorage "draft"
+keys in the UAT tab — may have removed an unsent email draft of the user.
+Leftovers (can't delete): ZZ QA client 67 (inactive), agreements #27–#32, budgets #23–#29, appointments
+APT-00626–629 (cancelled).
 
 ## AI features run — 2026-10-06 (UAT option A; item 19 + AI foundation, not yet in production)
 Result: **mostly PASS**; 4 bugs found, all since FIXED and re-tested PASS on UAT. Bugs: memory file

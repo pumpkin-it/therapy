@@ -10,7 +10,8 @@ echo "=== Building frontend ==="
 npm run build --prefix client
 
 echo "=== Packaging (database and uploads excluded) ==="
-tar czf /tmp/therapy-uat-deploy.tar.gz \
+COPYFILE_DISABLE=1 tar czf /tmp/therapy-uat-deploy.tar.gz \
+  --exclude='._*' \
   --exclude='node_modules' \
   --exclude='client/node_modules' \
   --exclude='.git' \
@@ -34,6 +35,7 @@ CMD_ID=$($AWS ssm send-command \
     \"echo '--- Downloading package ---'\",
     \"curl -s -o /tmp/therapy-uat-deploy.tar.gz '$PRESIGN'\",
     \"echo '--- Extracting new code (database and uploads excluded) ---'\",
+    \"rm -rf /opt/therapy-uat/client/dist\",
     \"tar -xzf /tmp/therapy-uat-deploy.tar.gz -C /opt/therapy-uat --exclude='server/pm.db' --exclude='server/pm.db-shm' --exclude='server/pm.db-wal' --exclude='server/._pm*' --exclude='uploads' 2>/dev/null || true\",
     \"cd /opt/therapy-uat/server && npm install --production\",
     \"node /opt/therapy-uat/server/scripts/verify-deps.js || (cd /opt/therapy-uat/server && npm install --production --force && node /opt/therapy-uat/server/scripts/verify-deps.js)\",

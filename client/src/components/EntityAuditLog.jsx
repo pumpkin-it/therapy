@@ -7,14 +7,16 @@ import { useSettings } from '../context/SettingsContext';
 // Generic per-entity change history — same pattern as AppointmentAuditLog in
 // AppointmentModal.jsx, parameterized so it can be reused for any entity_type already
 // written to the audit_logs table (client, agreement, etc.) without duplicating the component.
-export default function EntityAuditLog({ entityType, entityId, actionColors = {}, title = 'Change History', defaultOpen = false }) {
+// refreshKey: anything that changes when the entity does (e.g. the reloaded record), so the
+// history shows a change straight away.
+export default function EntityAuditLog({ entityType, entityId, actionColors = {}, title = 'Change History', defaultOpen = false, refreshKey }) {
   const { timezone } = useSettings();
   const [logs, setLogs] = useState([]);
   const [open, setOpen] = useState(defaultOpen);
 
   useEffect(() => {
     if (open && entityId) api.get(`/audit-logs?entity_type=${entityType}&entity_id=${entityId}`).then(r => setLogs(r.data));
-  }, [open, entityType, entityId]);
+  }, [open, entityType, entityId, refreshKey]);
 
   return (
     <div className="space-y-2">

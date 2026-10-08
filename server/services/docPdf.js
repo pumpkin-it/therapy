@@ -41,6 +41,9 @@ const PDF_CSS = `
   .pdf-img { display: flex; }
   .pdf-logo { display: inline-block; vertical-align: middle; }
   tr, img, .pdf-img { break-inside: avoid; }
+  /* The editor positions cells (for its column-resize handle). In print, a positioned header cell's
+     grey background paints over the collapsed border beside it, so header lines went missing. */
+  .report-doc td, .report-doc th { position: static; }
   h1, h2, h3 { break-after: avoid; }
   /* Page breaks saved in HTML (notes, templates) — the editor's dashed marker isn't printed. */
   .report-doc .page-break { break-after: page; border: 0; height: 0; margin: 0; }

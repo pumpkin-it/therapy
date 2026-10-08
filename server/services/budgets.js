@@ -275,11 +275,30 @@ function getAgreementSpend(agreementId) {
   };
 }
 
-function getClientSpend(clientId, from, to) {
-  return computeSpend(clientId, from, to);
+// disciplineId: only services of that discipline (null = everything).
+function getClientSpend(clientId, from, to, disciplineId = null) {
+  return computeSpend(clientId, from, to, disciplineId);
+}
+
+// The same figures split by discipline (OT, Physio, …), for the client's Billing tab. Only
+// disciplines with something billed or booked in the range are listed; lines whose service has no
+// discipline set make up "No discipline", so the rows always add up to the overall total.
+function getClientSpendByDiscipline(clientId, from, to) {
+  const all = computeSpend(clientId, from, to);
+  const rows = [];
+  for (const d of db.prepare('SELECT id, name FROM disciplines ORDER BY name').all()) {
+    const s = computeSpend(clientId, from, to, d.id);
+    if (Math.abs(s.total) >= 0.005) rows.push({ discipline_id: d.id, name: d.name, ...s });
+  }
+  const sum = k => rows.reduce((t, r) => t + r[k], 0);
+  const rest = { invoiced: all.invoiced - sum('invoiced'), projected: all.projected - sum('projected') };
+  if (Math.abs(rest.invoiced) >= 0.005 || Math.abs(rest.projected) >= 0.005) {
+    rows.push({ discipline_id: null, name: 'No discipline', ...rest, total: rest.invoiced + rest.projected });
+  }
+  return rows;
 }
 
 module.exports = {
-  getAgreementSpend, getClientSpend, computeBudgetSpend,
+  getAgreementSpend, getClientSpend, getClientSpendByDiscipline, computeBudgetSpend,
   refreshBudgetCurrentTotals, markBudgetRatesDirty, sendBudgetAlerts,
 };

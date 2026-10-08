@@ -93,16 +93,58 @@ function AgreementsTab({ clientId }) {
     }));
   };
 
+  // A sent (not yet signed) agreement is frozen as the client received it. Changing its budget
+  // takes it back to draft — the client's link stops working — after the person confirms; it's
+  // then checked and sent again by hand (nothing is emailed here). Signed agreements can't change.
+  const budgetChange = async call => {
+    try { return await call({}); }
+    catch (e) {
+      if (!e.response?.data?.needs_reissue) {
+        await confirm({ title: 'Can’t change the budget', message: e.response?.data?.error || 'Something went wrong', alert: true });
+        return null;
+      }
+      const sentFor = active.agreed_total != null ? ` for ${currency(active.agreed_total)}` : '';
+      if (!await confirm({
+        title: 'Agreement already sent',
+        message: `This agreement was sent to the client${sentFor}. Changing its budget takes it back to draft:\n\n• the link the client has stops working, and reminders stop\n• nothing is emailed now — check the agreement, then send it again yourself`,
+        confirmLabel: 'Take back to draft and change',
+      })) return null;
+      const res = await call({ confirm_reissue: true });
+      load();
+      return res;
+    }
+  };
   const linkBudget = async () => {
     if (!linkBudgetId || !active) return;
-    const res = await api.post(`/agreements/${active.id}/budgets`, { budget_id: Number(linkBudgetId) });
+    const res = await budgetChange(extra => api.post(`/agreements/${active.id}/budgets`, { budget_id: Number(linkBudgetId), ...extra }));
+    if (!res) return;
     setActive(res.data);
     prefillDatesFromBudget(res.data.linked_budgets?.find(b => b.id === Number(linkBudgetId)));
     setLinkBudgetId('');
   };
   const unlinkBudget = async budgetId => {
-    const res = await api.delete(`/agreements/${active.id}/budgets/${budgetId}`);
-    setActive(res.data);
+    const res = await budgetChange(extra => api.delete(`/agreements/${active.id}/budgets/${budgetId}`, { data: extra }));
+    if (res) setActive(res.data);
+  };
+  // Creating a budget for a sent agreement changes it, so ask before the budget is made (not
+  // after, which would leave a new unlinked budget behind on Cancel).
+  const openCreateBudget = async () => {
+    if (['sent', 'viewed'].includes(active.status)) {
+      const sentFor = active.agreed_total != null ? ` for ${currency(active.agreed_total)}` : '';
+      if (!await confirm({
+        title: 'Agreement already sent',
+        message: `This agreement was sent to the client${sentFor}. Adding a budget takes it back to draft:\n\n• the link the client has stops working, and reminders stop\n• nothing is emailed now — check the agreement, then send it again yourself`,
+        confirmLabel: 'Continue',
+      })) return;
+    }
+    setShowCreateBudgetModal(true);
+  };
+  // Signed agreement whose budget has moved on: start (or open) a draft on the current budget.
+  const newFromCurrent = async () => {
+    if (active.newer_draft_id) { setActiveId(active.newer_draft_id); return; }
+    const res = await api.post(`/agreements/${active.id}/new-from-current`);
+    load();
+    setActiveId(res.data.id);
   };
   // Explicit only — never automatic. A budget's rate indexation already updates live in place
   // (current_total_amount) without touching this at all; this is purely for an actual revision
@@ -113,8 +155,8 @@ function AgreementsTab({ clientId }) {
   const switchBudget = async budgetId => {
     setSwitchingBudgetId(budgetId);
     try {
-      const res = await api.post(`/agreements/${active.id}/budgets/${budgetId}/switch`);
-      setActive(res.data);
+      const res = await budgetChange(extra => api.post(`/agreements/${active.id}/budgets/${budgetId}/switch`, extra));
+      if (res) setActive(res.data);
     } finally {
       setSwitchingBudgetId(null);
     }
@@ -123,10 +165,14 @@ function AgreementsTab({ clientId }) {
   // budget in Billing first just to come straight back and link it.
   const onBudgetCreatedFromAgreement = async budget => {
     setShowCreateBudgetModal(false);
-    const res = await api.post(`/agreements/${active.id}/budgets`, { budget_id: budget.id });
+    loadClientBudgets();
+    // On a sent agreement the person already agreed (openCreateBudget) before the budget was made.
+    const reissue = ['sent', 'viewed'].includes(active.status) ? { confirm_reissue: true } : {};
+    const res = await budgetChange(extra => api.post(`/agreements/${active.id}/budgets`, { budget_id: budget.id, ...reissue, ...extra }));
+    if (!res) return;
+    if (reissue.confirm_reissue) load();
     setActive(res.data);
     prefillDatesFromBudget(budget);
-    loadClientBudgets();
   };
 
   useEffect(() => {
@@ -319,6 +365,9 @@ function AgreementsTab({ clientId }) {
     }
   };
 
+  // Signed or voided agreements keep the budgets they were agreed on.
+  const budgetsEditable = !!active && ['draft', 'sent', 'viewed'].includes(active.status);
+
   return (
     <div className="space-y-4">
       {agreementError && (
@@ -416,6 +465,26 @@ function AgreementsTab({ clientId }) {
             <p className="text-sm text-gray-500">Spend to date: {currency(spend.total)} ({currency(spend.invoiced)} invoiced + {currency(spend.projected)} scheduled)</p>
           ) : null}
 
+          {active.status !== 'draft' && active.agreed_total != null && (active.linked_budgets?.length > 0 || active.historical_budgets?.length > 0) && (
+            Math.abs(active.agreed_total - active.current_total) >= 0.01 || active.budget_revised ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 space-y-1.5">
+                <p>
+                  {active.status === 'signed' ? 'Signed' : active.status === 'voided' ? 'Voided — it was sent' : 'Sent to the client'} for <strong>{currency(active.agreed_total)}</strong>
+                  {Math.abs(active.agreed_total - active.current_total) >= 0.01 ? <>, but the linked budget now comes to <strong>{currency(active.current_total)}</strong></> : ''}
+                  {active.budget_revised ? `${Math.abs(active.agreed_total - active.current_total) >= 0.01 ? ', and it' : ', but the linked budget'} has been revised since` : ''}.
+                  {' '}The PDF shows what was {active.status === 'signed' ? 'signed' : 'sent'}.
+                </p>
+                {active.status === 'signed' && (
+                  <button type="button" onClick={newFromCurrent} className="font-medium underline hover:no-underline">
+                    {active.newer_draft_id ? `Open the draft agreement on the current budget (#${active.newer_draft_id})` : 'Create a new agreement from the current budget'}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-500">{active.status === 'signed' ? 'Signed' : 'Sent'} for {currency(active.agreed_total)} — matches the linked budget.</p>
+            )
+          )}
+
           <div className="rounded-lg border border-gray-200 p-3 space-y-2">
             <span className="text-sm font-medium text-gray-700">Linked Budgets</span>
             {(active.linked_budgets || []).length === 0 && (
@@ -431,9 +500,9 @@ function AgreementsTab({ clientId }) {
                       {currency(b.spend.total)} of {currency(b.spend.current_total_amount)} used ({Math.round(b.spend.pct_used || 0)}%)
                     </span>
                   </div>
-                  <button type="button" onClick={() => unlinkBudget(b.id)} className="text-xs text-red-500 hover:text-red-700">Unlink</button>
+                  {budgetsEditable && <button type="button" onClick={() => unlinkBudget(b.id)} className="text-xs text-red-500 hover:text-red-700">Unlink</button>}
                 </div>
-                {b.superseded_by && (
+                {b.superseded_by && budgetsEditable && (
                   <div className="flex items-center justify-between gap-2 rounded bg-amber-50 border border-amber-200 px-2 py-1 text-xs text-amber-700">
                     <span>This budget has been revised since it was linked.</span>
                     <button type="button" onClick={() => switchBudget(b.id)} disabled={switchingBudgetId === b.id}
@@ -444,7 +513,7 @@ function AgreementsTab({ clientId }) {
                 )}
               </div>
             ))}
-            <div className="flex gap-2">
+            {budgetsEditable && <div className="flex gap-2">
               <select className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm"
                 value={linkBudgetId} onChange={e => setLinkBudgetId(e.target.value)}>
                 <option value="">Link a budget…</option>
@@ -453,8 +522,8 @@ function AgreementsTab({ clientId }) {
                   .map(b => <option key={b.id} value={b.id}>{b.discipline_name || 'Unassigned discipline'} — {currency(b.total_amount)} ({b.start_date || '…'} – {b.end_date || 'ongoing'})</option>)}
               </select>
               <Button size="sm" variant="secondary" onClick={linkBudget} disabled={!linkBudgetId}>Link</Button>
-              <Button size="sm" variant="secondary" onClick={() => setShowCreateBudgetModal(true)}>+ Create budget</Button>
-            </div>
+              <Button size="sm" variant="secondary" onClick={openCreateBudget}>+ Create budget</Button>
+            </div>}
           </div>
 
           {showCreateBudgetModal && (
@@ -474,7 +543,7 @@ function AgreementsTab({ clientId }) {
             <AgreementPricingTable ref={pricingTableRef} agreement={active} onUpdate={setActive} />
           )}
 
-          {signingUrl && (
+          {signingUrl && active.status !== 'voided' && (
             <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm text-indigo-800 space-y-2">
               <div className="break-all">Signing link: <a href={signingUrl} target="_blank" rel="noreferrer" className="underline">{signingUrl}</a></div>
               <div className="flex items-center gap-2">
@@ -569,7 +638,7 @@ function AgreementsTab({ clientId }) {
             )}
           </div>
 
-          <EntityAuditLog entityType="agreement" entityId={active.id} defaultOpen
+          <EntityAuditLog entityType="agreement" entityId={active.id} defaultOpen refreshKey={active}
             actionColors={{
               created: 'text-green-700', sent: 'text-blue-700', resent: 'text-blue-700',
               viewed: 'text-amber-600', signed: 'text-green-700', signed_copy_uploaded: 'text-green-700', declined: 'text-red-600',
@@ -1089,13 +1158,14 @@ function BillingSummaryTab({ clientId }) {
   const [range, setRange] = useState({ from: '', to: '' });
   const [spend, setSpend] = useState(null);
 
-  const load = params => api.get(`/clients/${clientId}/spend${params ? `?${params}` : ''}`).then(r => {
+  const load = (params = {}) => api.get(`/clients/${clientId}/spend`, { params }).then(r => {
     setSpend(r.data);
     setRange({ from: r.data.from, to: r.data.to });
   });
   useEffect(() => { load(); }, []);
 
-  const applyRange = () => load(`from=${range.from}&to=${range.to}`);
+  const applyRange = () => load({ from: range.from, to: range.to });
+  const splits = spend?.by_discipline || [];
 
   return (
     <div className="space-y-6">
@@ -1127,6 +1197,29 @@ function BillingSummaryTab({ clientId }) {
               <p className="text-xl font-semibold text-indigo-900">{currency(spend.total)}</p>
             </div>
           </div>
+        )}
+
+        {splits.length > 0 && (
+          <table className="w-full max-w-xl text-sm">
+            <thead>
+              <tr className="text-left text-xs text-gray-400">
+                <th className="py-1.5 font-medium">By discipline</th>
+                <th className="py-1.5 text-right font-medium">Invoiced</th>
+                <th className="py-1.5 text-right font-medium">Scheduled</th>
+                <th className="py-1.5 text-right font-medium">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {splits.map(s => (
+                <tr key={s.discipline_id ?? 'none'} className="border-t border-gray-100">
+                  <td className={`py-1.5 ${s.discipline_id == null ? 'text-gray-500' : ''}`} title={s.discipline_id == null ? 'Services with no discipline set (Services page)' : undefined}>{s.name}</td>
+                  <td className="py-1.5 text-right">{currency(s.invoiced)}</td>
+                  <td className="py-1.5 text-right">{currency(s.projected)}</td>
+                  <td className="py-1.5 text-right font-medium">{currency(s.total)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>

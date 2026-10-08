@@ -70,10 +70,17 @@ export default function ComposeModal({ options, onClose, onQueued }) {
   const key = options.replacesOutboxId ? `therapy-email-draft:outbox:${options.replacesOutboxId}` : draftKey(mode, sourceId, options.clientIds);
 
   useEffect(() => {
-    api.get('/email/status').then(r => { setMailbox(r.data.mailbox || ''); setFromMailbox(r.data.sending_mailbox || r.data.mailbox || ''); }).catch(() => setMailbox(''));
+    // '' = no mailbox set up. A failed check (e.g. the server restarting) is tried again a few
+    // times before showing that email can't be reached (null) — it doesn't mean "not connected".
+    let tries = 0, timer = null, gone = false;
+    const check = () => api.get('/email/status')
+      .then(r => { if (!gone) { setMailbox(r.data.mailbox || ''); setFromMailbox(r.data.sending_mailbox || r.data.mailbox || ''); } })
+      .catch(() => { if (gone) return; if (++tries < 5) timer = setTimeout(check, 3000); else setMailbox(null); });
+    check();
     api.get('/clients?active=all').then(r => setClients(r.data)).catch(() => {});
     api.get('/email/tags').then(r => setAllTags(r.data)).catch(() => {});
     if (!options.source && sourceId) api.get(`/email/messages/${sourceId}`).then(r => setSource(r.data)).catch(() => {});
+    return () => { gone = true; clearTimeout(timer); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Starting content, once the original email (for replies) and the mailbox are known.
@@ -179,6 +186,7 @@ export default function ComposeModal({ options, onClose, onQueued }) {
         onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); } }}
         onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); upload([...e.dataTransfer.files]); }}>
         {mailbox === '' && <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">Email isn't connected yet, so this can't be sent.</p>}
+        {mailbox === null && <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">Therapy can't reach email right now, so this can't be sent yet. Your text is kept — close this and try again in a minute.</p>}
         {restoredDraft && (
           <p className="flex items-center justify-between rounded-md bg-indigo-50 px-3 py-1.5 text-xs text-indigo-800">
             Restored your unsent draft.
@@ -290,8 +298,8 @@ export default function ComposeModal({ options, onClose, onQueued }) {
 
         <div className="flex items-center gap-2">
           <div className="relative flex">
-            <Button onClick={() => send()} disabled={sending || mailbox === '' || uploading > 0} title="Ctrl/⌘ + Enter" className="rounded-r-none"><Send className="h-4 w-4" /> Send</Button>
-            <Button onClick={() => setScheduleOpen(o => !o)} disabled={sending || mailbox === '' || uploading > 0} title="Schedule send" className="rounded-l-none border-l border-indigo-500 px-2"><ChevronDown className="h-4 w-4" /></Button>
+            <Button onClick={() => send()} disabled={sending || !mailbox || uploading > 0} title="Ctrl/⌘ + Enter" className="rounded-r-none"><Send className="h-4 w-4" /> Send</Button>
+            <Button onClick={() => setScheduleOpen(o => !o)} disabled={sending || !mailbox || uploading > 0} title="Schedule send" className="rounded-l-none border-l border-indigo-500 px-2"><ChevronDown className="h-4 w-4" /></Button>
             {scheduleOpen && (
               <div className="absolute bottom-full left-0 z-30 mb-2 w-72 rounded-lg border border-gray-200 bg-white p-2 shadow-lg">
                 <p className="flex items-center gap-1 px-2 pb-1 text-xs font-medium text-gray-500"><Clock className="h-3.5 w-3.5" /> Schedule send</p>

@@ -33,7 +33,7 @@ export default function SignAgreement() {
   };
 
   if (notFound) {
-    return <div className="max-w-2xl mx-auto py-16 px-4 text-center text-gray-500">This link is invalid or has expired.</div>;
+    return <div className="max-w-2xl mx-auto py-16 px-4 text-center text-gray-500">This link is no longer valid — the agreement may have been updated since it was sent. Please contact the practice for the latest version.</div>;
   }
   if (!agreement) return <div className="max-w-2xl mx-auto py-16 px-4 text-center text-gray-400">Loading…</div>;
 
