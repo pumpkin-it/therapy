@@ -570,6 +570,11 @@ option A, or skip it and say so.
   didn't fully match "what still works" above with enough detail to reproduce.
 
 ## Changed since the last full run (check these first)
+- On UAT 2026-10-27 (not yet in production): **billing lines no longer shown/saved twice** for clients with two
+  overlapping funding periods (Nai-Shing Shih C0040, Joanne Cushing C0048). Open their appointments: each shows the
+  real number of lines; rates/codes still fill in; MYOB export, invoices, budgets and reports unchanged for everyone
+  else. **Series "this and future" edits** (change a time) no longer rewrite billing lines that didn't change, keep
+  finance's billing adjustments, and never touch sessions already sent to MYOB / invoiced.
 - On UAT 2026-10-22 (not yet in production): **tables in the report editor** (also report templates, notes and
   email/note/agreement templates, same editor). With the cursor in a table, the Table bar has:
   **Cell shading** (paint-bucket: Word-style palette — theme colours with shades, standard colours, recent

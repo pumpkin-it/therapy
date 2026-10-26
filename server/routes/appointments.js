@@ -43,11 +43,13 @@ const withItems = appt => {
     LEFT JOIN services s ON s.id = ai.service_id
     LEFT JOIN practitioners bp ON bp.id = ai.billed_by
     LEFT JOIN funding_periods fp_direct ON fp_direct.id = ?
-    LEFT JOIN funding_periods fp_date ON ? IS NULL AND fp_date.client_id = ?
-      AND (fp_date.start_date IS NULL OR fp_date.start_date = '' OR fp_date.start_date <= ?)
-      AND (fp_date.end_date IS NULL OR fp_date.end_date = '' OR fp_date.end_date >= ?)
+    LEFT JOIN funding_periods fp_date ON ? IS NULL AND fp_date.id = (
+      SELECT f.id FROM funding_periods f WHERE f.client_id = ?
+        AND (f.start_date IS NULL OR f.start_date = '' OR f.start_date <= ?)
+        AND (f.end_date IS NULL OR f.end_date = '' OR f.end_date >= ?)
+        ORDER BY f.id LIMIT 1)
     LEFT JOIN funding_types ft ON ft.name = COALESCE(fp_direct.funding_type, fp_date.funding_type)
-    LEFT JOIN rate_periods rp ON rp.funding_type_id = ft.id AND ? BETWEEN rp.start_date AND rp.end_date
+    LEFT JOIN rate_periods rp ON rp.id = (SELECT r.id FROM rate_periods r WHERE r.funding_type_id = ft.id AND ? BETWEEN r.start_date AND r.end_date ORDER BY r.id LIMIT 1)
     LEFT JOIN service_rates sr ON sr.period_id = rp.id AND sr.service_id = ai.service_id
     WHERE ai.appointment_id = ?
   `).all(appt.funding_period_id, appt.funding_period_id, appt.client_id, apptDate, apptDate, apptDate, appt.id);
@@ -86,11 +88,13 @@ router.get('/', auth, perm('calendar'), (req, res) => {
         LEFT JOIN practitioners bp ON bp.id = ai.billed_by
         LEFT JOIN appointments ap ON ap.id = ai.appointment_id
         LEFT JOIN funding_periods fp_direct ON fp_direct.id = ap.funding_period_id
-        LEFT JOIN funding_periods fp_date ON ap.funding_period_id IS NULL AND fp_date.client_id = ap.client_id
-          AND (fp_date.start_date IS NULL OR fp_date.start_date = '' OR fp_date.start_date <= DATE(ap.start_time))
-          AND (fp_date.end_date IS NULL OR fp_date.end_date = '' OR fp_date.end_date >= DATE(ap.start_time))
+        LEFT JOIN funding_periods fp_date ON ap.funding_period_id IS NULL AND fp_date.id = (
+          SELECT f.id FROM funding_periods f WHERE f.client_id = ap.client_id
+            AND (f.start_date IS NULL OR f.start_date = '' OR f.start_date <= DATE(ap.start_time))
+            AND (f.end_date IS NULL OR f.end_date = '' OR f.end_date >= DATE(ap.start_time))
+            ORDER BY f.id LIMIT 1)
         LEFT JOIN funding_types ft ON ft.name = COALESCE(fp_direct.funding_type, fp_date.funding_type)
-        LEFT JOIN rate_periods rp ON rp.funding_type_id = ft.id AND DATE(ap.start_time) BETWEEN rp.start_date AND rp.end_date
+        LEFT JOIN rate_periods rp ON rp.id = (SELECT r.id FROM rate_periods r WHERE r.funding_type_id = ft.id AND DATE(ap.start_time) BETWEEN r.start_date AND r.end_date ORDER BY r.id LIMIT 1)
         LEFT JOIN service_rates sr ON sr.period_id = rp.id AND sr.service_id = ai.service_id
         WHERE ai.appointment_id IN (${ids.map(() => '?').join(',')})
       `).all(...ids)

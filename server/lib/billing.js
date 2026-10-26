@@ -50,13 +50,19 @@ function computeBudgetItemLineTotal(item) {
 const db = require('../database');
 
 // Resolves the effective funding_type_id for an appointment — matches invoices.js's
+// Overlapping funding periods (or rate periods) used to make these joins return one row per match,
+// so an appointment's billing lines showed — and were saved — twice (SER-00031, Oct 2026). Every
+// date lookup now picks exactly one: the oldest matching period, which is what single-row lookups
+// already got.
 // FP_JOIN_DIRECT_DATE: an appointment's own funding_period if set, else whichever of the
 // client's funding periods was in effect on the appointment's date.
 const FUNDING_TYPE_JOIN = `
   LEFT JOIN funding_periods fp_direct ON fp_direct.id = a.funding_period_id
-  LEFT JOIN funding_periods fp_date ON a.funding_period_id IS NULL AND fp_date.client_id = a.client_id
-    AND (fp_date.start_date IS NULL OR fp_date.start_date = '' OR fp_date.start_date <= DATE(a.start_time))
-    AND (fp_date.end_date IS NULL OR fp_date.end_date = '' OR fp_date.end_date >= DATE(a.start_time))
+  LEFT JOIN funding_periods fp_date ON a.funding_period_id IS NULL AND fp_date.id = (
+    SELECT f.id FROM funding_periods f WHERE f.client_id = a.client_id
+      AND (f.start_date IS NULL OR f.start_date = '' OR f.start_date <= DATE(a.start_time))
+      AND (f.end_date IS NULL OR f.end_date = '' OR f.end_date >= DATE(a.start_time))
+      ORDER BY f.id LIMIT 1)
   LEFT JOIN funding_types ft ON ft.name = COALESCE(fp_direct.funding_type, fp_date.funding_type)
 `;
 
@@ -85,7 +91,7 @@ function computeAppointmentTotal(apptId, disciplineId = null) {
   let items = db.prepare(`
     SELECT ai.*, sr.travel_rate_per_hour, sr.km_rate, sr.notes_rate, s.discipline_id
     FROM appointment_items ai
-    LEFT JOIN rate_periods rp ON rp.funding_type_id = ? AND ? BETWEEN rp.start_date AND rp.end_date
+    LEFT JOIN rate_periods rp ON rp.id = (SELECT r.id FROM rate_periods r WHERE r.funding_type_id = ? AND ? BETWEEN r.start_date AND r.end_date ORDER BY r.id LIMIT 1)
     LEFT JOIN service_rates sr ON sr.period_id = rp.id AND sr.service_id = ai.service_id
     LEFT JOIN services s ON s.id = ai.service_id
     WHERE ai.appointment_id = ?

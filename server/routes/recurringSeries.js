@@ -349,7 +349,7 @@ router.patch('/:id', auth, (req, res) => {
 
   // Update future appointments
   const fromDate = apply_from || localDate(new Date());
-  const futureAppts = db.prepare("SELECT id FROM appointments WHERE series_id=? AND start_time >= ? AND status IN ('scheduled','pending')")
+  const futureAppts = db.prepare("SELECT id, myob_exported_at, is_invoiced FROM appointments WHERE series_id=? AND start_time >= ? AND status IN ('scheduled','pending')")
     .all(req.params.id, fromDate);
 
   for (const appt of futureAppts) {
@@ -399,19 +399,45 @@ router.patch('/:id', auth, (req, res) => {
       db.prepare(`UPDATE appointments SET ${sets} WHERE id=?`).run(...Object.values(apptUpdates), appt.id);
     }
 
-    // Update items if provided
-    if (items) {
-      db.prepare('DELETE FROM appointment_items WHERE appointment_id=?').run(appt.id);
-      const insertItem = db.prepare(`
-        INSERT INTO appointment_items (appointment_id, service_id, description, quantity, unit_rate, travel_time_min, travel_time_to, travel_time_from, travel_km, prep_time_min, item_notes, notes_min)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      for (const item of items) {
-        const travelTotal = (item.travel_time_to || 0) + (item.travel_time_from || 0);
-        insertItem.run(appt.id, item.service_id || null, item.description, item.quantity || 1,
-          item.unit_rate, travelTotal || item.travel_time_min || null,
-          item.travel_time_to || null, item.travel_time_from || null,
-          item.travel_km || null, item.prep_time_min || null, item.item_notes || null, item.notes_min || null);
+    // Update items if provided — only when they actually differ, and never on a session already
+    // sent to MYOB or invoiced (its lines are what was billed). Billing adjustments finance made
+    // are kept, matched by service when it appears exactly once before and after (same rule as
+    // editing a single appointment, routes/appointments.js). Previously every "this and future"
+    // edit replaced every future session's lines, wiping adjustments (SER-00031, Oct 2026).
+    if (items && !appt.myob_exported_at && !appt.is_invoiced) {
+      const existing = db.prepare('SELECT id, service_id, description, quantity, unit_rate, travel_time_to, travel_time_from, travel_km, prep_time_min, item_notes, notes_min, billed_quantity, billed_unit_rate, billed_travel_rate, billed_notes_rate, billed_km_rate, billed_by, billed_at FROM appointment_items WHERE appointment_id = ? ORDER BY id').all(appt.id);
+      const normalize = i => JSON.stringify([
+        i.service_id || null, i.description || '', Number(i.quantity) || 1, Number(i.unit_rate) || 0,
+        Number(i.travel_time_to) || 0, Number(i.travel_time_from) || 0, Number(i.travel_km) || 0,
+        Number(i.prep_time_min) || 0, i.item_notes || '', Number(i.notes_min) || 0,
+      ]);
+      const changed = existing.length !== items.length || existing.some((e, idx) => normalize(e) !== normalize(items[idx]));
+      if (changed) {
+        const overrides = existing.filter(e => e.billed_quantity != null || e.billed_unit_rate != null || e.billed_travel_rate != null || e.billed_notes_rate != null || e.billed_km_rate != null);
+        db.prepare('DELETE FROM appointment_items WHERE appointment_id=?').run(appt.id);
+        const insertItem = db.prepare(`
+          INSERT INTO appointment_items (appointment_id, service_id, description, quantity, unit_rate, travel_time_min, travel_time_to, travel_time_from, travel_km, prep_time_min, item_notes, notes_min)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        for (const item of items) {
+          const travelTotal = (item.travel_time_to || 0) + (item.travel_time_from || 0);
+          insertItem.run(appt.id, item.service_id || null, item.description, item.quantity || 1,
+            item.unit_rate, travelTotal || item.travel_time_min || null,
+            item.travel_time_to || null, item.travel_time_from || null,
+            item.travel_km || null, item.prep_time_min || null, item.item_notes || null, item.notes_min || null);
+        }
+        if (overrides.length) {
+          const count = rows => rows.reduce((m, r) => ({ ...m, [r.service_id]: (m[r.service_id] || 0) + 1 }), {});
+          const oldCounts = count(existing);
+          const newRows = db.prepare('SELECT id, service_id FROM appointment_items WHERE appointment_id = ? ORDER BY id').all(appt.id);
+          const newCounts = count(newRows);
+          const apply = db.prepare('UPDATE appointment_items SET billed_quantity=?, billed_unit_rate=?, billed_travel_rate=?, billed_notes_rate=?, billed_km_rate=?, billed_by=?, billed_at=? WHERE id=?');
+          for (const ov of overrides) {
+            if (ov.service_id == null || oldCounts[ov.service_id] !== 1 || newCounts[ov.service_id] !== 1) continue;
+            const target = newRows.find(n => n.service_id === ov.service_id);
+            apply.run(ov.billed_quantity, ov.billed_unit_rate, ov.billed_travel_rate, ov.billed_notes_rate, ov.billed_km_rate, ov.billed_by, ov.billed_at, target.id);
+          }
+        }
       }
     }
   }

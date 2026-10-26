@@ -17,9 +17,11 @@ function dayBefore(dateStr) {
 // appointments.funding_period_id, or by date-matching the client's funding periods.
 const APPT_FUNDING_TYPE_JOIN = `
   LEFT JOIN funding_periods fp_direct ON fp_direct.id = a.funding_period_id
-  LEFT JOIN funding_periods fp_date ON a.funding_period_id IS NULL AND fp_date.client_id = a.client_id
-    AND (fp_date.start_date IS NULL OR fp_date.start_date = '' OR fp_date.start_date <= DATE(a.start_time))
-    AND (fp_date.end_date IS NULL OR fp_date.end_date = '' OR fp_date.end_date >= DATE(a.start_time))
+  LEFT JOIN funding_periods fp_date ON a.funding_period_id IS NULL AND fp_date.id = (
+    SELECT f.id FROM funding_periods f WHERE f.client_id = a.client_id
+      AND (f.start_date IS NULL OR f.start_date = '' OR f.start_date <= DATE(a.start_time))
+      AND (f.end_date IS NULL OR f.end_date = '' OR f.end_date >= DATE(a.start_time))
+      ORDER BY f.id LIMIT 1)
   LEFT JOIN funding_types ft ON ft.name = COALESCE(fp_direct.funding_type, fp_date.funding_type)
 `;
 
