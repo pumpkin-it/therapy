@@ -70,6 +70,27 @@ function generateForSeries(series, horizon, regenerateSlots = new Set()) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
+  // A billing adjustment finance set on the series' sessions (e.g. 1 × $350 instead of 2 h × $200)
+  // carries on to the sessions generated next: copied from the latest session before each new one,
+  // per service, only when that service appears exactly once on both — same rule as the other
+  // places adjustments are carried over (routes/appointments.js).
+  const previousOverrides = db.prepare(`
+    SELECT ai.service_id, ai.billed_quantity, ai.billed_unit_rate, ai.billed_travel_rate, ai.billed_notes_rate, ai.billed_km_rate, ai.billed_by, ai.billed_at,
+      (SELECT COUNT(*) FROM appointment_items x WHERE x.appointment_id = ai.appointment_id AND x.service_id = ai.service_id) AS same_service
+    FROM appointment_items ai
+    WHERE ai.appointment_id = (SELECT id FROM appointments WHERE series_id = ? AND status != 'cancelled' AND start_time < ? ORDER BY start_time DESC LIMIT 1)
+  `);
+  const applyOverride = db.prepare('UPDATE appointment_items SET billed_quantity=?, billed_unit_rate=?, billed_travel_rate=?, billed_notes_rate=?, billed_km_rate=?, billed_by=?, billed_at=? WHERE id=?');
+  const carryOverrides = (apptId, start) => {
+    const newRows = db.prepare('SELECT id, service_id FROM appointment_items WHERE appointment_id = ?').all(apptId);
+    for (const ov of previousOverrides.all(series.id, start)) {
+      if (ov.service_id == null || ov.same_service !== 1) continue;
+      if (ov.billed_quantity == null && ov.billed_unit_rate == null && ov.billed_travel_rate == null && ov.billed_notes_rate == null && ov.billed_km_rate == null) continue;
+      const targets = newRows.filter(n => n.service_id === ov.service_id);
+      if (targets.length === 1) applyOverride.run(ov.billed_quantity, ov.billed_unit_rate, ov.billed_travel_rate, ov.billed_notes_rate, ov.billed_km_rate, ov.billed_by, ov.billed_at, targets[0].id);
+    }
+  };
+
   let created = 0;
   let totalCount = existingCount;
 
@@ -92,6 +113,7 @@ function generateForSeries(series, horizon, regenerateSlots = new Set()) {
             item.unit_rate, item.travel_time_min || null, item.travel_time_to || null, item.travel_time_from || null,
             item.travel_km || null, item.prep_time_min || null, item.item_notes || null, item.notes_min || null);
         }
+        carryOverrides(r.lastInsertRowid, st);
         created++;
         totalCount++;
       }
