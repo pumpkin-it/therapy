@@ -563,7 +563,9 @@ router.get('/:id/pdf', auth, async (req, res) => {
   const renderedHtml = agreement.rendered_html || renderAgreementContent(agreement, req.user.id);
   const pdf = await generateAgreementPdf({ ...agreement, rendered_html: renderedHtml });
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="${agreement.title.replace(/[^a-z0-9]+/gi, '_')}.pdf"`);
+  // "Service Agreement - Cameron Noble.pdf" — the agreement's title and the client's name.
+  const fileName = `${agreement.title} - ${agreement.client_name}`.replace(/[\\/:*?"<>|\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName.replace(/[^\x20-\x7e]/g, '_')}.pdf"; filename*=UTF-8''${encodeURIComponent(fileName)}.pdf`);
   res.send(pdf);
 });
 

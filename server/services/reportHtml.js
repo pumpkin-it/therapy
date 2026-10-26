@@ -85,12 +85,18 @@ function renderNode(n, ctx) {
       const colgroup = widths.some(Boolean) ? `<colgroup>${widths.map(w => (w ? `<col style="width:${Number(w)}px">` : '<col>')).join('')}</colgroup>` : '';
       return `<table>${colgroup}<tbody>${renderNodes(n.content, ctx)}</tbody></table>`;
     }
-    case 'tableRow': return `<tr>${renderNodes(n.content, ctx)}</tr>`;
+    // Row height and cell shading set in the editor (client tables.js); colours are checked so
+    // nothing but a plain colour value reaches the style attribute.
+    case 'tableRow': {
+      const h = Number(a.height);
+      return `<tr${h > 0 ? ` style="height:${Math.round(h)}px"` : ''}>${renderNodes(n.content, ctx)}</tr>`;
+    }
     case 'tableHeader':
     case 'tableCell': {
       const tag = n.type === 'tableHeader' ? 'th' : 'td';
       const span = `${a.colspan > 1 ? ` colspan="${Number(a.colspan)}"` : ''}${a.rowspan > 1 ? ` rowspan="${Number(a.rowspan)}"` : ''}`;
-      return `<${tag}${span}>${renderNodes(n.content, ctx)}</${tag}>`;
+      const bg = /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\))$/i.test(String(a.background || '').trim()) ? ` style="background-color:${String(a.background).trim()}"` : '';
+      return `<${tag}${span}${bg}>${renderNodes(n.content, ctx)}</${tag}>`;
     }
     case 'image': {
       const src = imageSrc(a.src);

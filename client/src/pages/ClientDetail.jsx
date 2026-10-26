@@ -305,7 +305,7 @@ function AgreementsTab({ clientId }) {
       if (!savedOk) return;
     }
     try {
-      await downloadFile(api, `/agreements/${activeId}/pdf`, `${active.title}.pdf`);
+      await downloadFile(api, `/agreements/${activeId}/pdf`, `${`${active.title} - ${active.client_name}`.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim()}.pdf`);
     } catch (e) {
       setAgreementError(e.response?.data?.error || 'Failed to download PDF');
     }

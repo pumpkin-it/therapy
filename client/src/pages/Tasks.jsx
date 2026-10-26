@@ -5,11 +5,14 @@ import api from '../lib/api';
 import Button from '../components/ui/Button';
 import TaskDetail from '../components/tasks/TaskDetail';
 import NewTaskModal from '../components/tasks/NewTaskModal';
-import { fmtDay, isOverdue } from '../lib/tasks';
+import { fmtDay, isOverdue, PRIORITIES, PRIORITY_PILL, priorityLabel, STATUS_PILL, statusLabel } from '../lib/tasks';
 import { fmtDateTime } from '../lib/utils';
 
-const VIEWS = [['todo', 'To do'], ['waiting', 'Waiting'], ['done', 'Done']];
+const VIEWS = [['todo', 'To do'], ['waiting', 'Waiting'], ['done', 'Done'], ['all', 'All']];
 const WHO = [['', 'Everyone'], ['me', 'Mine'], ['unassigned', 'Unassigned']];
+// How the list can be ordered. '' = the view's usual order (To do: most urgent first; Waiting:
+// soonest follow-up; Done: most recently finished).
+const SORTS = [['', 'Usual order'], ['priority', 'Priority'], ['due', 'Due date'], ['created_new', 'Newest first'], ['created_old', 'Oldest first'], ['updated', 'Recently updated'], ['follow_up', 'Follow-up date']];
 
 // The team's to-do list: work started by email (or added by hand) that needs doing (To do), is
 // waiting on someone else until a follow-up date (Waiting), or is finished (Done).
@@ -17,6 +20,8 @@ export default function Tasks() {
   const [params, setParams] = useSearchParams();
   const view = VIEWS.some(v => v[0] === params.get('status')) ? params.get('status') : 'todo';
   const who = params.get('who') || '';
+  const sort = SORTS.some(s => s[0] === params.get('sort')) ? params.get('sort') : '';
+  const priority = params.get('priority') || ''; // '' = all, or e.g. 'urgent' / 'urgent,high'
   const openId = Number(params.get('id')) || null;
   const [query, setQuery] = useState('');
   const [q, setQ] = useState('');
@@ -34,9 +39,9 @@ export default function Tasks() {
   useEffect(() => { api.get('/tasks/assignees').then(r => setAssignees(r.data)).catch(() => {}); }, []);
   useEffect(() => { const t = setTimeout(() => setQ(query.trim()), 300); return () => clearTimeout(t); }, [query]);
   const load = useCallback(() => {
-    api.get('/tasks', { params: { status: view, assigned: who || undefined, q: q || undefined } }).then(r => setList(r.data)).catch(() => {});
+    api.get('/tasks', { params: { status: view, assigned: who || undefined, q: q || undefined, sort: sort || undefined, priority: priority || undefined } }).then(r => setList(r.data)).catch(() => {});
     api.get('/tasks/counts').then(r => setCounts(r.data)).catch(() => {});
-  }, [view, who, q]);
+  }, [view, who, q, sort, priority]);
   useEffect(() => { load(); }, [load]);
 
   return (
@@ -48,7 +53,7 @@ export default function Tasks() {
           {VIEWS.map(([v, label]) => (
             <button key={v} type="button" onClick={() => setParam({ status: v === 'todo' ? null : v, id: null })}
               className={`rounded-full px-3 py-1 text-sm ${view === v ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
-              {label}{counts && v !== 'done' && <span className={`ml-1.5 ${view === v ? 'text-indigo-100' : 'text-gray-400'}`}>{counts[v]}</span>}
+              {label}{counts && (v === 'todo' || v === 'waiting') && <span className={`ml-1.5 ${view === v ? 'text-indigo-100' : 'text-gray-400'}`}>{counts[v]}</span>}
             </button>
           ))}
         </div>
@@ -56,6 +61,17 @@ export default function Tasks() {
           {WHO.map(([v, l]) => <option key={v} value={v}>{l}{v === 'me' && counts ? ` (${counts.todo_mine} to do)` : ''}</option>)}
           {assignees.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
+        <select value={priority} onChange={e => setParam({ priority: e.target.value || null, id: null })} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-gray-600">
+          <option value="">All priorities</option>
+          <option value="urgent,high">Urgent and high</option>
+          {PRIORITIES.map(([v, l]) => <option key={v} value={v}>{l} only</option>)}
+        </select>
+        <label className="flex items-center gap-1.5 text-sm text-gray-500">
+          Sort
+          <select value={sort} onChange={e => setParam({ sort: e.target.value || null })} className="rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-gray-600">
+            {SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
         <div className="relative ml-auto w-full max-w-xs">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search tasks…"
@@ -66,14 +82,19 @@ export default function Tasks() {
         <div className="w-2/5 min-w-[260px] max-w-md shrink-0 overflow-y-auto border-r border-gray-200 bg-white">
           {list.rows.length === 0 && (
             <div className="flex flex-col items-center gap-2 px-6 py-16 text-center text-sm text-gray-400">
-              <CheckCircle2 className="h-8 w-8" /> {view === 'todo' ? 'Nothing to do.' : view === 'waiting' ? 'Nothing waiting.' : 'Nothing done yet.'}
+              <CheckCircle2 className="h-8 w-8" /> {priority ? `No ${priority === 'urgent,high' ? 'urgent or high' : priorityLabel(priority).toLowerCase()} priority tasks here.` : view === 'todo' ? 'Nothing to do.' : view === 'waiting' ? 'Nothing waiting.' : view === 'all' ? 'No tasks yet.' : 'Nothing done yet.'}
             </div>
           )}
           <ul className="divide-y divide-gray-100">
             {list.rows.map(t => (
               <li key={t.id} onClick={() => setParam({ id: t.id })} className={`cursor-pointer px-3 py-2.5 ${t.id === openId ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}>
                 <div className="flex items-start gap-2">
+                  {view === 'all' && <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold ${STATUS_PILL[t.status]}`}>{statusLabel(t.status)}</span>}
+                  {t.priority && t.priority !== 'normal' && <span className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold ${PRIORITY_PILL[t.priority]}`}>{priorityLabel(t.priority)}</span>}
                   <p className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900">{t.title}</p>
+                  {t.due_at && t.status !== 'done' && (
+                    <span className={`shrink-0 text-xs ${isOverdue(t.due_at) ? 'font-medium text-red-600' : 'text-gray-500'}`}>Due {fmtDay(t.due_at)}</span>
+                  )}
                   {t.status === 'waiting' && t.follow_up_at && (
                     <span className={`flex shrink-0 items-center gap-1 text-xs ${isOverdue(t.follow_up_at) ? 'text-red-600' : 'text-gray-400'}`}><Clock className="h-3 w-3" />{fmtDay(t.follow_up_at)}</span>
                   )}

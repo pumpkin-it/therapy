@@ -566,6 +566,7 @@ router.get('/:id/draft', auth, (req, res) => {
     updated_by_name: d?.updated_by_name || null,
     fields: reportFields(report),
     can_edit: canEditDraft(req.user, report),
+    my_cursor: db.prepare('SELECT pos, updated_at FROM report_cursors WHERE billable_report_id = ? AND user_id = ?').get(report.id, req.user.id) || null,
     locked: !!report.doc_locked,
     can_unlock: !!report.doc_locked && canManage(req.user, report),
     can_commit: !report.doc_locked && canManage(req.user, report),
@@ -574,6 +575,39 @@ router.get('/:id/draft', auth, (req, res) => {
       : null,
     versions: getVersions(report.id),
   });
+});
+
+// The PDF the saved draft would make right now, for "Check against PDF" in the editor (same
+// renderer as a commit, so it shows exactly where the pages will break). Nothing is stored.
+router.get('/:id/draft/pdf', auth, async (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+  if (!isAdmin(req.user) && !canEditDraft(req.user, report) && report.practitioner_id !== req.user.id) return res.status(403).json({ error: 'Not allowed' });
+  const draft = getDraft(report.id);
+  if (!draft) return res.status(400).json({ error: 'Nothing has been written yet.' });
+  const client = db.prepare('SELECT first_name, last_name FROM clients WHERE id = ?').get(report.client_id);
+  try {
+    const pdf = await renderReportPdf({ doc: JSON.parse(draft.content), fields: reportFields(report), footer: { clientName: `${client.first_name} ${client.last_name}`, title: report.title } });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(pdf);
+  } catch (e) {
+    console.error('Draft PDF failed:', e.message);
+    res.status(500).json({ error: 'The PDF couldn’t be made. Try again in a minute.' });
+  }
+});
+
+// Remembers where this person's cursor is (see report_cursors). Sent while they move around and
+// when they leave; cheap, no revision check — it's only a position.
+router.put('/:id/draft/cursor', auth, (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+  const pos = Number(req.body.pos);
+  if (!Number.isInteger(pos) || pos < 0) return res.status(400).json({ error: 'Invalid position' });
+  db.prepare(`INSERT INTO report_cursors (billable_report_id, user_id, pos, updated_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT(billable_report_id, user_id) DO UPDATE SET pos = excluded.pos, updated_at = excluded.updated_at`)
+    .run(report.id, req.user.id, pos, new Date().toISOString());
+  res.status(204).end();
 });
 
 router.put('/:id/draft', auth, (req, res) => {

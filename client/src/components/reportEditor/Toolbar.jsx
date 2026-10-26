@@ -3,8 +3,11 @@ import { useEditorState } from '@tiptap/react';
 import {
   Bold, Italic, Underline, Strikethrough, AlignLeft, AlignCenter, AlignRight, AlignJustify, List, ListOrdered,
   Undo2, Redo2, Table, Image, Link2, Unlink, Highlighter, Baseline, RemoveFormatting, SeparatorHorizontal,
-  UserSquare, Indent, Outdent, ChevronDown, Trash2,
+  UserSquare, Indent, Outdent, ChevronDown, Trash2, PaintBucket,
 } from 'lucide-react';
+import ColourPalette from './ColourPalette';
+import { shadeCells, setRowHeight, setColumnWidth, evenColumns, tableInfo, wantsCellColour, cmToPx, pxToCm } from './tables';
+import { PAGE } from './PageGuides';
 import { FIELD_GROUPS, LOGO_SIZE_NAMES, humaniseVar } from './extensions';
 import { REPORT_FONTS } from './fonts';
 import { useConfirm } from '../ui/ConfirmDialog';
@@ -12,8 +15,28 @@ import { useConfirm } from '../ui/ConfirmDialog';
 // Only fonts with a metric-identical free version (see fonts.js), so the PDF matches the page.
 const FONTS = REPORT_FONTS;
 const SIZES = ['9pt', '10pt', '11pt', '12pt', '14pt', '16pt', '18pt', '20pt', '24pt'];
-const TEXT_COLOURS = ['#000000', '#404040', '#7f7f7f', '#c00000', '#e36c09', '#00b050', '#0070c0', '#1f3864', '#7030a0'];
-const HIGHLIGHTS = ['#ffff00', '#92d050', '#9bc2e6', '#f4b183', '#d9d2e9'];
+
+// A size in cm for the table bar (row height / column width). Empty = automatic. Applied on Enter
+// or when leaving the box.
+function CmInput({ label, valuePx, onApply, placeholder = 'Auto' }) {
+  const [text, setText] = useState(valuePx ? String(pxToCm(valuePx)) : '');
+  useEffect(() => { setText(valuePx ? String(pxToCm(valuePx)) : ''); }, [valuePx]);
+  const apply = () => {
+    const v = text.trim().replace(',', '.');
+    if (!v) { if (valuePx) onApply(null); return; }
+    const cm = Number(v);
+    if (Number.isFinite(cm) && cm > 0 && cm !== pxToCm(valuePx || 0)) onApply(cmToPx(cm));
+  };
+  return (
+    <label className="inline-flex items-center gap-1 text-gray-500">
+      {label}
+      <input value={text} onChange={e => setText(e.target.value)} onBlur={apply} placeholder={placeholder} inputMode="decimal"
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); apply(); } }}
+        className="w-14 rounded border border-gray-200 bg-white px-1.5 py-0.5 text-right text-gray-700 focus:border-indigo-400 focus:outline-none" />
+      <span>cm</span>
+    </label>
+  );
+}
 
 function Btn({ onClick, active, disabled, title, children }) {
   return (
@@ -72,6 +95,9 @@ export default function Toolbar({ editor, fields, vars, noFields = false, onPick
       canSink: e.can().sinkListItem('listItem'), canLift: e.can().liftListItem('listItem'),
       canMerge: e.can().mergeCells(), canSplit: e.can().splitCell(),
       logo: e.isActive('practiceLogo'), logoSize: e.getAttributes('practiceLogo').size || 'medium',
+      colour: e.getAttributes('textStyle').color || null, highlight: e.getAttributes('highlight').color || null,
+      tbl: e.isActive('table') ? tableInfo(e.state) : null,
+      cellColour: e.isActive('table') && wantsCellColour(e.state),
     }),
   });
   const chain = () => editor.chain().focus();
@@ -109,17 +135,14 @@ export default function Toolbar({ editor, fields, vars, noFields = false, onPick
         <Btn title="Italic (Ctrl+I)" active={s.italic} onClick={() => chain().toggleItalic().run()}><Italic className="h-4 w-4" /></Btn>
         <Btn title="Underline (Ctrl+U)" active={s.underline} onClick={() => chain().toggleUnderline().run()}><Underline className="h-4 w-4" /></Btn>
         <Btn title="Strikethrough" active={s.strike} onClick={() => chain().toggleStrike().run()}><Strikethrough className="h-4 w-4" /></Btn>
-        <Popover title="Text colour" button={<Baseline className="h-4 w-4" />}>
-          <div className="grid grid-cols-5 gap-1 w-36">
-            {TEXT_COLOURS.map(c => <button key={c} title={c} className="h-6 w-6 rounded border border-gray-200" style={{ background: c }} onClick={() => chain().setColor(c).run()} />)}
-            <button className="col-span-5 mt-1 text-xs text-gray-600 hover:text-gray-900" onClick={() => chain().unsetColor().run()}>Automatic</button>
-          </div>
+        <Popover title="Text colour" button={<span className="flex flex-col items-center"><Baseline className="h-4 w-4" /><span className="-mt-0.5 h-1 w-4 rounded-sm" style={{ background: s.colour || '#000000' }} /></span>}>
+          <ColourPalette current={s.colour} clearLabel="Automatic" onPick={c => chain().setColor(c).run()} onClear={() => chain().unsetColor().run()} />
         </Popover>
-        <Popover title="Highlight" button={<Highlighter className="h-4 w-4" />}>
-          <div className="grid grid-cols-5 gap-1 w-36">
-            {HIGHLIGHTS.map(c => <button key={c} title={c} className="h-6 w-6 rounded border border-gray-200" style={{ background: c }} onClick={() => chain().setHighlight({ color: c }).run()} />)}
-            <button className="col-span-5 mt-1 text-xs text-gray-600 hover:text-gray-900" onClick={() => chain().unsetHighlight().run()}>No highlight</button>
-          </div>
+        <Popover title={s.cellColour ? 'Cell colour — fills the whole cell (select words first to highlight just them)' : 'Highlight'} button={<span className="flex flex-col items-center"><Highlighter className="h-4 w-4" /><span className="-mt-0.5 h-1 w-4 rounded-sm" style={{ background: s.highlight || '#ffff00' }} /></span>}>
+          {/* In a table with no words selected (or cells dragged across), it colours the whole cell. */}
+          <ColourPalette current={s.cellColour ? s.tbl?.background : s.highlight} clearLabel={s.cellColour ? 'No cell colour' : 'No highlight'}
+            onPick={c => (s.cellColour ? shadeCells(editor, c) : chain().setHighlight({ color: c }).run())}
+            onClear={() => (s.cellColour ? shadeCells(editor, null) : chain().unsetHighlight().run())} />
         </Popover>
         <Sep />
         <Btn title="Align left" active={s.left} onClick={() => chain().setTextAlign('left').run()}><AlignLeft className="h-4 w-4" /></Btn>
@@ -199,6 +222,14 @@ export default function Toolbar({ editor, fields, vars, noFields = false, onPick
             <button key={label} disabled={disabled} onMouseDown={e => e.preventDefault()} onClick={fn}
               className="rounded border border-gray-200 bg-white px-2 py-0.5 text-gray-700 hover:bg-gray-100 disabled:opacity-40">{label}</button>
           ))}
+          <span className="mx-1 h-4 w-px bg-gray-200" />
+          <Popover title="Cell shading — colours the selected cells (drag across cells to select several)" button={<span className="flex flex-col items-center"><PaintBucket className="h-3.5 w-3.5" /><span className="-mt-0.5 h-1 w-4 rounded-sm border border-gray-300" style={{ background: s.tbl?.background || 'transparent' }} /></span>}>
+            <ColourPalette current={s.tbl?.background} clearLabel="No shading" onPick={c => shadeCells(editor, c)} onClear={() => shadeCells(editor, null)} />
+          </Popover>
+          <CmInput label="Row height" valuePx={s.tbl?.rowHeight} onApply={px => setRowHeight(editor, px)} />
+          <CmInput label="Column width" valuePx={s.tbl?.colWidth} onApply={px => px && setColumnWidth(editor, px)} />
+          <button onMouseDown={e => e.preventDefault()} onClick={() => evenColumns(editor, PAGE.width - PAGE.margin * 2)} title="Make all columns the same width, across the page"
+            className="rounded border border-gray-200 bg-white px-2 py-0.5 text-gray-700 hover:bg-gray-100">Even columns</button>
           <button onMouseDown={e => e.preventDefault()} onClick={() => chain().deleteTable().run()}
             className="ml-auto inline-flex items-center gap-1 rounded px-2 py-0.5 text-red-600 hover:bg-red-50"><Trash2 className="h-3 w-3" /> Delete table</button>
         </div>

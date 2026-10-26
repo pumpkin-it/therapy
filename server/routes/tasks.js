@@ -23,21 +23,44 @@ const TASK_COLS = `t.*, p.first_name || ' ' || p.last_name AS assigned_name,
   (SELECT COUNT(*) FROM email_messages m WHERE m.task_id = t.id) AS email_count,
   (SELECT detail FROM task_events e WHERE e.task_id = t.id ORDER BY e.id DESC LIMIT 1) AS last_event`;
 
-// ?status=todo|waiting|done  &assigned=me|unassigned|<user id>  &client_id=  &q=  &page=
+// Which date the list can be filtered on (from/to, YYYY-MM-DD local). created/updated/done are UTC
+// timestamps, compared as Melbourne dates.
+const DATE_FIELDS = { created: "DATE(t.created_at, '+11 hours')", updated: "DATE(t.updated_at, '+11 hours')", done: "DATE(t.done_at, '+11 hours')", due: 't.due_at', follow_up: 't.follow_up_at' };
+const PRIORITY_RANK = "CASE t.priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END";
+
+// ?status=todo|waiting|done|all  &assigned=me|unassigned|<user id>  &client_id=  &q=  &page=
+// &priority=urgent,high  &date_field=created|updated|done|due|follow_up  &from=  &to=
+// &sort=priority|due|created_new|created_old|updated|follow_up (default depends on the view)
 router.get('/', auth, (req, res) => {
-  const status = STATUSES.includes(req.query.status) ? req.query.status : 'todo';
-  const where = ['t.status = ?'];
-  const params = [status];
+  const status = STATUSES.includes(req.query.status) || req.query.status === 'all' ? req.query.status : 'todo';
+  const where = status === 'all' ? ['1 = 1'] : ['t.status = ?'];
+  const params = status === 'all' ? [] : [status];
   if (req.query.assigned === 'me') { where.push('t.assigned_to = ?'); params.push(req.user.id); }
   else if (req.query.assigned === 'unassigned') where.push('t.assigned_to IS NULL');
   else if (Number(req.query.assigned)) { where.push('t.assigned_to = ?'); params.push(Number(req.query.assigned)); }
   if (Number(req.query.client_id)) { where.push('t.id IN (SELECT task_id FROM task_clients WHERE client_id = ?)'); params.push(Number(req.query.client_id)); }
   if (req.query.q) { where.push('(t.title LIKE ? OR t.next_step LIKE ?)'); params.push(`%${req.query.q}%`, `%${req.query.q}%`); }
+  const priorities = String(req.query.priority || '').split(',').filter(p => tasks.PRIORITIES.includes(p));
+  if (priorities.length) { where.push(`t.priority IN (${priorities.map(() => '?').join(',')})`); params.push(...priorities); }
+  const dateCol = DATE_FIELDS[req.query.date_field];
+  if (dateCol && YMD.test(req.query.from || '')) { where.push(`${dateCol} >= ?`); params.push(req.query.from); }
+  if (dateCol && YMD.test(req.query.to || '')) { where.push(`${dateCol} <= ?`); params.push(req.query.to); }
   const page = Math.max(1, Number(req.query.page) || 1);
   const w = `WHERE ${where.join(' AND ')}`;
   const total = db.prepare(`SELECT COUNT(*) n FROM tasks t ${w}`).get(...params).n;
-  // To do: oldest first (longest waiting for us). Waiting: soonest follow-up first. Done: newest.
-  const order = status === 'todo' ? 't.updated_at ASC' : status === 'waiting' ? 't.follow_up_at ASC, t.updated_at ASC' : 't.done_at DESC';
+  // To do: most urgent first, then the earliest due date, then oldest (longest waiting for us).
+  // Waiting: soonest follow-up first. Done: newest.
+  const SORTS = {
+    priority: `${PRIORITY_RANK}, t.due_at IS NULL, t.due_at ASC, t.updated_at ASC`,
+    due: `t.due_at IS NULL, t.due_at ASC, ${PRIORITY_RANK}, t.updated_at ASC`,
+    created_new: 't.created_at DESC, t.id DESC',
+    created_old: 't.created_at ASC',
+    updated: 't.updated_at DESC',
+    follow_up: 't.follow_up_at IS NULL, t.follow_up_at ASC, t.updated_at ASC',
+  };
+  // All: open work first (To do, then Waiting, then Done), most urgent first within each.
+  const ALL_ORDER = `CASE t.status WHEN 'todo' THEN 0 WHEN 'waiting' THEN 1 ELSE 2 END, ${PRIORITY_RANK}, t.due_at IS NULL, t.due_at ASC, t.updated_at DESC`;
+  const order = SORTS[req.query.sort] || (status === 'todo' ? SORTS.priority : status === 'waiting' ? 't.follow_up_at ASC, t.updated_at ASC' : status === 'all' ? ALL_ORDER : 't.done_at DESC');
   const rows = db.prepare(`SELECT ${TASK_COLS} FROM tasks t LEFT JOIN practitioners p ON p.id = t.assigned_to ${w} ORDER BY ${order}, t.id LIMIT ? OFFSET ?`)
     .all(...params, PAGE, (page - 1) * PAGE);
   const c = clientsFor(rows.map(r => r.id));
@@ -95,6 +118,8 @@ router.post('/', auth, (req, res) => {
   if (!title) return res.status(400).json({ error: 'Give the task a title' });
   const status = STATUSES.includes(b.status) ? b.status : 'todo';
   if (b.follow_up_at && !YMD.test(b.follow_up_at)) return res.status(400).json({ error: 'Follow-up date is not valid' });
+  if (b.due_at && !YMD.test(b.due_at)) return res.status(400).json({ error: 'Due date is not valid' });
+  if (b.priority && !tasks.PRIORITIES.includes(b.priority)) return res.status(400).json({ error: 'Unknown priority' });
   const clientIds = validClients(b.client_ids);
   if (!clientIds) return res.status(400).json({ error: 'Unknown client' });
   const assignee = validAssignee(b.assigned_to);
@@ -107,6 +132,7 @@ router.post('/', auth, (req, res) => {
     return tasks.create({
       title, nextStep: String(b.next_step || '').trim() || null, status, assignedTo: assignee, followUpAt: b.follow_up_at || (status === 'waiting' ? tasks.addWorkingDays() : null),
       clientIds: [...new Set([...clientIds, ...emailClients])], source: msg ? 'email' : 'manual', createdBy: req.user.id, messageIds: thread,
+      priority: b.priority || 'normal', dueAt: b.due_at || null,
       detail: msg ? 'Created from an email' : 'Created',
     });
   })();
@@ -120,6 +146,8 @@ router.patch('/:id', auth, (req, res) => {
   if (b.next_step !== undefined) patch.next_step = String(b.next_step || '').trim().slice(0, 500);
   if (b.status !== undefined) { if (!STATUSES.includes(b.status)) return res.status(400).json({ error: 'Unknown status' }); patch.status = b.status; }
   if (b.follow_up_at !== undefined) { if (b.follow_up_at && !YMD.test(b.follow_up_at)) return res.status(400).json({ error: 'Follow-up date is not valid' }); patch.follow_up_at = b.follow_up_at || null; }
+  if (b.priority !== undefined) { if (!tasks.PRIORITIES.includes(b.priority)) return res.status(400).json({ error: 'Unknown priority' }); patch.priority = b.priority; }
+  if (b.due_at !== undefined) { if (b.due_at && !YMD.test(b.due_at)) return res.status(400).json({ error: 'Due date is not valid' }); patch.due_at = b.due_at || null; }
   if (b.assigned_to !== undefined) { const a = validAssignee(b.assigned_to); if (a === undefined) return res.status(400).json({ error: 'Unknown person' }); patch.assigned_to = a; }
   const ok = db.transaction(() => tasks.update(Number(req.params.id), patch, req.user.id))();
   if (!ok) return res.status(404).json({ error: 'Task not found' });

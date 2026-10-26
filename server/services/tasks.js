@@ -42,9 +42,12 @@ function addClients(taskId, clientIds, actorId = null, { log = true } = {}) {
   }
 }
 
-function create({ title, nextStep = null, status = 'todo', assignedTo = null, followUpAt = null, clientIds = [], source = 'manual', createdBy = null, messageIds = [], detail = null }) {
-  const id = db.prepare(`INSERT INTO tasks (title, next_step, status, assigned_to, follow_up_at, source, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(String(title).slice(0, 200), nextStep, status, assignedTo, status === 'waiting' ? followUpAt : null, source, createdBy).lastInsertRowid;
+const PRIORITIES = ['urgent', 'high', 'normal', 'low'];
+const PRIORITY_WORD = { urgent: 'Urgent', high: 'High', normal: 'Normal', low: 'Low' };
+
+function create({ title, nextStep = null, status = 'todo', assignedTo = null, followUpAt = null, clientIds = [], source = 'manual', createdBy = null, messageIds = [], detail = null, priority = 'normal', dueAt = null }) {
+  const id = db.prepare(`INSERT INTO tasks (title, next_step, status, assigned_to, follow_up_at, source, created_by, priority, due_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(String(title).slice(0, 200), nextStep, status, assignedTo, status === 'waiting' ? followUpAt : null, source, createdBy, PRIORITIES.includes(priority) ? priority : 'normal', dueAt || null).lastInsertRowid;
   for (const mid of messageIds) db.prepare('UPDATE email_messages SET task_id = ? WHERE id = ?').run(id, mid);
   addClients(id, clientIds, createdBy, { log: false });
   event(id, 'created', detail || (source === 'email' ? 'Created from an email' : 'Created'), { actorId: createdBy, messageId: messageIds[0] || null });
@@ -53,7 +56,7 @@ function create({ title, nextStep = null, status = 'todo', assignedTo = null, fo
 
 const STATUS_WORD = { todo: 'To do', waiting: 'Waiting', done: 'Done' };
 
-// Change a task. patch: { title, next_step, status, assigned_to, follow_up_at }.
+// Change a task. patch: { title, next_step, status, assigned_to, follow_up_at, priority, due_at }.
 function update(id, patch, actorId = null, { detail = null, kind = null, messageId = null } = {}) {
   const t = db.prepare('SELECT * FROM tasks WHERE id = ?').get(id);
   if (!t) return null;
@@ -63,6 +66,12 @@ function update(id, patch, actorId = null, { detail = null, kind = null, message
   }
   if (patch.next_step !== undefined && (patch.next_step || null) !== t.next_step) {
     db.prepare('UPDATE tasks SET next_step = ? WHERE id = ?').run(patch.next_step || null, id); changes.push(patch.next_step ? `Next step: ${patch.next_step}` : 'Next step cleared');
+  }
+  if (patch.priority !== undefined && PRIORITIES.includes(patch.priority) && patch.priority !== t.priority) {
+    db.prepare('UPDATE tasks SET priority = ? WHERE id = ?').run(patch.priority, id); changes.push(`Priority: ${PRIORITY_WORD[patch.priority]}`);
+  }
+  if (patch.due_at !== undefined && (patch.due_at || null) !== t.due_at) {
+    db.prepare('UPDATE tasks SET due_at = ? WHERE id = ?').run(patch.due_at || null, id); changes.push(patch.due_at ? `Due ${fmt(patch.due_at)}` : 'Due date cleared');
   }
   if (patch.assigned_to !== undefined && (patch.assigned_to || null) !== t.assigned_to) {
     db.prepare('UPDATE tasks SET assigned_to = ? WHERE id = ?').run(patch.assigned_to || null, id);
@@ -206,4 +215,4 @@ function seedFromInbox() {
   })();
 }
 
-module.exports = { create, update, addClients, event, onEmailIngested, onEmailFiled, applySendChoice, onLeftInbox, dueFollowUps, seedFromInbox, addWorkingDays, cleanTitle };
+module.exports = { create, update, addClients, event, onEmailIngested, onEmailFiled, applySendChoice, onLeftInbox, dueFollowUps, seedFromInbox, addWorkingDays, cleanTitle, PRIORITIES };

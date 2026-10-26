@@ -119,7 +119,9 @@ router.get('/:token/pdf', (req, res) => {
   const filePath = path.join(UPLOAD_DIR, agreement.pdf_path);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="${agreement.title.replace(/[^a-z0-9]+/gi, '_')}.pdf"`);
+  // "Service Agreement - Cameron Noble.pdf" — the agreement's title and the client's name.
+  const fileName = `${agreement.title} - ${agreement.client_name}`.replace(/[\\/:*?"<>|\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+  res.setHeader('Content-Disposition', `attachment; filename="${fileName.replace(/[^\x20-\x7e]/g, '_')}.pdf"; filename*=UTF-8''${encodeURIComponent(fileName)}.pdf`);
   res.send(fs.readFileSync(filePath));
 });
 

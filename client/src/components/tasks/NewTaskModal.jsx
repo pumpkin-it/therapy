@@ -3,7 +3,7 @@ import { Search, X } from 'lucide-react';
 import api from '../../lib/api';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
-import { addWorkingDays } from '../../lib/tasks';
+import { addWorkingDays, PRIORITIES } from '../../lib/tasks';
 
 // A task created by hand (e.g. "Call Katie's mum about the trial"), or for an email (messageId).
 export default function NewTaskModal({ clientIds = [], messageId = null, defaultTitle = '', assignees, onClose, onCreated }) {
@@ -12,6 +12,8 @@ export default function NewTaskModal({ clientIds = [], messageId = null, default
   const [status, setStatus] = useState('todo');
   const [followUp, setFollowUp] = useState(addWorkingDays());
   const [assignedTo, setAssignedTo] = useState('');
+  const [priority, setPriority] = useState('normal');
+  const [dueAt, setDueAt] = useState('');
   const [chosen, setChosen] = useState(clientIds);
   const [clients, setClients] = useState([]);
   const [query, setQuery] = useState('');
@@ -30,7 +32,7 @@ export default function NewTaskModal({ clientIds = [], messageId = null, default
     setSaving(true); setError('');
     try {
       const r = await api.post('/tasks', { title, next_step: nextStep, status, follow_up_at: status === 'waiting' ? followUp : undefined,
-        assigned_to: assignedTo ? Number(assignedTo) : null, client_ids: chosen, message_id: messageId || undefined });
+        assigned_to: assignedTo ? Number(assignedTo) : null, client_ids: chosen, message_id: messageId || undefined, priority, due_at: dueAt || null });
       onCreated(r.data);
     } catch (e) { setError(e.response?.data?.error || 'Could not create the task'); setSaving(false); }
   };
@@ -84,6 +86,16 @@ export default function NewTaskModal({ clientIds = [], messageId = null, default
               <input type="date" value={followUp} onChange={e => setFollowUp(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
             </div>
           ) : <span />}
+          <div className="space-y-1">
+            <label className="block text-sm font-medium text-gray-700">Priority</label>
+            <select value={priority} onChange={e => setPriority(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm">
+              {PRIORITIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <label className="block text-sm font-medium text-gray-700">Due <span className="font-normal text-gray-400">(optional)</span></label>
+            <input type="date" value={dueAt} onChange={e => setDueAt(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm" />
+          </div>
           <div className="col-span-2 space-y-1">
             <label className="block text-sm font-medium text-gray-700">Assign to</label>
             <select value={assignedTo} onChange={e => setAssignedTo(e.target.value)} className="w-full rounded-lg border border-gray-300 px-2 py-2 text-sm">

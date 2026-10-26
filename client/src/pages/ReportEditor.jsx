@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { EditorContent } from '@tiptap/react';
-import { ArrowLeft, History, AlertTriangle, Check, CloudOff, Loader2, Lock, Unlock, FileCheck2, Download, GitCompare } from 'lucide-react';
+import { ArrowLeft, History, AlertTriangle, Check, CloudOff, Loader2, Lock, Unlock, FileCheck2, Download, GitCompare, Search as SearchIcon, ListTree, FileSearch, X } from 'lucide-react';
 import api from '../lib/api';
 import { downloadFile } from '../lib/utils';
 import Modal from '../components/ui/Modal';
 import Button from '../components/ui/Button';
 import Toolbar from '../components/reportEditor/Toolbar';
-import PageGuides, { PAGE } from '../components/reportEditor/PageGuides';
-import ScaledSheet from '../components/reportEditor/ScaledSheet';
+import { PAGE } from '../components/reportEditor/PageGuides';
+import PagedSheet from '../components/reportEditor/PagedSheet';
+import FindBar from '../components/reportEditor/FindBar';
+import ContentsPanel from '../components/reportEditor/ContentsPanel';
+import { loadContent, revealPos } from '../components/reportEditor/reveal';
 import useDocEditor from '../components/reportEditor/useDocEditor';
 import CompareView from '../components/reportEditor/CompareView';
 import { useConfirm } from '../components/ui/ConfirmDialog';
@@ -52,6 +55,14 @@ function clearLocal(id) { removeKey(localKey(id)); }
 // An empty document (no text, tables, images or fields) — nothing worth offering back.
 const isEmptyDoc = doc => !doc || !JSON.stringify(doc.content || []).match(/"type":"(text|image|table|clientField)"/);
 
+// Per-browser view choices (zoom, contents panel), remembered across reports.
+const pref = (k, d) => { try { const v = localStorage.getItem(k); return v === null ? d : v; } catch { return d; } };
+const setPref = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } };
+const ZOOMS = [['fit', 'Fit'], ['0.75', '75%'], ['1', '100%'], ['1.25', '125%'], ['1.5', '150%']];
+
+// This browser's note of where the cursor was in a report.
+const cursorKey = reportId => `therapy-report-cursor:${reportId}`;
+
 export default function ReportEditor() {
   const confirm = useConfirm();
   const { id: clientId, reportId } = useParams();
@@ -67,8 +78,13 @@ export default function ReportEditor() {
   const [loadKey, setLoadKey] = useState(0); // bumped to reload after unlocking
   const [commitOpen, setCommitOpen] = useState(false);
   const [unlockOpen, setUnlockOpen] = useState(false);
-  const sheetRef = useRef(null);
   const [scale, setScale] = useState(1);
+  const [zoom, setZoom] = useState(() => pref('therapy-report-zoom', 'fit'));
+  const [contentsOpen, setContentsOpen] = useState(() => pref('therapy-report-contents', window.innerWidth >= 1280 ? '1' : '0') === '1');
+  const [find, setFind] = useState(null); // null | 'find' | 'replace'
+  const [pdfView, setPdfView] = useState(null); // { url } | { loading } | { error }
+  const headerRef = useRef(null);
+  const [headerH, setHeaderH] = useState(0);
 
   const revisionRef = useRef(0);
   const dirtyRef = useRef(false);
@@ -84,6 +100,10 @@ export default function ReportEditor() {
   const retryAtRef = useRef(0); // after a failed save, wait before trying again // an offered browser copy must not be overwritten
   const backupTimerRef = useRef(null);
   const fileInputRef = useRef();
+  const restoreRef = useRef(null); // { pos, until } — the place to scroll to once the pages are laid out
+  const cursorReadyRef = useRef(false); // only remember positions once the saved one has been restored
+  const cursorTimerRef = useRef(null);
+  const lastSentPosRef = useRef(null);
 
   const onUpdate = useCallback(ed => {
     if (!loadedRef.current || !ed.isEditable) return;
@@ -99,6 +119,8 @@ export default function ReportEditor() {
       const json = ed.getJSON();
       if (JSON.stringify(json) === lastSavedJsonRef.current) {
         dirtyRef.current = false;
+        // Back to exactly what's saved (e.g. undo after emptying it): it's saved again.
+        setStatus(st => (st.kind === 'empty' || st.kind === 'dirty' ? { kind: 'saved', at: st.at || new Date().toISOString() } : st));
         return;
       }
       setStatus(st => (st.kind === 'conflict' || st.kind === 'saving' ? st : { kind: 'dirty' }));
@@ -111,6 +133,7 @@ export default function ReportEditor() {
     getFields: () => fieldsRef.current,
     onUpdate,
     onNotice: setNotice,
+    paged: true,
   });
   const editorRef = useRef(null);
   editorRef.current = editor;
@@ -123,7 +146,7 @@ export default function ReportEditor() {
       if (cancelled || editor.isDestroyed) return;
       fieldsRef.current = data.fields;
       revisionRef.current = data.revision;
-      editor.commands.setContent(data.content || '', { emitUpdate: false });
+      loadContent(editor, data.content || '');
       lastSavedJsonRef.current = JSON.stringify(editor.getJSON());
       loadedRef.current = true;
       editor.setEditable(data.can_edit);
@@ -144,10 +167,88 @@ export default function ReportEditor() {
         candidates.sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
         if (candidates[0]) { recoveryPendingRef.current = true; setRecovery(candidates[0]); }
       }
-      if (data.can_edit) editor.commands.focus('start');
+      // Back to where this person was when they last worked on it: the newer of this browser's note
+      // and the server's (which follows them to another computer). Kept inside the document even
+      // if it has got shorter since.
+      let local = null;
+      try { local = JSON.parse(localStorage.getItem(cursorKey(reportId)) || 'null'); } catch { /* storage blocked */ }
+      const server = data.my_cursor ? { pos: data.my_cursor.pos, at: data.my_cursor.updated_at } : null;
+      const last = [local, server].filter(c => c && Number.isInteger(c.pos)).sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0];
+      if (last) {
+        const pos = Math.max(1, Math.min(last.pos, editor.state.doc.content.size - 1));
+        try { editor.chain().setTextSelection(pos).run(); } catch { /* position no longer valid */ }
+        if (data.can_edit) editor.commands.focus(undefined, { scrollIntoView: false });
+        // Scrolled to once the pages have been laid out (the gaps between sheets move everything
+        // down), and again after any re-layout in the next couple of seconds (fonts, pictures).
+        restoreRef.current = { pos, until: Date.now() + 2500 };
+      } else if (data.can_edit) editor.commands.focus('start');
+      cursorReadyRef.current = true;
     }).catch(e => { if (!cancelled) setLoadError(e.response?.data?.error || 'Could not open this report.'); });
     return () => { cancelled = true; };
   }, [editor, reportId, loadKey]);
+
+  // ── Where the cursor is ───────────────────────────────────────────────────
+  // Kept in this browser straight away, and sent to the server a couple of seconds after moving
+  // (and when leaving), so reopening the report goes back to the same place.
+  const sendCursor = useCallback((keepalive = false) => {
+    const ed = editorRef.current;
+    if (!ed || ed.isDestroyed || !cursorReadyRef.current) return;
+    const pos = ed.state.selection.head;
+    try { localStorage.setItem(cursorKey(reportId), JSON.stringify({ pos, at: new Date().toISOString() })); } catch { /* storage blocked */ }
+    if (pos === lastSentPosRef.current) return;
+    lastSentPosRef.current = pos;
+    if (keepalive) {
+      fetch(`/api/billable-reports/${reportId}/draft/cursor`, { method: 'PUT', keepalive: true,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('pm_token')}` }, body: JSON.stringify({ pos }) }).catch(() => {});
+    } else api.put(`/billable-reports/${reportId}/draft/cursor`, { pos }).catch(() => { lastSentPosRef.current = null; });
+  }, [reportId]);
+  useEffect(() => {
+    if (!editor) return undefined;
+    const moved = () => {
+      if (!cursorReadyRef.current) return;
+      try { localStorage.setItem(cursorKey(reportId), JSON.stringify({ pos: editor.state.selection.head, at: new Date().toISOString() })); } catch { /* storage blocked */ }
+      clearTimeout(cursorTimerRef.current);
+      cursorTimerRef.current = setTimeout(() => sendCursor(), 2000);
+    };
+    editor.on('selectionUpdate', moved);
+    const hidden = () => { if (document.visibilityState === 'hidden') sendCursor(true); };
+    document.addEventListener('visibilitychange', hidden);
+    const gone = () => sendCursor(true);
+    window.addEventListener('pagehide', gone);
+    return () => {
+      editor.off('selectionUpdate', moved);
+      document.removeEventListener('visibilitychange', hidden);
+      window.removeEventListener('pagehide', gone);
+      clearTimeout(cursorTimerRef.current);
+      sendCursor(true); // leaving the editor inside the app
+    };
+  }, [editor, reportId, sendCursor]);
+
+  // ── Find (Ctrl+F), replace (Ctrl+H), header height for the contents panel ──
+  useEffect(() => {
+    const onKey = e => {
+      const k = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && k === 'f') { e.preventDefault(); setFind('find'); }
+      else if (e.ctrlKey && !e.metaKey && !e.altKey && k === 'h') { e.preventDefault(); setFind('replace'); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return undefined;
+    const ro = new ResizeObserver(() => setHeaderH(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => () => { if (pdfView?.url) URL.revokeObjectURL(pdfView.url); }, [pdfView]);
+  // Once the person scrolls, clicks or types, stop putting them back at their saved place.
+  useEffect(() => {
+    const stop = () => { restoreRef.current = null; };
+    const opts = { capture: true, passive: true };
+    for (const ev of ['wheel', 'mousedown', 'keydown', 'touchstart']) window.addEventListener(ev, stop, opts);
+    return () => { for (const ev of ['wheel', 'mousedown', 'keydown', 'touchstart']) window.removeEventListener(ev, stop, opts); };
+  }, []);
 
   // ── Save ──────────────────────────────────────────────────────────────────
   const save = useCallback(async ({ force = false, forceSnapshot = false } = {}) => {
@@ -160,8 +261,15 @@ export default function ReportEditor() {
     if (jsonStr === lastSavedJsonRef.current && !forceSnapshot) {
       dirtyRef.current = false;
       if (!recoveryPendingRef.current) clearLocal(reportId);
-      setStatus(st => (st.kind === 'dirty' ? { kind: 'saved', at: st.at || new Date().toISOString() } : st));
+      setStatus(st => (st.kind === 'dirty' || st.kind === 'empty' ? { kind: 'saved', at: st.at || new Date().toISOString() } : st));
       return true;
+    }
+    // A report that had text and is now completely empty is never saved automatically (an
+    // accidental select-all-delete or undo shouldn't wipe the saved copy); saving it needs an
+    // explicit save (force), e.g. Commit or History restore.
+    if (!force && isEmptyDoc(json) && lastSavedJsonRef.current && !isEmptyDoc(JSON.parse(lastSavedJsonRef.current))) {
+      setStatus(st => (st.kind === 'empty' ? st : { kind: 'empty', at: st.at }));
+      return false;
     }
     savingRef.current = true;
     const counterAtSend = changeCounterRef.current;
@@ -240,6 +348,20 @@ export default function ReportEditor() {
     navigate(`/clients/${clientId}?tab=reports&notify=${reportId}&committed=${data.version}`);
   };
 
+  // The real PDF of what's saved, beside the editor — the final check of where pages break.
+  const checkPdf = async () => {
+    setPdfView({ loading: true });
+    if (meta?.can_edit && dirtyRef.current) await save({ force: true });
+    try {
+      const { data } = await api.get(`/billable-reports/${reportId}/draft/pdf`, { responseType: 'blob' });
+      setPdfView({ url: URL.createObjectURL(data) });
+    } catch (e) {
+      let msg = 'The PDF couldn’t be made. Try again in a minute.';
+      try { msg = JSON.parse(await e.response.data.text()).error || msg; } catch { /* not JSON */ }
+      setPdfView({ error: msg });
+    }
+  };
+
   const unlock = async reason => {
     await api.post(`/billable-reports/${reportId}/unlock`, { reason });
     setUnlockOpen(false);
@@ -264,13 +386,14 @@ export default function ReportEditor() {
     saving: <span className="inline-flex items-center gap-1 text-gray-500"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving…</span>,
     saved: <span className="inline-flex items-center gap-1 text-green-700"><Check className="h-3.5 w-3.5" /> Saved {status.at && fmtTime(status.at)}</span>,
     error: <span className="inline-flex items-center gap-1 text-amber-700" title="Your text is kept in this browser and will be saved when the connection is back."><CloudOff className="h-3.5 w-3.5" /> Not saved — {status.message}. Retrying…</span>,
+    empty: <span className="inline-flex items-center gap-1 text-amber-700" title="The saved copy still has your text."><AlertTriangle className="h-3.5 w-3.5" /> Report is empty — not saved. Undo (Ctrl+Z) to get the text back</span>,
     conflict: <span className="inline-flex items-center gap-1 text-red-600"><AlertTriangle className="h-3.5 w-3.5" /> Stopped saving</span>,
   }[status.kind];
 
   return (
     <div className="-m-6 min-h-screen bg-gray-100">
       {/* Header + toolbar, pinned so the save status is always in view */}
-      <div className="sticky -top-6 z-20 shadow-sm">{/* -top-6 cancels the layout's p-6, which sticky positioning otherwise leaves as a gap */}
+      <div ref={headerRef} data-editor-header className="sticky -top-6 z-20 shadow-sm">{/* -top-6 cancels the layout's p-6, which sticky positioning otherwise leaves as a gap */}
       <div className="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-2.5">
         <button onClick={leave} className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-800" title="Back to the client"><ArrowLeft className="h-5 w-5" /></button>
         <div className="min-w-0 flex-1">
@@ -278,6 +401,15 @@ export default function ReportEditor() {
           <p className="truncate text-xs text-gray-500">{meta?.report.client_name}{meta && !meta.can_edit && ' · read-only'}</p>
         </div>
         <div className="text-sm">{meta?.locked ? <span className="inline-flex items-center gap-1 text-gray-600"><Lock className="h-3.5 w-3.5" /> Locked</span> : statusEl}</div>
+        <button type="button" onClick={() => { setContentsOpen(o => { setPref('therapy-report-contents', o ? '0' : '1'); return !o; }); }} title="Contents — the report's headings"
+          className={`rounded p-1.5 ${contentsOpen ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-100'}`}><ListTree className="h-4 w-4" /></button>
+        <button type="button" onClick={() => setFind(f => (f ? null : 'find'))} title="Find (Ctrl+F) · Replace (Ctrl+H)"
+          className={`rounded p-1.5 ${find ? 'bg-indigo-50 text-indigo-700' : 'text-gray-500 hover:bg-gray-100'}`}><SearchIcon className="h-4 w-4" /></button>
+        <select value={zoom} onChange={e => { setZoom(e.target.value); setPref('therapy-report-zoom', e.target.value); }} title="Zoom"
+          className="rounded-md border border-gray-300 px-1.5 py-1 text-xs text-gray-600">
+          {ZOOMS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <Button size="sm" variant="secondary" onClick={checkPdf} disabled={!meta || pdfView?.loading}><FileSearch className="h-3.5 w-3.5" /> {pdfView?.loading ? 'Making PDF…' : 'Check PDF'}</Button>
         <Button size="sm" variant="secondary" onClick={() => setHistoryOpen(true)} disabled={!meta}><History className="h-3.5 w-3.5" /> History</Button>
         {meta?.can_commit && (
           <Button size="sm" onClick={() => setCommitOpen(true)} disabled={status.kind === 'conflict' || status.kind === 'saving'}>
@@ -287,6 +419,7 @@ export default function ReportEditor() {
       </div>
 
       {editor && meta?.can_edit && <Toolbar editor={editor} fields={meta.fields} onPickImage={() => fileInputRef.current.click()} />}
+      {editor && find && <FindBar key={find} editor={editor} withReplace={find === 'replace'} canEdit={!!meta?.can_edit} onClose={() => setFind(null)} />}
       </div>
       <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="hidden"
         onChange={e => { const files = [...e.target.files]; e.target.value = ''; uploadImages(files); }} />
@@ -324,19 +457,44 @@ export default function ReportEditor() {
         )}
       </div>
 
-      {/* The page */}
-      <div className="px-4 py-6">
-        {/* Laid out with the PDF's page size and margins so the page guides match the PDF; shown
-            scaled down when the window is narrower than a page. */}
-        <ScaledSheet sheetRef={sheetRef} onScale={setScale}>
-          <PageGuides editor={editor} sheetRef={sheetRef} onPageCount={setPages} />
-          <div className="relative">
+      {/* The pages: separate A4 sheets laid out with the PDF's size, margins and page-break rules;
+          contents on the left, the real PDF on the right when checking it. */}
+      <div className="flex items-start gap-4 px-4 py-6">
+        {contentsOpen && (
+          <aside className="sticky hidden w-56 shrink-0 overflow-y-auto rounded-lg bg-white p-3 shadow-sm ring-1 ring-gray-200 lg:block"
+            style={{ top: headerH - 24 + 16, maxHeight: `calc(100vh - ${headerH + 8}px)` }}>
+            <ContentsPanel editor={editor} />
+          </aside>
+        )}
+        <div className="min-w-0 flex-1">
+          <PagedSheet editor={editor} zoom={zoom} onPageCount={setPages} onScale={setScale}
+            onLaidOut={() => {
+              const r = restoreRef.current;
+              if (!r) return;
+              if (Date.now() > r.until) { restoreRef.current = null; return; }
+              revealPos(editor.view, r.pos, 'center');
+            }}
+            footer={{ left: [meta?.report.client_name, meta?.report.title].filter(Boolean).join(' · ') }}>
             <EditorContent editor={editor} />
-          </div>
-        </ScaledSheet>
-        <p className="mx-auto mt-3 text-right text-xs text-gray-500" style={{ maxWidth: PAGE.width }}>
-          {words.toLocaleString()} words · {pages} page{pages === 1 ? '' : 's'}{scale < 0.99 ? ` · shown at ${Math.round(scale * 100)}%` : ''}
-        </p>
+          </PagedSheet>
+          <p className="mx-auto mt-3 text-right text-xs text-gray-500" style={{ maxWidth: PAGE.width * scale }}>
+            {words.toLocaleString()} words · {pages} page{pages === 1 ? '' : 's'}{Math.abs(scale - 1) > 0.01 ? ` · shown at ${Math.round(scale * 100)}%` : ''}
+          </p>
+        </div>
+        {pdfView && (
+          <aside className="sticky flex w-[46%] shrink-0 flex-col overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-gray-200"
+            style={{ top: headerH - 24 + 16, height: `calc(100vh - ${headerH + 8}px)` }}>
+            <div className="flex items-center gap-2 border-b border-gray-200 px-3 py-2 text-sm">
+              <span className="font-medium text-gray-800">PDF of the saved report</span>
+              <span className="text-xs text-gray-500">— how it will print</span>
+              <button type="button" onClick={checkPdf} className="ml-auto text-xs text-indigo-600 hover:underline" disabled={pdfView.loading}>Refresh</button>
+              <button type="button" onClick={() => setPdfView(null)} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700" title="Close"><X className="h-4 w-4" /></button>
+            </div>
+            {pdfView.loading && <p className="flex items-center gap-2 p-4 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Making the PDF…</p>}
+            {pdfView.error && <p className="p-4 text-sm text-red-600">{pdfView.error}</p>}
+            {pdfView.url && <iframe title="Report PDF" src={pdfView.url} className="min-h-0 w-full flex-1" />}
+          </aside>
+        )}
       </div>
 
       {commitOpen && (

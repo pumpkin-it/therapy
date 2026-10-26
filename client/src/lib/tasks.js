@@ -1,4 +1,13 @@
 export const TASK_STATUSES = [['todo', 'To do'], ['waiting', 'Waiting'], ['done', 'Done']];
+// Priority: Normal shows no tag, so the others stand out.
+export const PRIORITIES = [['urgent', 'Urgent'], ['high', 'High'], ['normal', 'Normal'], ['low', 'Low']];
+export const PRIORITY_PILL = {
+  urgent: 'bg-red-100 text-red-700',
+  high: 'bg-orange-100 text-orange-700',
+  normal: 'bg-gray-100 text-gray-600',
+  low: 'bg-gray-100 text-gray-500',
+};
+export const priorityLabel = p => (PRIORITIES.find(x => x[0] === p) || [null, 'Normal'])[1];
 export const statusLabel = s => (TASK_STATUSES.find(x => x[0] === s) || [null, s])[1];
 export const STATUS_PILL = {
   todo: 'bg-amber-100 text-amber-800',

@@ -570,6 +570,52 @@ option A, or skip it and say so.
   didn't fully match "what still works" above with enough detail to reproduce.
 
 ## Changed since the last full run (check these first)
+- On UAT 2026-10-22 (not yet in production): **tables in the report editor** (also report templates, notes and
+  email/note/agreement templates, same editor). With the cursor in a table, the Table bar has:
+  **Cell shading** (paint-bucket: Word-style palette — theme colours with shades, standard colours, recent
+  colours, "More colours…" for any colour, "No shading"; applies to the cell, or to all cells selected by dragging
+  across them); **Row height** (cm; blank = automatic; also by dragging a row's bottom edge — the cursor changes
+  to ↕); **Column width** (cm, for the column(s) the cursor/selection is in; dragging the column edge still works);
+  **Even columns**. Text colour and Highlight now use the same wide palette (colour bar under each button shows the
+  current colour). CHECK: all of it survives save/reload, Check PDF / commit PDF shows the shading, row heights and
+  widths; shading pasted from a Word table is kept; undo works; page layout still matches the PDF with tall rows.
+  Fixes 2026-10-22: (a) dragging a COLUMN edge now works in reports too (it only worked where the editor
+  started editable — reports load read-only first); (b) the Highlight button in a table colours the WHOLE CELL when
+  no words are selected or cells are dragged across (title says "Cell colour"); with words selected it still
+  highlights just the words. (c) pointing at / dragging a row's bottom edge shows a blue bar across the table, like the column
+  handle.
+- On UAT 2026-10-13 (not yet in production): **report editor works like Word's page view** (reports AND report
+  templates). Instead of dotted page-guide lines, the report shows separate A4 sheets with a grey gap, each with
+  the PDF's footer ("client · title", "Page X of Y"). Text flows to the next sheet as you type (~0.1 s after you
+  stop). Rules = the PDF's: lines, table rows and pictures never split; ≥2 lines of a paragraph stay at the bottom
+  and top of a page; a heading isn't left alone at the bottom of a page (also before a table); Ctrl+Enter page
+  break starts a new sheet. CHECK: on a long real report (10+ pages, with tables/pictures/headings) compare every
+  page's first and last line with **Check PDF** (header button → the real PDF opens on the right; Refresh after
+  edits) — they should match. Also: typing, deleting, undo/redo, selecting across a page gap, arrow keys across a
+  gap, pasting a big chunk, and that autosave/"Saved" still behave (page gaps are never saved into the report).
+  **Zoom** (header: Fit / 75% / 100% / 125% / 150%, remembered per browser; wider than the window scrolls
+  sideways). **Contents** (header list icon): left panel of Heading 1–3, click to jump, current section
+  highlighted; remembered open/closed per browser; hidden on narrow windows. **Find** (Ctrl+F or the search icon)
+  and **Replace** (Ctrl+H): matches highlighted, "n of N", Enter/Shift+Enter next/previous, Replace / Replace all
+  (keeps the formatting), Escape closes; replace only when the report can be edited.
+- On UAT 2026-10-13 (not yet in production): **report editor remembers where you were.** Click somewhere deep in a
+  long report (e.g. page 5), wait 2 s, leave (Back to the client / close the tab / reload) and reopen: the cursor is
+  back at that spot and the page is scrolled to it. Per person (another person keeps their own place) and follows
+  them to another browser/computer (server copy, the newer one wins). A report that got shorter since puts the
+  cursor at the nearest valid point. Read-only/locked reports still scroll to your last place.
+- On UAT 2026-10-13 (not yet in production): **Tasks: priority + due date + filters.** Each task has a
+  Priority (Urgent / High / Normal / Low; Normal shows no tag) and an optional Due date, set in New task and
+  in the task panel (changes go in the task's History). The list shows Urgent/High/Low tags and "Due <day>"
+  (red when today or past). To do is sorted most urgent first, then earliest due, then oldest. A "Sort" choice (no filters):
+  Usual order / Priority / Due date / Newest first / Oldest first / Recently updated / Follow-up date, plus a
+  priority filter (All / Urgent and high / Urgent only / High only / Normal only / Low only) — e.g. Urgent only +
+  Sort by Due date. Both stay in the address bar. New **All** tab (after Done) lists every task with a To do /
+  Waiting / Done tag on each row; usual order there is To do, then Waiting, then Done, most urgent first.
+- On UAT 2026-10-13: **agreement PDF file name** is "<title> - <client name>.pdf" (e.g. "Service Agreement -
+  Cameron Noble.pdf") — from the client's Agreements tab and from the client's signing page.
+- On UAT 2026-10-13: **side menu collapses** to icons with the button at the top (Hide/Show the menu); badges
+  shrink to small corner numbers; remembered per browser; a window under 1100px wide starts collapsed when
+  nothing is saved. Pages use the freed width.
 - On UAT 2026-10-08 (not yet in production): **PDF table header lines** — the grey header row of tables in
   agreement / session-note / report PDFs was missing some column lines (e.g. between Code and Qty in the
   agreement pricing table). Download an agreement PDF with a linked budget: every header and body column line

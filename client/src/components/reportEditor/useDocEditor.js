@@ -10,6 +10,9 @@ import { Placeholder, CharacterCount } from '@tiptap/extensions';
 import api from '../../lib/api';
 import { ClientField, PracticeLogo, PageBreak, TemplateVar, stripUnloadableImages, prepareImage } from './extensions';
 import { installReportFonts } from './fonts';
+import { Pagination } from './pagination';
+import { ResizableTable, ShadedCell, ShadedHeader, SizedRow, RowResize } from './tables';
+import { Search } from './search';
 import './report-doc.css';
 
 installReportFonts();
@@ -25,8 +28,9 @@ installReportFonts();
 //   templateVars — email/note/agreement templates: {{variable}} chips (TemplateVar)
 //   editable   — start editable (reports start read-only until their draft has loaded)
 //   pageBreaks — false for email templates (an email has no pages)
+//   paged      — Word-style separate pages (PagedSheet.jsx) and find/replace: reports and report templates
 //   Without an uploadUrl, pasted or dropped pictures aren't uploaded (email templates).
-export default function useDocEditor({ uploadUrl, getFields = () => ({}), showLabels = false, onUpdate, onNotice, placeholder, templateVars = false, editable = false, pageBreaks = true }) {
+export default function useDocEditor({ uploadUrl, getFields = () => ({}), showLabels = false, onUpdate, onNotice, placeholder, templateVars = false, editable = false, pageBreaks = true, paged = false }) {
   const editorRef = useRef(null);
 
   const uploadImages = useCallback(async files => {
@@ -46,7 +50,10 @@ export default function useDocEditor({ uploadUrl, getFields = () => ({}), showLa
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ link: { openOnClick: false, autolink: true } }),
-      TableKit.configure({ table: { resizable: true } }),
+      // Cells, header cells and rows replaced by versions that keep shading and row height.
+      TableKit.configure({ table: false, tableCell: false, tableHeader: false, tableRow: false }),
+      ResizableTable.configure({ resizable: true, cellMinWidth: 24 }),
+      ShadedCell, ShadedHeader, SizedRow, RowResize,
       Image.configure({ resize: { enabled: true, directions: ['bottom-right', 'bottom-left'], minWidth: 40, alwaysPreserveAspectRatio: true } }),
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       TextStyle, Color, FontFamily, FontSize,
@@ -57,6 +64,7 @@ export default function useDocEditor({ uploadUrl, getFields = () => ({}), showLa
       PracticeLogo,
       ...(pageBreaks ? [PageBreak] : []),
       ...(templateVars ? [TemplateVar] : []),
+      ...(paged ? [Pagination, Search] : []),
     ],
     editable,
     editorProps: {

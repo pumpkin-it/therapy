@@ -6,6 +6,7 @@ import PageGuides from './PageGuides';
 import ScaledSheet from './ScaledSheet';
 import useDocEditor from './useDocEditor';
 import { toEditorHtml, fromEditor } from './docHtml';
+import { loadContent } from './reveal';
 
 // The Word-style editor for everything stored as HTML: session notes, and session-note, agreement
 // and email templates. Same editor, fonts and toolbar as written reports (useDocEditor).
@@ -39,7 +40,7 @@ export default function DocEditor({ value, onChange, layout = 'page', vars = nul
 
   useEffect(() => {
     if (!editor || editor.isDestroyed || loadedRef.current) return;
-    editor.commands.setContent(toEditorHtml(value, { vars: !!vars }), { emitUpdate: false });
+    loadContent(editor, toEditorHtml(value, { vars: !!vars }));
     loadedRef.current = true;
   }, [editor]); // value is read once, like a defaultValue
 

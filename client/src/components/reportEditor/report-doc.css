@@ -47,3 +47,21 @@
 .report-doc .practice-logo img { height: auto; max-width: 100%; }
 .report-doc .practice-logo.is-selected img, .report-doc .practice-logo.is-selected .practice-logo-missing { outline: 2px solid #6366f1; outline-offset: 2px; }
 .report-doc .practice-logo-missing { display: inline-block; line-height: 1.4; padding: 6px 10px; border: 1px dashed #cbd5e1; color: #64748b; font-size: 9pt; }
+
+/* Word-style pages (pagination.js): the gaps that move text to the next sheet. They only show
+   while pages are on (.pg-on on the sheet stack); without it the text lies as it would with no
+   pages, for measuring. */
+.report-doc .pg-gap-line, .report-doc .pg-gap-row { display: none; }
+.pg-on .report-doc .pg-gap-line { display: block; }
+.pg-on .report-doc .pg-gap-row { display: table-row; }
+.report-doc .pg-gap-row > td { border: none !important; padding: 0 !important; background: transparent !important; }
+.pg-on .report-doc .pg-break-block { margin-top: var(--pg-mt) !important; }
+.pg-stack .report-doc { min-height: 0; overflow-anchor: none; }
+.pg-stack .report-doc .page-break { margin: 0.6em 0 0; }
+/* Find and replace (search.js) */
+.report-doc .search-match { background: #fde68a; border-radius: 2px; }
+.report-doc .search-match.is-current { background: #f59e0b; color: #111; }
+
+/* Table rows can be given a height (tables.js); drag a row's bottom edge to change it. */
+.report-doc.row-resize-cursor, .report-doc.row-resize-cursor * { cursor: row-resize !important; }
+.report-doc .column-resize-handle { width: 5px; right: -3px; background: #6366f1; }

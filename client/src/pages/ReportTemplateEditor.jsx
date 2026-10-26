@@ -5,8 +5,9 @@ import { ArrowLeft, Check, Loader2 } from 'lucide-react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import Toolbar from '../components/reportEditor/Toolbar';
-import PageGuides, { PAGE } from '../components/reportEditor/PageGuides';
-import ScaledSheet from '../components/reportEditor/ScaledSheet';
+import { PAGE } from '../components/reportEditor/PageGuides';
+import PagedSheet from '../components/reportEditor/PagedSheet';
+import { loadContent } from '../components/reportEditor/reveal';
 import useDocEditor from '../components/reportEditor/useDocEditor';
 import { useConfirm } from '../components/ui/ConfirmDialog';
 
@@ -26,7 +27,6 @@ export default function ReportTemplateEditor() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [pages, setPages] = useState(1);
-  const sheetRef = useRef(null);
   const [scale, setScale] = useState(1);
   const fileInputRef = useRef();
   const loadedRef = useRef(false);
@@ -43,6 +43,7 @@ export default function ReportTemplateEditor() {
     onUpdate,
     onNotice: setNotice,
     placeholder: 'Lay out the template — use Insert field for details that fill in for each client…',
+    paged: true,
   });
 
   useEffect(() => {
@@ -50,7 +51,7 @@ export default function ReportTemplateEditor() {
     let cancelled = false;
     api.get(`/report-doc-templates/${id}`).then(({ data }) => {
       if (cancelled || editor.isDestroyed) return;
-      editor.commands.setContent(data.content, { emitUpdate: false });
+      loadContent(editor, data.content);
       savedJsonRef.current = JSON.stringify(editor.getJSON());
       loadedRef.current = true;
       editor.setEditable(data.can_edit);
@@ -133,10 +134,9 @@ export default function ReportTemplateEditor() {
       </div>
 
       <div className="px-4 py-6">
-        <ScaledSheet sheetRef={sheetRef} onScale={setScale}>
-          <PageGuides editor={editor} sheetRef={sheetRef} onPageCount={setPages} />
-          <div className="relative"><EditorContent editor={editor} /></div>
-        </ScaledSheet>
+        <PagedSheet editor={editor} onPageCount={setPages} onScale={setScale} footer={{ left: 'Client name · Report title' }}>
+          <EditorContent editor={editor} />
+        </PagedSheet>
         <p className="mx-auto mt-3 text-right text-xs text-gray-500" style={{ maxWidth: PAGE.width }}>
           {pages} page{pages === 1 ? '' : 's'}{scale < 0.99 ? ` · shown at ${Math.round(scale * 100)}%` : ''}
         </p>

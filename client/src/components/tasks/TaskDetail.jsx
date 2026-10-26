@@ -5,7 +5,7 @@ import api from '../../lib/api';
 import Button from '../ui/Button';
 import { useCompose } from '../../context/ComposeContext';
 import { fmtDateTime } from '../../lib/utils';
-import { TASK_STATUSES, STATUS_PILL, addWorkingDays, fmtDay } from '../../lib/tasks';
+import { TASK_STATUSES, STATUS_PILL, PRIORITIES, PRIORITY_PILL, addWorkingDays, fmtDay, isOverdue } from '../../lib/tasks';
 
 // One task: what it's about, its status (to do / waiting until a date / done), who has it, its
 // clients and emails, and everything that has happened to it.
@@ -69,6 +69,23 @@ export default function TaskDetail({ taskId, assignees, onChanged }) {
           <option value="">Unassigned</option>
           {assignees.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-1.5 text-sm text-gray-600">
+          Priority
+          <select value={task.priority || 'normal'} onChange={e => save({ priority: e.target.value })}
+            className={`rounded-lg border border-gray-300 px-2 py-1 text-sm font-medium ${PRIORITY_PILL[task.priority || 'normal']}`}>
+            {PRIORITIES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </label>
+        <label className="flex items-center gap-1.5 text-sm text-gray-600">
+          Due
+          <input type="date" value={task.due_at || ''} onChange={e => save({ due_at: e.target.value || null })}
+            className={`rounded border border-gray-300 px-2 py-0.5 text-sm ${task.due_at && task.status !== 'done' && isOverdue(task.due_at) ? 'text-red-600' : ''}`} />
+        </label>
+        {task.due_at && <button type="button" onClick={() => save({ due_at: null })} className="text-xs text-gray-400 hover:text-gray-600">Clear</button>}
+        <span className="ml-auto text-xs text-gray-400">Created {fmtDateTime(task.created_at)}</span>
       </div>
 
       <div>

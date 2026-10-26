@@ -1376,6 +1376,17 @@ try { db.exec(`ALTER TABLE appointments ADD COLUMN report_linked_by INTEGER REFE
 // the editor's autosave. `revision` goes up on every save; a save must name the revision it
 // started from, so two open copies can't silently overwrite each other. Snapshots are a rolling
 // history (at most one per 10 minutes, last 30 kept) to get back text that was deleted by mistake.
+// Where each person's cursor was in a report when they last worked on it, so reopening the report
+// (on any computer) puts them back there. pos = ProseMirror document position.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS report_cursors (
+    billable_report_id INTEGER NOT NULL REFERENCES billable_reports(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES practitioners(id),
+    pos INTEGER NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (billable_report_id, user_id)
+  )
+`); } catch {}
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS report_drafts (
     billable_report_id INTEGER PRIMARY KEY REFERENCES billable_reports(id) ON DELETE CASCADE,
@@ -1863,6 +1874,9 @@ try { db.exec(`
     done_by INTEGER REFERENCES practitioners(id)
   )
 `); } catch {}
+// Priority (urgent | high | normal | low) and an optional due date (YYYY-MM-DD, local), set by staff.
+try { db.exec("ALTER TABLE tasks ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'"); } catch {}
+try { db.exec('ALTER TABLE tasks ADD COLUMN due_at TEXT'); } catch {}
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS task_clients (
     task_id INTEGER NOT NULL REFERENCES tasks(id),
