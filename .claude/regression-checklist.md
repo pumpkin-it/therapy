@@ -570,9 +570,11 @@ option A, or skip it and say so.
   didn't fully match "what still works" above with enough detail to reproduce.
 
 ## Changed since the last full run (check these first)
-- On UAT 2026-10-27 (not yet in production): **recurring series carry billing adjustments forward** — new sessions a
-  series generates copy the billing adjustment (e.g. 1 × $350) from the latest session before them, per service
-  when it appears once. Verified on UAT in a rolled-back test (SER-00031 → 10/17/24 Dec billed 1 × $350).
+- On UAT 2026-10-27 (not yet in production): **series billing adjustments are saved on the series** (replaces the
+  short-lived "copy from the previous session"). Billing adjustment with "apply to future" → also saved on the series
+  (audit "New SER-… sessions will be billed: …"), so sessions the series creates later get it; a one-off adjustment
+  (no "apply to future") stays on that session only; clearing with "apply to future" clears the series too; editing
+  the series' lines ("this and future") keeps its saved adjustment. Verified on UAT in rolled-back tests.
 - On UAT 2026-10-27 (not yet in production): **billing lines no longer shown/saved twice** for clients with two
   overlapping funding periods (Nai-Shing Shih C0040, Joanne Cushing C0048). Open their appointments: each shows the
   real number of lines; rates/codes still fill in; MYOB export, invoices, budgets and reports unchanged for everyone

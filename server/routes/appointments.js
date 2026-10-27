@@ -318,6 +318,20 @@ router.patch('/:id/items/:itemId/billing', auth, perm('invoices'), rejectIfRepor
       }
     }
     if (propagated) audit.log('appointment', appt.id, 'billing_adjusted', `Billing override propagated to ${propagated} future occurrence(s) in the series`, { ref: apptRef });
+
+    // Also saved on the series, so sessions it creates later get it too (cleared when the
+    // adjustment is cleared). Only when the service is on the series' template exactly once.
+    const series = db.prepare('SELECT id, items_json FROM recurring_series WHERE id = ?').get(appt.series_id);
+    const template = series?.items_json ? JSON.parse(series.items_json) : [];
+    const matching = template.filter(t => t.service_id === item.service_id);
+    if (matching.length === 1) {
+      const t = matching[0];
+      const values = { billed_quantity: billed_quantity ?? null, billed_unit_rate: billed_unit_rate ?? null, billed_travel_rate: billed_travel_rate ?? null, billed_notes_rate: billed_notes_rate ?? null, billed_km_rate: billed_km_rate ?? null, billed_by: req.user.id, billed_at: now };
+      for (const [k, v] of Object.entries(values)) { if (noOverrides) delete t[k]; else t[k] = v; }
+      db.prepare('UPDATE recurring_series SET items_json = ? WHERE id = ?').run(JSON.stringify(template), series.id);
+      const seriesRef = `SER-${String(series.id).padStart(5, '0')}`;
+      audit.log('series', series.id, 'billing_adjusted', noOverrides ? `Billing adjustment cleared on ${seriesRef} — new sessions bill at the normal rate` : `New ${seriesRef} sessions will be billed: ${parts.join(', ')}`, { ref: seriesRef });
+    }
   }
 
   const updated = withItems(db.prepare(`${APPT_SELECT} WHERE a.id=?`).get(req.params.id));
