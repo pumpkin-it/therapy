@@ -22,9 +22,17 @@ import Reports from './pages/Reports';
 import Email from './pages/Email';
 import Tasks from './pages/Tasks';
 import Ask from './pages/Ask';
-// The report editor pulls in TipTap/ProseMirror — loaded only when someone opens it.
-const ReportEditor = lazy(() => import('./pages/ReportEditor'));
-const ReportTemplateEditor = lazy(() => import('./pages/ReportTemplateEditor'));
+// The report editor pulls in TipTap/ProseMirror — loaded only when someone opens it. A deploy
+// replaces the editor's files, so a tab opened before it can't load them (blank page): reload
+// once to pick up the new build. The flag stops a loop if the file is genuinely unreachable.
+const lazyEditor = load => lazy(() => load().then(m => { sessionStorage.removeItem('editorReload'); return m; }, e => {
+  if (sessionStorage.getItem('editorReload')) throw e;
+  sessionStorage.setItem('editorReload', '1');
+  window.location.reload();
+  return new Promise(() => {});
+}));
+const ReportEditor = lazyEditor(() => import('./pages/ReportEditor'));
+const ReportTemplateEditor = lazyEditor(() => import('./pages/ReportTemplateEditor'));
 import Settings from './pages/Settings';
 import FundingTypeRates from './pages/FundingTypeRates';
 import AuditLog from './pages/AuditLog';
