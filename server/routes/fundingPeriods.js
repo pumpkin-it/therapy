@@ -77,7 +77,16 @@ router.patch('/:id', auth, perm('funding_periods'), (req, res) => {
 });
 
 router.delete('/:id', auth, perm('funding_periods'), (req, res) => {
-  db.prepare('DELETE FROM funding_periods WHERE id = ?').run(req.params.id);
+  try {
+    db.prepare('DELETE FROM funding_periods WHERE id = ?').run(req.params.id);
+  } catch (e) {
+    if (e.code !== 'SQLITE_CONSTRAINT_FOREIGNKEY') throw e;
+    // Still used by appointments or reports (cancelled ones count: they keep their funding history).
+    const count = table => db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE funding_period_id = ?`).get(req.params.id).n;
+    const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+    const uses = [[count('appointments'), 'appointment'], [count('billable_reports'), 'report']].filter(([n]) => n).map(([n, w]) => plural(n, w));
+    return res.status(409).json({ error: `This funding period can't be deleted because it's used by ${uses.join(' and ') || 'other records'}, including any cancelled ones. You can change its dates instead.` });
+  }
   res.status(204).send();
 });
 

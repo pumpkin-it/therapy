@@ -42,6 +42,14 @@ function addClients(taskId, clientIds, actorId = null, { log = true } = {}) {
   }
 }
 
+function removeClients(taskId, clientIds, actorId = null) {
+  const removed = (clientIds || []).filter(cid => db.prepare('DELETE FROM task_clients WHERE task_id = ? AND client_id = ?').run(taskId, cid).changes);
+  if (removed.length) {
+    const names = db.prepare(`SELECT first_name || ' ' || last_name n FROM clients WHERE id IN (${removed.map(() => '?').join(',')})`).all(...removed).map(r => r.n);
+    event(taskId, 'clients', `Client removed: ${names.join(', ')}`, { actorId });
+  }
+}
+
 const PRIORITIES = ['urgent', 'high', 'normal', 'low'];
 const PRIORITY_WORD = { urgent: 'Urgent', high: 'High', normal: 'Normal', low: 'Low' };
 
@@ -215,4 +223,4 @@ function seedFromInbox() {
   })();
 }
 
-module.exports = { create, update, addClients, event, onEmailIngested, onEmailFiled, applySendChoice, onLeftInbox, dueFollowUps, seedFromInbox, addWorkingDays, cleanTitle, PRIORITIES };
+module.exports = { create, update, addClients, removeClients, event, onEmailIngested, onEmailFiled, applySendChoice, onLeftInbox, dueFollowUps, seedFromInbox, addWorkingDays, cleanTitle, PRIORITIES };

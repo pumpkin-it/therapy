@@ -913,10 +913,10 @@ Bugs (all unfixed, none Node-24-specific):
 - A (medium-low, item 12): editor page count differs from the PDF with some margin presets — FCA template,
   Wide margins: editor "Page N of 45" vs PDF 28; Normal (Word) margins 26 vs 27; Standard 24=24 and
   Landscape 31=31 match. Suspect client pagination vs server/services/reportHtml.js.
-- B (low, items 15/17): Undo filing leaves the task's client link — file an unfiled email that already has
+- B (FIXED 2026-11-04, on UAT): Undo filing leaves the task's client link — file an unfiled email that already has
   a task to a client, Undo: email restored, task keeps "Client added: <client>". Suspect server/routes/email.js
   or services/tasks.js.
-- C (low): deleting a funding period used by appointments returns 500 instead of a friendly 409
+- C (FIXED 2026-11-04, on UAT): deleting a funding period used by appointments returns 500 instead of a friendly 409
   (DELETE /api/funding-periods/64; server/routes/fundingPeriods.js:79).
 - Minor: Commit dialog caps "pages shown in full" at 10; Notify-client draft email auto-opens after Upload
   final report/Commit (cancelled, not sent); UAT sends from the real ahp@ mailbox with only the To
@@ -1061,3 +1061,11 @@ with a live link that can't be deleted/unshared (409 "billed report"). **Fixed o
 
 Cleanup gaps (app cannot hard-delete): QA client 87 + filler clients 88–90 still active, form
 response 16, funding period 65, billed report 7 (file 203), two /api/report-images uploads.
+
+## Fixes on UAT 2026-11-04 (re-test these)
+- Item 15/17, **Undo filing and tasks:** file an unfiled email that has a task to a client, then Undo: the client
+  comes off the task, and task history says "Client removed: <name>". A client already on the task before the
+  filing stays, as does a client another email on that task still links to. Filings made before this release
+  undo as before and leave the task alone.
+- Clients > Funding, **deleting a period in use:** delete a period used by appointments or reports: a "Can't
+  delete funding period" window gives the counts, and the period stays. An unused period still deletes.

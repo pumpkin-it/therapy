@@ -10,6 +10,7 @@ const mailSync = require('../services/mailSync');
 const contacts = require('../services/clientContacts');
 const tags = require('../services/mailTags');
 const mailSend = require('../services/mailSend');
+const tasks = require('../services/tasks');
 const crypto = require('crypto');
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 20 } });
@@ -275,7 +276,8 @@ function fileOne(messageId, clientIds, userId, { tagIds = null, noClient = false
 // conversation, which may be filed along with it) are snapshotted: status, tags, and which client
 // links were current. Undo puts those back: links the filing added are ended as if by the system
 // (so automatic filing may still file them later), links it ended come back, and status and tags
-// return to what they were. Each person can undo their own filings for 24 hours.
+// return to what they were. Clients the filing added to the emails' tasks come off those tasks too,
+// unless another email on the task still links them. Each person can undo their own filings for 24 hours.
 function snapshotForFiling(messageIds) {
   const ids = new Set(messageIds);
   for (const id of messageIds) {
@@ -283,8 +285,14 @@ function snapshotForFiling(messageIds) {
     if (m?.conversation_id) for (const r of db.prepare('SELECT id FROM email_messages WHERE mailbox = ? AND conversation_id = ?').all(m.mailbox, m.conversation_id)) ids.add(r.id);
   }
   const maxLink = db.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM email_message_clients').get().n;
+  const taskClients = {};
+  for (const id of ids) {
+    const taskId = db.prepare('SELECT task_id FROM email_messages WHERE id = ?').get(id)?.task_id;
+    if (taskId && !taskClients[taskId]) taskClients[taskId] = db.prepare('SELECT client_id FROM task_clients WHERE task_id = ?').all(taskId).map(r => r.client_id);
+  }
   return {
     max_link_id: maxLink,
+    task_clients: taskClients,
     messages: [...ids].map(id => {
       const m = db.prepare('SELECT status, not_client_reason, filed_at, filed_by, actioned_at, actioned_by FROM email_messages WHERE id = ?').get(id);
       return {
@@ -302,6 +310,7 @@ router.post('/undo/:id', auth, (req, res) => {
   if (!row) return res.status(404).json({ error: 'This filing can no longer be undone' });
   const snap = JSON.parse(row.snapshot_json);
   const restored = [];
+  const endedClients = new Set();
   db.transaction(() => {
     for (const m of snap.messages) {
       const cur = db.prepare('SELECT id, subject FROM email_messages WHERE id = ?').get(m.id);
@@ -311,6 +320,7 @@ router.post('/undo/:id', auth, (req, res) => {
       for (const l of db.prepare('SELECT id, client_id FROM email_message_clients WHERE message_id = ? AND id > ? AND removed_at IS NULL').all(m.id, snap.max_link_id)) {
         db.prepare('UPDATE email_message_clients SET removed_at = CURRENT_TIMESTAMP, removed_by = NULL WHERE id = ?').run(l.id);
         audit.log('client', l.client_id, 'email_unfiled', `Filing undone: "${subject}"`);
+        endedClients.add(l.client_id);
       }
       // Links that were current before and have been ended since: bring them back.
       for (const lid of m.links) {
@@ -324,6 +334,12 @@ router.post('/undo/:id', auth, (req, res) => {
         .run(m.status, m.not_client_reason, m.filed_at, m.filed_by, m.actioned_at ?? null, m.actioned_by ?? null, m.id);
       tags.setTags(m.id, m.tags, req.user.id);
       restored.push(m.id);
+    }
+    // Filings made before task_clients was recorded have nothing to compare with, so they skip this.
+    for (const [taskId, before] of Object.entries(snap.task_clients || {})) {
+      const stillLinked = db.prepare(`SELECT 1 FROM email_messages m JOIN email_message_clients l ON l.message_id = m.id AND l.removed_at IS NULL
+        WHERE m.task_id = ? AND l.client_id = ? LIMIT 1`);
+      tasks.removeClients(Number(taskId), [...endedClients].filter(cid => !before.includes(cid) && !stillLinked.get(taskId, cid)), req.user.id);
     }
     db.prepare('UPDATE email_filing_undo SET used_at = CURRENT_TIMESTAMP WHERE id = ?').run(row.id);
   })();

@@ -836,7 +836,11 @@ function FundingTab({ clientId }) {
 
   const remove = async id => {
     if (!await confirm({ title: 'Delete funding period', message: 'Delete this funding period?', confirmLabel: 'Delete', danger: true })) return;
-    await api.delete(`/funding-periods/${id}`); loadPeriods();
+    try {
+      await api.delete(`/funding-periods/${id}`); loadPeriods();
+    } catch (e) {
+      await confirm({ title: "Can't delete funding period", message: e.response?.data?.error || 'Something went wrong, so the funding period was not deleted.', alert: true });
+    }
   };
 
   const today = localToday();
