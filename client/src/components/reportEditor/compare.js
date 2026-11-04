@@ -44,7 +44,7 @@ export function toBlocks(doc, fields) {
             out[out.length - 1].text = out[out.length - 1].cells.join(' | ');
           }
           break;
-        case 'image': out.push({ kind: 'img', text: `[Picture${n.attrs?.alt ? `: ${n.attrs.alt}` : ''}]`, key: n.attrs?.src }); break;
+        case 'image': case 'inlineImage': out.push({ kind: 'img', text: `[Picture${n.attrs?.alt ? `: ${n.attrs.alt}` : ''}]`, key: n.attrs?.src }); break;
         case 'pageBreak': out.push({ kind: 'break', text: '— page break —' }); break;
         case 'horizontalRule': out.push({ kind: 'hr', text: '———' }); break;
         case 'blockquote': walk(n.content, depth); break;

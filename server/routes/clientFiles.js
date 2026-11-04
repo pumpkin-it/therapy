@@ -7,14 +7,14 @@ const path = require('path');
 const fs = require('fs');
 const { generateReportPreview } = require('../services/reportRedact');
 const { createReportShare, ShareError } = require('../services/reportShare');
-const { releasePaidReportsInBackground } = require('../services/reportRelease');
+const { releasePaidReportsInBackground, attachmentEmailParts, withAttachmentsNote } = require('../services/reportRelease');
 
 // A file that's the uploaded copy of a billed report (routes/billableReports.js) is held back until
 // its invoices are paid — so it can't be released, un-shared or deleted from the Files tab the
 // way an ordinary shared file can, or the payment gate would be trivially bypassed.
 const getLinkedBillableReport = fileId => db.prepare('SELECT * FROM billable_reports WHERE client_file_id = ?').get(fileId);
 const LINKED_REPORT_MSG = 'This file is a billed report — manage it from the client’s Reports tab.';
-const { graphSend, getTemplate, renderTemplate, plainTextToHtml } = require('../services/mailer');
+const { graphSend, getTemplate, renderTemplate, renderEmailBody, plainTextToHtml } = require('../services/mailer');
 
 const UPLOAD_DIR = path.join(__dirname, '../../uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -55,6 +55,16 @@ router.get('/', auth, (req, res) => {
       ORDER BY cfr.created_at DESC
     `).all(client_id);
     return res.json(files);
+  }
+
+  // Every file in every folder (picking a document to attach to a report), with its folder's name.
+  if (req.query.all === '1') {
+    return res.json(db.prepare(`
+      SELECT cf.id, cf.label, cf.original_name, cf.size, cf.mime_type, cf.folder_id, cf.created_at, cff.name AS folder_name,
+        (SELECT 1 FROM billable_reports br WHERE br.client_file_id = cf.id) AS is_report
+      FROM client_files cf LEFT JOIN client_file_folders cff ON cff.id = cf.folder_id
+      WHERE cf.client_id = ? ORDER BY cf.created_at DESC
+    `).all(client_id));
   }
 
   const files = folder_id && folder_id !== 'root'
@@ -183,16 +193,22 @@ router.post('/:id/notify-report', auth, async (req, res) => {
   const templateCode = report.status === 'released' ? 'report_released' : 'report_shared_draft';
   const tpl = getTemplate(templateCode);
   const finalSubject = subject || (tpl ? renderTemplate(tpl.subject, vars) : `Your ${reportTitle} is ready`);
-  const finalBody = plainTextToHtml(body) || (tpl ? renderTemplate(tpl.body, vars) : `<p>You can view "${reportTitle}" using the link below.</p><p><a href="${reportLink}">${reportLink}</a></p>`);
+  const finalBody = plainTextToHtml(body) || (tpl ? renderEmailBody(tpl.body, vars) : `<p>You can view "${reportTitle}" using the link below.</p><p><a href="${reportLink}">${reportLink}</a></p>`);
 
+  // A released billed report's email carries its attachments, as the automatic release email does.
+  const linkedReport = report.status === 'released' ? getLinkedBillableReport(file.id) : null;
+  const parts = linkedReport ? attachmentEmailParts(linkedReport.id) : null;
   try {
-    await graphSend({ to, cc: cc?.length ? cc : undefined, subject: finalSubject, html: finalBody });
+    await graphSend({ to, cc: cc?.length ? cc : undefined, subject: finalSubject,
+      html: parts ? withAttachmentsNote(finalBody, parts.html) : finalBody, attachments: parts?.attachments });
   } catch (e) {
     return res.status(400).json({ error: e.message || 'Failed to send email' });
   }
 
   audit.log('client_file', file.id, 'updated',
-    `Notified client about "${reportTitle}" (${report.status === 'released' ? 'released' : 'draft'})`);
+    `Notified client about "${reportTitle}" (${report.status === 'released' ? 'released' : 'draft'})`
+    + (parts?.attached.length ? `, with ${parts.attached.map(n => `"${n}"`).join(', ')} attached` : '')
+    + (parts?.linked.length ? `; too large to attach (on the report page): ${parts.linked.map(n => `"${n}"`).join(', ')}` : ''));
 
   // For a billed report, the draft email is what starts the payment wait — remember who got it so
   // the automatic release email goes to the same people, then check straight away in case every

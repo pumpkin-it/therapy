@@ -4,9 +4,10 @@ import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { TableMap, CellSelection, columnResizing, tableEditing } from '@tiptap/pm/tables';
 
 // Word-style table extras: cell shading (any colour), a set row height (drag a row's bottom edge,
-// or type it), and a set column width (drag the column edge — built in — or type it). Saved in the
-// document as ordinary attributes, so the PDF (server/services/reportHtml.js) and stored HTML
-// (notes, templates) show them too.
+// or type it), a set column width (drag the column edge — built in — or type it), a cell's vertical
+// alignment, cell borders (Word's Borders menu) and a header row repeated at the top of every page.
+// Saved in the document as ordinary attributes, so the PDF (server/services/reportHtml.js) and
+// stored HTML (notes, templates) show them too.
 
 const PX_PER_CM = 96 / 2.54;
 export const cmToPx = cm => Math.round(Number(cm) * PX_PER_CM);
@@ -19,8 +20,27 @@ const background = {
     renderHTML: attrs => (attrs.background ? { 'data-background': attrs.background, style: `background-color: ${attrs.background}` } : {}),
   },
 };
-export const ShadedCell = TableCell.extend({ addAttributes() { return { ...this.parent?.(), ...background }; } });
-export const ShadedHeader = TableHeader.extend({ addAttributes() { return { ...this.parent?.(), ...background }; } });
+// valign: null (top) | 'middle' | 'bottom'. borders: the sides drawn without a line ('t', 'r', 'b',
+// 'l' — e.g. 'tb'); null = all four lines. Both neighbours of a line are always set together
+// (setBorders), so a line is either on both or off both.
+const SIDES = { t: 'top', r: 'right', b: 'bottom', l: 'left' };
+const cellExtras = {
+  ...background,
+  valign: {
+    default: null,
+    parseHTML: el => (['middle', 'bottom'].includes(el.style.verticalAlign) ? el.style.verticalAlign : null),
+    renderHTML: attrs => (attrs.valign ? { style: `vertical-align: ${attrs.valign}` } : {}),
+  },
+  borders: {
+    default: null,
+    parseHTML: el => (/^[trbl]{1,4}$/.test(el.getAttribute('data-borders') || '') ? el.getAttribute('data-borders') : null),
+    renderHTML: attrs => (attrs.borders
+      ? { 'data-borders': attrs.borders, style: [...attrs.borders].map(k => `border-${SIDES[k]}: none`).join('; ') }
+      : {}),
+  },
+};
+export const ShadedCell = TableCell.extend({ addAttributes() { return { ...this.parent?.(), ...cellExtras }; } });
+export const ShadedHeader = TableHeader.extend({ addAttributes() { return { ...this.parent?.(), ...cellExtras }; } });
 export const SizedRow = TableRow.extend({
   addAttributes() {
     return {
@@ -38,6 +58,18 @@ export const SizedRow = TableRow.extend({
 // created. Reports open read-only for an instant while they load, so dragging never worked there.
 // This version always adds it; dragging still only happens while the report can be edited.
 export const ResizableTable = Table.extend({
+  // repeatHeader: the first row is repeated at the top of every page the table runs onto (Word:
+  // Repeat as header row) — pagination.js in the editor, <thead> in the PDF.
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      repeatHeader: {
+        default: false,
+        parseHTML: el => el.hasAttribute('data-repeat-header'),
+        renderHTML: attrs => (attrs.repeatHeader ? { 'data-repeat-header': '' } : {}),
+      },
+    };
+  },
   addProseMirrorPlugins() {
     return [
       columnResizing({
@@ -150,6 +182,73 @@ export function evenColumns(editor, totalPx) {
   editor.commands.focus();
 }
 
+// Vertical alignment (null = top, 'middle', 'bottom') of the selected cells.
+export function setCellVAlign(editor, valign) {
+  const ctx = tableContext(editor.state);
+  if (!ctx) return;
+  const tr = editor.state.tr;
+  for (const rel of ctx.map.cellsInRect(ctx.rect)) {
+    const pos = ctx.start + rel, node = tr.doc.nodeAt(pos);
+    if (node) tr.setNodeMarkup(pos, null, { ...node.attrs, valign: valign || null });
+  }
+  editor.view.dispatch(tr);
+  editor.commands.focus();
+}
+
+export function toggleRepeatHeader(editor) {
+  const ctx = tableContext(editor.state);
+  if (!ctx) return;
+  editor.view.dispatch(editor.state.tr.setNodeMarkup(ctx.pos, null, { ...ctx.table.attrs, repeatHeader: !ctx.table.attrs.repeatHeader }));
+  editor.commands.focus();
+}
+
+// Word's Borders menu for the selected cells (or the cell the cursor is in): 'all', 'none',
+// 'outside', 'inside', or one outer side — 'top' / 'bottom' / 'left' / 'right' — switched on or off.
+// Every line is worked out on the grid: a line on the edge of the selection is outside, one between
+// selected cells inside; the cells on both sides of a line are set alike.
+export function setBorders(editor, mode) {
+  const ctx = tableContext(editor.state);
+  if (!ctx) return;
+  const { map, rect } = ctx;
+  const overlaps = (a0, a1, b0, b1) => a0 < b1 && b0 < a1;
+  // Each side of each cell that lies on a line of the selection: { rel, side, outer, edge }.
+  const lines = [];
+  for (const rel of new Set(map.map)) {
+    const r = map.findCell(rel);
+    const across = overlaps(r.left, r.right, rect.left, rect.right), down = overlaps(r.top, r.bottom, rect.top, rect.bottom);
+    for (const [side, y, ok] of [['t', r.top, across], ['b', r.bottom, across]]) {
+      if (ok && y >= rect.top && y <= rect.bottom) lines.push({ rel, side, outer: y === rect.top || y === rect.bottom, edge: y === rect.top ? 'top' : y === rect.bottom ? 'bottom' : null });
+    }
+    for (const [side, x, ok] of [['l', r.left, down], ['r', r.right, down]]) {
+      if (ok && x >= rect.left && x <= rect.right) lines.push({ rel, side, outer: x === rect.left || x === rect.right, edge: x === rect.left ? 'left' : x === rect.right ? 'right' : null });
+    }
+  }
+  const isOn = l => !(ctx.table.nodeAt(l.rel).attrs.borders || '').includes(l.side);
+  let pick, on;
+  if (mode === 'all') { pick = () => true; on = true; }
+  else if (mode === 'none') { pick = () => true; on = false; }
+  else if (mode === 'outside') { pick = l => l.outer; on = true; }
+  else if (mode === 'inside') { pick = l => !l.outer; on = true; }
+  else {
+    pick = l => l.edge === mode;
+    on = !lines.filter(pick).every(isOn); // all shown → take it away, otherwise draw it
+  }
+  const next = new Map();
+  for (const l of lines.filter(pick)) {
+    const cur = new Set(next.get(l.rel) ?? (ctx.table.nodeAt(l.rel).attrs.borders || ''));
+    if (on) cur.delete(l.side); else cur.add(l.side);
+    next.set(l.rel, cur);
+  }
+  const tr = editor.state.tr;
+  for (const [rel, set] of next) {
+    const pos = ctx.start + rel, node = tr.doc.nodeAt(pos);
+    const borders = ['t', 'r', 'b', 'l'].filter(k => set.has(k)).join('') || null;
+    if (node) tr.setNodeMarkup(pos, null, { ...node.attrs, borders });
+  }
+  editor.view.dispatch(tr);
+  editor.commands.focus();
+}
+
 // What the toolbar shows for the current table position: the cell's shading, row height and
 // column width (null when automatic).
 export function tableInfo(state) {
@@ -160,6 +259,8 @@ export function tableInfo(state) {
   const row = ctx.table.child(ctx.rect.top);
   const first = ctx.map.colCount(rel);
   return {
+    valign: cell?.attrs.valign || null,
+    repeatHeader: !!ctx.table.attrs.repeatHeader,
     background: cell?.attrs.background || null,
     rowHeight: row?.attrs.height || null,
     colWidth: cell?.attrs.colwidth?.[ctx.rect.left - first] || null,

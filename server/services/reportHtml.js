@@ -46,6 +46,8 @@ function marksToHtml(text, marks = []) {
       case 'underline': html = `<u>${html}</u>`; break;
       case 'strike': html = `<s>${html}</s>`; break;
       case 'code': html = `<code>${html}</code>`; break;
+      case 'subscript': html = `<sub>${html}</sub>`; break;
+      case 'superscript': html = `<sup>${html}</sup>`; break;
       case 'link': if (/^(https?:|mailto:)/i.test(a.href || '')) html = `<a href="${esc(a.href)}">${html}</a>`; break;
       case 'highlight': html = `<mark style="background-color:${safeCss(a.color) || '#ffff00'}">${html}</mark>`; break;
       case 'textStyle':
@@ -59,7 +61,35 @@ function marksToHtml(text, marks = []) {
   return styles.length ? `<span style="${esc(styles.join(';'))}">${html}</span>` : html;
 }
 
-const alignStyle = a => (['left', 'center', 'right', 'justify'].includes(a?.textAlign) ? ` style="text-align:${a.textAlign}"` : '');
+// A paragraph's alignment, line spacing and space before/after (client wordFormat.js: Word's line
+// spacing × 1.15 = CSS line-height; spacing in pt).
+const SINGLE_LINE = 1.15;
+const ptOk = v => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 200;
+function alignStyle(a = {}) {
+  const st = [];
+  if (['left', 'center', 'right', 'justify'].includes(a.textAlign)) st.push(`text-align:${a.textAlign}`);
+  const ls = Number(a.lineSpacing);
+  if (a.lineSpacing && ls > 0 && ls <= 5) st.push(`line-height:${Math.round(ls * SINGLE_LINE * 1000) / 1000}`);
+  if (ptOk(a.spaceBefore)) st.push(`margin-top:${Number(a.spaceBefore)}pt`);
+  if (ptOk(a.spaceAfter)) st.push(`margin-bottom:${Number(a.spaceAfter)}pt`);
+  // Indents in cm (first line negative = hanging).
+  const cm = (v, min) => (v !== null && v !== undefined && Number.isFinite(Number(v)) && Number(v) >= min && Number(v) <= 30 && Number(v) !== 0 ? Number(v) : null);
+  if (cm(a.indentLeft, 0) != null) st.push(`margin-left:${cm(a.indentLeft, 0)}cm`);
+  if (cm(a.indentRight, 0) != null) st.push(`margin-right:${cm(a.indentRight, 0)}cm`);
+  if (cm(a.indentFirst, -30) != null) st.push(`text-indent:${cm(a.indentFirst, -30)}cm`);
+  return st.length ? ` style="${st.join(';')}"` : '';
+}
+
+// A table wider than the text area has its column widths shrunk to fit (the same sum as the editor,
+// client pageSetup.js tableFitFactor). Left too wide, Chrome shrinks the whole PDF to get it on.
+const MIN_COLUMN = 24;
+function tableFitFactor(widths, textWidth) {
+  if (!textWidth) return 1;
+  const fixed = widths.reduce((sum, w) => sum + (w || 0), 0);
+  const unset = widths.filter(w => !w).length;
+  if (!fixed || fixed + unset * MIN_COLUMN <= textWidth) return 1;
+  return Math.max(0, textWidth - (unset * textWidth) / widths.length) / fixed;
+}
 
 function renderNodes(nodes, ctx) { return (nodes || []).map(n => renderNode(n, ctx)).join(''); }
 
@@ -82,8 +112,12 @@ function renderNode(n, ctx) {
       // Column widths set by dragging in the editor live on the first row's cells.
       const firstRow = n.content?.[0]?.content || [];
       const widths = firstRow.flatMap(c => (c.attrs?.colwidth || Array(c.attrs?.colspan || 1).fill(null)));
-      const colgroup = widths.some(Boolean) ? `<colgroup>${widths.map(w => (w ? `<col style="width:${Number(w)}px">` : '<col>')).join('')}</colgroup>` : '';
-      return `<table>${colgroup}<tbody>${renderNodes(n.content, ctx)}</tbody></table>`;
+      const k = tableFitFactor(widths.map(Number), ctx.textWidth);
+      const colgroup = widths.some(Boolean) ? `<colgroup>${widths.map(w => (w ? `<col style="width:${k < 1 ? Math.max(MIN_COLUMN, Math.floor(w * k)) : Number(w)}px">` : '<col>')).join('')}</colgroup>` : '';
+      // A repeated header row goes in <thead>: Chrome prints it again at the top of every page.
+      const rows = n.content || [];
+      if (a.repeatHeader && rows.length > 1) return `<table>${colgroup}<thead>${renderNode(rows[0], ctx)}</thead><tbody>${renderNodes(rows.slice(1), ctx)}</tbody></table>`;
+      return `<table>${colgroup}<tbody>${renderNodes(rows, ctx)}</tbody></table>`;
     }
     // Row height and cell shading set in the editor (client tables.js); colours are checked so
     // nothing but a plain colour value reaches the style attribute.
@@ -95,14 +129,24 @@ function renderNode(n, ctx) {
     case 'tableCell': {
       const tag = n.type === 'tableHeader' ? 'th' : 'td';
       const span = `${a.colspan > 1 ? ` colspan="${Number(a.colspan)}"` : ''}${a.rowspan > 1 ? ` rowspan="${Number(a.rowspan)}"` : ''}`;
-      const bg = /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\))$/i.test(String(a.background || '').trim()) ? ` style="background-color:${String(a.background).trim()}"` : '';
-      return `<${tag}${span}${bg}>${renderNodes(n.content, ctx)}</${tag}>`;
+      const st = [];
+      if (/^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\))$/i.test(String(a.background || '').trim())) st.push(`background-color:${String(a.background).trim()}`);
+      if (['middle', 'bottom'].includes(a.valign)) st.push(`vertical-align:${a.valign}`);
+      // Sides drawn without a line (client tables.js setBorders).
+      if (/^[trbl]{1,4}$/.test(a.borders || '')) for (const k of a.borders) st.push(`border-${{ t: 'top', r: 'right', b: 'bottom', l: 'left' }[k]}:none`);
+      return `<${tag}${span}${st.length ? ` style="${st.join(';')}"` : ''}>${renderNodes(n.content, ctx)}</${tag}>`;
     }
-    case 'image': {
+    // A picture on its own line (left, centre or right), or in line with the text (images.js).
+    case 'image':
+    case 'inlineImage': {
       const src = imageSrc(a.src);
       if (!src) return '';
-      const size = [a.width && `width:${Number(a.width)}px`, a.height && `height:${Number(a.height)}px`].filter(Boolean).join(';');
-      return `<div class="pdf-img"><img src="${src}" alt="${esc(a.alt)}"${size ? ` style="${size}"` : ''}></div>`;
+      const inline = n.type === 'inlineImage';
+      const size = [a.width && `width:${Number(a.width)}px`, a.height && `height:${Number(a.height)}px`, inline && a.valign === 'middle' && 'vertical-align:middle'].filter(Boolean).join(';');
+      const img = `<img${inline ? ' class="pdf-inline-img"' : ''} src="${src}" alt="${esc(a.alt)}"${size ? ` style="${size}"` : ''}>`;
+      if (inline) return img;
+      const justify = { center: 'center', right: 'flex-end' }[a.align];
+      return `<div class="pdf-img"${justify ? ` style="justify-content:${justify}"` : ''}>${img}</div>`;
     }
     // Fields print as plain text with the values frozen when the version was committed.
     case 'clientField': return esc(ctx.fields?.[a.key] ?? '');
@@ -120,9 +164,10 @@ function trimTrailing(doc) {
   return { ...doc, content };
 }
 
-function renderReportBody(doc, { fields }) {
+// textWidth: the width between the margins, px (none: tables aren't fitted).
+function renderReportBody(doc, { fields, textWidth }) {
   const logo = dataUri(path.join(UPLOADS, 'logo'));
-  return renderNodes(trimTrailing(doc).content, { fields, logo });
+  return renderNodes(trimTrailing(doc).content, { fields, logo, textWidth });
 }
 
 // Every font family a document uses (the default is Arial) — only those get embedded.

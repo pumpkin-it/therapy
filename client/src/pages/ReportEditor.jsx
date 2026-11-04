@@ -14,6 +14,7 @@ import ContentsPanel from '../components/reportEditor/ContentsPanel';
 import { loadContent, revealPos } from '../components/reportEditor/reveal';
 import useDocEditor from '../components/reportEditor/useDocEditor';
 import CompareView from '../components/reportEditor/CompareView';
+import ReportAttachments from '../components/reportEditor/ReportAttachments';
 import { useConfirm } from '../components/ui/ConfirmDialog';
 
 // Writing a report in the system (prototype). The whole document autosaves to the server a few
@@ -372,7 +373,7 @@ export default function ReportEditor() {
   const restoreLocal = () => {
     recoveryPendingRef.current = false;
     removeKey(recovery.key);
-    editor.commands.setContent(recovery.content, { emitUpdate: true });
+    editor.chain().setContent(recovery.content, { emitUpdate: true }).setDocAttrsFrom(recovery.content).run();
     setRecovery(null);
     setNotice('Restored the unsaved copy from this browser — it’s being saved now.');
   };
@@ -409,6 +410,7 @@ export default function ReportEditor() {
           className="rounded-md border border-gray-300 px-1.5 py-1 text-xs text-gray-600">
           {ZOOMS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
+        {meta && <ReportAttachments reportId={reportId} clientId={meta.report.client_id} />}
         <Button size="sm" variant="secondary" onClick={checkPdf} disabled={!meta || pdfView?.loading}><FileSearch className="h-3.5 w-3.5" /> {pdfView?.loading ? 'Making PDF…' : 'Check PDF'}</Button>
         <Button size="sm" variant="secondary" onClick={() => setHistoryOpen(true)} disabled={!meta}><History className="h-3.5 w-3.5" /> History</Button>
         {meta?.can_commit && (
@@ -418,7 +420,7 @@ export default function ReportEditor() {
         )}
       </div>
 
-      {editor && meta?.can_edit && <Toolbar editor={editor} fields={meta.fields} onPickImage={() => fileInputRef.current.click()} />}
+      {editor && meta?.can_edit && <Toolbar editor={editor} fields={meta.fields} pageSetup onPickImage={() => fileInputRef.current.click()} />}
       {editor && find && <FindBar key={find} editor={editor} withReplace={find === 'replace'} canEdit={!!meta?.can_edit} onClose={() => setFind(null)} />}
       </div>
       <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="hidden"
@@ -467,14 +469,14 @@ export default function ReportEditor() {
           </aside>
         )}
         <div className="min-w-0 flex-1">
-          <PagedSheet editor={editor} zoom={zoom} onPageCount={setPages} onScale={setScale}
+          <PagedSheet editor={editor} zoom={zoom} onPageCount={setPages} onScale={setScale} pageSetup rulerTop={headerH - 24}
             onLaidOut={() => {
               const r = restoreRef.current;
               if (!r) return;
               if (Date.now() > r.until) { restoreRef.current = null; return; }
               revealPos(editor.view, r.pos, 'center');
             }}
-            footer={{ left: [meta?.report.client_name, meta?.report.title].filter(Boolean).join(' · ') }}>
+            fields={{ client: meta?.report.client_name, title: meta?.report.title }}>
             <EditorContent editor={editor} />
           </PagedSheet>
           <p className="mx-auto mt-3 text-right text-xs text-gray-500" style={{ maxWidth: PAGE.width * scale }}>
@@ -509,7 +511,7 @@ export default function ReportEditor() {
           onRestore={async snap => {
             // Keep what's on screen now in the history first, so the restore itself can be undone.
             await save({ force: true, forceSnapshot: true });
-            editor.commands.setContent(snap.content, { emitUpdate: true });
+            editor.chain().setContent(snap.content, { emitUpdate: true }).setDocAttrsFrom(snap.content).run();
             setHistoryOpen(false);
             setNotice(`Restored the version from ${fmtDateTime(snap.saved_at)}. The text it replaced is in History if you need it back.`);
           }} />
@@ -534,7 +536,7 @@ function CommitModal({ nextVersion, pages, revising, defaultShown, onClose, onCo
       <div className="space-y-3 text-sm text-gray-700">
         <p>Committing will:</p>
         <ul className="list-disc space-y-1 pl-5">
-          <li>make the PDF (about {pages} page{pages === 1 ? '' : 's'}) with a footer of client name, report title and page numbers;</li>
+          <li>make the PDF (about {pages} page{pages === 1 ? '' : 's'}) with the report’s page layout, header and footer;</li>
           <li>freeze the client details shown in the report as they are now;</li>
           <li>{revising ? 'show this version at the client’s existing link, as a blurred draft — links already sent keep working, and it releases again once all invoices for the report are paid;' : 'share it with the client as a blurred draft — it’s released once all invoices for the report are paid;'}</li>
           <li>lock the report. You or an admin can unlock it later to make changes (with a reason).</li>

@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const db = require('../database');
 const auth = require('../middleware/auth');
 const audit = require('../services/audit');
-const { renderTemplate, graphSend, getTemplate } = require('../services/mailer');
+const { renderTemplate, renderEmailBody, graphSend, getTemplate } = require('../services/mailer');
 const { renderPricingTableHtml, budgetItemsAsPricingRows } = require('../services/templateVars');
 const { generateAgreementPdf } = require('../services/pdf');
 const { getAgreementSpend, computeBudgetSpend } = require('../services/budgets');
@@ -595,7 +595,7 @@ async function sendAgreementReminders() {
       const vars = { client_first_name: agreement.client_first_name, title: agreement.title, signing_url: signingUrl };
       const tpl = getTemplate('agreement_reminder');
       const subject = tpl ? renderTemplate(tpl.subject, vars) : `Reminder: please sign — ${agreement.title}`;
-      const html = tpl ? renderTemplate(tpl.body, vars)
+      const html = tpl ? renderEmailBody(tpl.body, vars)
         : `<p>Hi ${agreement.client_first_name},</p><p>This is a friendly reminder that your <strong>${agreement.title}</strong> is still awaiting your signature.</p><p><a href="${signingUrl}">${signingUrl}</a></p>`;
       await graphSend({ to: agreement.client_email, subject, html });
       db.prepare('UPDATE agreements SET last_reminder_at=?, reminder_count=reminder_count+1 WHERE id=?')

@@ -570,6 +570,96 @@ option A, or skip it and say so.
   didn't fully match "what still works" above with enough detail to reproduce.
 
 ## Changed since the last full run (check these first)
+
+- **Report page count: editor vs PDF (2026-11-02, on UAT for testing)** — Open a report from the FCA template and from the OT Report template. For each Layout > Margins preset and Landscape, wait a few seconds, then compare "Page N of X" with the PDF ("Check PDF" or draft PDF): (a) X matches the PDF's page count (Wide on FCA is now about 40 pages, not 28: the PDF used to shrink all the text to fit one wide table, so check the PDF's text is the same size at every margin); (b) page by page the same content starts each page, or within a row or a few lines (a small difference can still appear on some margin settings); (c) no text is hidden at the bottom of a page; (d) on Wide, no table runs off the page and every column is readable; (e) Undo after changing margins restores the margins and the column widths; (f) a table dragged or pasted wider than the page shrinks to fit; (g) a heading stays with the table or text after it; rows with merged cells break sensibly over pages.
+
+- **UAT is on Node 24 with a fresh copy of production data (2026-11-02); production is still on Node 20** — this is the test before upgrading the whole server, so run the full checklist, especially: report PDFs (Check PDF + commit, with pictures), agreement and invoice PDFs, MYOB CSV, sending email (must redirect to the test mailbox), email sync and attachments, Ask/AI, document upload and text extraction, form PDFs, calendar sync and feed. Log in again first: UAT's accounts now match production, so test accounts made on UAT before 2026-11-02 are gone. UAT-only test reports are also gone (backup: `/opt/therapy-uat/server/pm.db.pre-mirror-20261102`).
+
+- **Report editor fixes (2026-10-29)** — (a) open a long report and scroll: the page text, header/footer and ruler stay UNDER the toolbar (nothing shows above it); the ruler stays above the text; (b) in a table, drag across two or more cells, right-click inside them → they stay selected and "Merge cells" in the menu merges them; right-click in a cell that isn't selected still just opens the menu at that cell.
+
+- **Blocked time in the practitioner's calendar feed (2026-10-29)** — Calendar: add blocked time for a practitioner with a reason (e.g. "Admin") and one with no reason. Open that practitioner's calendar feed link (the .ics). (a) both blocks are there, titled with the reason / "Blocked time", at the right times; (b) blocks that came in from the practitioner's own calendar (external sync) are NOT in the feed; (c) edit a block's time → the feed shows the new time; delete it → gone from the feed; (d) appointments still appear as before.
+- On UAT 2026-10-28 (not yet in production): **report editor works more like Word** (reports and report templates;
+  notes/email templates share the text and table parts). Check each in the editor AND in the PDF ("Check PDF" side
+  panel or a commit on a test report):
+  (a) **Text:** subscript/superscript buttons (Ctrl+= / Ctrl+Shift+=), Grow/Shrink font (Ctrl+Shift+> / <, Ctrl+] / [),
+  Change case menu + Shift+F3, Symbols (Ω), Format painter (click = once, double-click = keeps painting until Esc;
+  click on a word paints the whole word), Clear formatting also clears spacing/indents, Ctrl+K link with nothing
+  selected inserts the address. Ctrl+E/L/R/J align; Ctrl+Space clears character formatting.
+  (b) **Paragraph:** Line & paragraph spacing menu (1.0/1.15/1.5/2.0/2.5/3.0, space before/after 0–24 pt);
+  Tab key types a tab (stops every 1.27 cm) outside lists/tables; Increase/Decrease indent on a normal paragraph
+  steps 1.27 cm (Ctrl+M / Ctrl+Shift+M); in a list it still changes the list level.
+  (c) **Ruler** above the pages: drag ▽ first-line, △ hanging, ▭ left (moves both), △ right indent — the
+  paragraph moves; the ruler stays in view when scrolling (report editor).
+  (d) **Tables:** Insert table grid (up to 8×10, no header row); right-click in a cell → table menu (insert/delete
+  rows/columns, merge/split, align top/middle/bottom, borders, repeat header row); Borders menu (all / none / outside
+  / inside / single sides); "Repeat header row" → the first row shows again at the top of each page the table runs
+  on to (editor copy can't be clicked; PDF repeats it too).
+  (e) **Layout menu:** Portrait/Landscape and margin presets (Standard 1.9 cm = the old layout, Normal, Narrow,
+  Moderate, Wide) and Custom margins… → the pages, the ruler and the PDF all change; same lines on the same pages
+  in the PDF. Saved with the report (reload keeps it); a report started from a template gets the template's layout.
+  (f) **Header & footer** (Layout › Header & footer…, or double-click a header/footer on the page): left/centre/right
+  text with fields (page number, number of pages, client, report title, date) → shows on every page and in the PDF
+  in the same place. "Standard footer" = the old one (client · title, Page X of Y); "Clear" removes it. Undo works.
+  Old reports with no layout set: pages, footer and PDF exactly as before.
+- On UAT 2026-10-28 (not yet in production): **tables across pages behave like Word** ("Allow row to break across
+  pages"), in the report/template/notes editor AND the PDF. FCA template ("Ambulation/ Wheelchair" merged down over
+  items 0–5): push the table down with blank lines so it crosses a page end → only the lines that don't fit carry on
+  at the top of the next page, in each cell (merged cell too); every row keeps all its columns (item "5" still has
+  its description beside it); a row with no line that fits moves whole. The grey gap between pages shows nothing
+  (no table lines/text) and each footer is visible. Check PDF: same lines on the same pages. Type in a split cell →
+  the pages re-flow.
+- On UAT 2026-10-28 (not yet in production): **report attachments** (quotes, doctors' reports…). Report editor
+  header: paperclip (count shown); client Reports tab: "Attachments (n)" on each report. In it: **Upload new**
+  (one or several files) → popup ALWAYS asks which Files folder (Top level / a folder / New folder…, no default) and
+  shows "Will be saved in: Files › …" → file appears in the client's Files tab there, and on the report. **Add
+  from Files** → search/tick files already in Files (any folder; the report itself isn't offered). ✕ removes it from
+  the report only (stays in Files); deleting the file in Files takes it off the report. Can't change after release.
+  ON RELEASE (automatic or manual) the release email to the report's To/Cc has them ATTACHED, plus a line naming
+  them; if the total is over ~2.8 MB the ones that don't fit are listed as "too large to attach" and are
+  downloadable on the client's report page (/report/…, "Documents sent with this report", released only). Template
+  "Report Released (Final)" now has Insert field → Attachments to place that line (else it goes at the end).
+  Notify on a released report (Files tab) sends them too. Audit: attach/remove/sent rows. CHECK on UAT with a test
+  contact address only.
+  Update 2026-10-28: the popup has a **Done** button. Attachments can now be added/removed AFTER release (amber note
+  says they aren't sent until re-sent) → **Send release email again** (confirm names the To/Cc) re-sends the release
+  email with the current attachments to the same contacts; audit "Release email sent again…". A released report
+  with no contacts says to use Notify in the Files tab.
+  Update 2026-10-28 (b): the **"Report Released (Final)" template now contains the Attachments field** (added once on
+  start-up, just before "Regards", unless already placed) — Templates → Email shows the "Attachments" chip there. The
+  email lists them as bullets: "Attached documents:" • … and, if any were too large, "These documents are too large
+  to attach — download them from the report link above:" • …; with no attachments the line disappears. The Files-tab
+  Notify popup for a released billed report explains {{attachments}} under the message box.
+- On UAT 2026-10-28 (not yet in production): **several files at once** — client Files tab "Upload file" (into the open
+  folder), "Attach file" on a new session note, and the paperclip on a saved note (appointment window and client
+  Notes tab). Pick ONE file → the name prompt as before; pick SEVERAL → all added/uploaded straight away, each named
+  after its file ("Uploading files…" shown; any that fail are listed). Final report upload, signed agreement copy,
+  logo and CSV/Excel imports stay one file.
+- On UAT 2026-10-28 (not yet in production): **blank lines kept everywhere** (same rule as reports). Besides notes
+  (above): the agreement signing page and agreement PDF; **emails sent from templates** (appointment notifications,
+  invoice + payment reminder, agreement reminder, report ready/shared, session notes email) — an empty line in the
+  template now arrives as a blank line (paragraph gaps unchanged); the **report-notify and session-notes email
+  popups** keep a template's blank lines in the editable text, and extra blank lines typed there are sent.
+  CHECK: put an empty line in a template (e.g. session notes email) → open the popup → the text shows it → send to
+  a test address → it arrives. Composed emails unchanged.
+- On UAT 2026-10-28 (not yet in production): **Expanded session note has its own save button** — next to Done: "Add note" (appointment window), "Save note" (client Notes tab), "Save" when editing a note. CHECK: it saves the same as the button below (draft cleared, attached files saved with it), greys out while empty/saving, and the editor shrinks back.
+- On UAT 2026-10-28 (not yet in production): **session notes (and note/agreement templates) use the same Word-style
+  pages as the report editor** — separate A4 sheets with a gap and "Page X of Y", text flows to the next sheet;
+  page breaks show as a new sheet; Expand still works; shown scaled down in the appointment window. **Blank lines
+  in saved notes now show** in the note list (appointment window and client Notes tab) and in the session notes
+  PDF — before, empty lines collapsed (reported on APT-00547). CHECK: write a note with blank lines and a page
+  break → save → the saved note shows the blank lines; download the notes PDF → same; editing an old note doesn't
+  change it; email compose (plain box) unchanged.
+- On UAT 2026-10-28 (not yet in production): **pictures can be placed** in the report editor (reports, report
+  templates, session notes, email/signature editor — same editor). Click a picture → a **Picture** bar under the
+  toolbar: **On its own line / In line with text**; for own-line pictures **Left / Centre / Right**; for in-text
+  pictures **On the line / Centred on the text** (the toolbar's alignment buttons move the whole line). Pictures can be
+  **dragged** to a new place, e.g. right after "Signature:" in the FCA template. CHECK: survives save/reload; Check
+  PDF / commit PDF shows the same placement; resizing still works in both kinds; existing reports/templates unchanged
+  (their pictures stay left on their own line); an email with a centred / in-text signature picture looks the same
+  when received; undo works. Not supported: free placement / text wrapping around a picture.
+- On UAT + production 2026-10-27: **blank page opening the report/template editor after a release** fixed — the
+  page reloads itself once to pick up the new release. Test: open Therapy, leave the tab open through a deploy, then
+  open a report template from that tab → it reloads once and opens (no blank page).
 - On UAT 2026-10-27 (not yet in production): **series billing adjustments are saved on the series** (replaces the
   short-lived "copy from the previous session"). Billing adjustment with "apply to future" → also saved on the series
   (audit "New SER-… sessions will be billed: …"), so sessions the series creates later get it; a one-off adjustment
@@ -780,6 +870,67 @@ Released to production 2026-09-30 — not yet covered by a full run:
   local copy (option B) and say which way it was checked.
 - Item 10: Settings → Budget Alerts "Send to" choices (default: client's practitioners, owners,
   admins — no finance).
+
+## Node 24 full run — 2026-11-02 (UAT on Node 24.22.2, option A, owner sign-in; UAT mirrored from prod 2026-11-02 09:04 UTC)
+Verdict: **production can move to Node 24 — yes, with caveats** (nothing blocking; no failure looks
+specific to Node 24). 19 of 19 items PASS on their core flows (some only partly testable, see below).
+3 low bugs, all probably pre-existing logic. Memory file: `project_therapy_regression_bugs_2026-11-02.md`.
+Test data on ZZ QA clients 67/68. Not Node-comparable: nothing was run on Node 20 this time.
+
+| Item | Result | Notes |
+|---|---|---|
+| Changed-since (Node 24, editor scroll, right-click Merge cells, blocked time in feed) | PASS | Feed: blocks titled "Admin"/"Blocked time" at right Sydney times; external-sync-block exclusion not testable (no external calendars) |
+| 1 Add client | PASS | Pagination not exercisable (49 active clients) |
+| 2 Book / 3 Edit / 4 Cancel / 5 Late cancel | PASS | Window 896px, five buttons on one row; $285.47 → $188.47 (halved) → $0 (Don't bill) → $285.47 |
+| 6 Session notes | PASS | Use template and old-style notes not exercised |
+| 7 Download / email | PASS | Send not clicked |
+| 7b Client files | PASS | |
+| 8 Form | PASS | ZZ template with folder, required fields, calculated sum (7) |
+| 9 Invoicing | PASS (therapist view not tested) | |
+| 10 Templates/Settings/Reports | PASS | |
+| 11 Report billing | PASS (email arrival not seen) | Test mailbox unreadable |
+| 12 Report writing | PASS with bug A | |
+| 13 Audit log | PASS | Non-owner restrictions not tested |
+| 14 Sign-in security | NOT TESTED | Only "no password_hash in /practitioners" checked; lockout/limits need the login page |
+| 15 Email filing | PASS (core) | Bug B |
+| 16 Email writing | PASS | Undo send, Schedule send, Send now (redirected) |
+| 17 Tasks | PASS (partial) | Automatic task rules not tested |
+| 18 Mark as signed | PASS | |
+| 19 Ask | PASS | 4 questions, US$0.00 → US$0.12 |
+
+Node 24 evidence: report PDFs (headless Chrome, fonts embedded, 24 pages = editor, picture centred);
+blurred draft/re-encode (mupdf, sharp); agreement PDF (5 pages, audit trail); session-notes PDF; MYOB CSV
+(valid, dd/mm/yyyy, totals right); email send redirected to the test mailbox ("[UAT TEST]" banner) and
+copied in; email sync (~54 folders OK, 7MB zip/PNG attachments served); document upload + text
+extraction (read 1465 → 1474, 0 failed); calendar feed; en-AU dates/timezone; better-sqlite3; no
+Node-related console/network errors. Invoice PDF n/a (export_only mode); form-response PDF endpoint
+does not exist.
+Not exercised: calendar sync (node-ical; no external calendars), fresh inbound email ingest, practitioner-
+role checks (no login), item 14 login flows, Ask limit/model checks, anything that would send email.
+Advice: after switching production, watch the first calendar sync cycle and one real inbound email.
+
+Bugs (all unfixed, none Node-24-specific):
+- A (medium-low, item 12): editor page count differs from the PDF with some margin presets — FCA template,
+  Wide margins: editor "Page N of 45" vs PDF 28; Normal (Word) margins 26 vs 27; Standard 24=24 and
+  Landscape 31=31 match. Suspect client pagination vs server/services/reportHtml.js.
+- B (low, items 15/17): Undo filing leaves the task's client link — file an unfiled email that already has
+  a task to a client, Undo: email restored, task keeps "Client added: <client>". Suspect server/routes/email.js
+  or services/tasks.js.
+- C (low): deleting a funding period used by appointments returns 500 instead of a friendly 409
+  (DELETE /api/funding-periods/64; server/routes/fundingPeriods.js:79).
+- Minor: Commit dialog caps "pages shown in full" at 10; Notify-client draft email auto-opens after Upload
+  final report/Commit (cancelled, not sent); UAT sends from the real ahp@ mailbox with only the To
+  redirected, so test sends land in ahp@'s Sent Items.
+
+Sent this run (only): item 11's report billing email to accounts (redirected to the test mailbox, with MYOB
+CSV) and one "ZZ QA Node24 send test" compose email (recipient rewritten to the test mailbox). No agreement
+sends, WhatsApp/SMS or notify/release emails.
+Real data touched and restored: real email 1527 filed to a ZZ client then Undone (exact); real task 80's ZZ
+client link removed by hand (history keeps rows); Ask conversations 13/14 taken off real clients; Budget
+Alerts tick and Settings save restored.
+Leftovers (can't delete): ZZ clients 67/68 (inactive), funding period 64, appointments 684–689 (688/689 carry
+an Exported stamp), report 7 (soft-deleted), form response 15, signed agreement 30, report images, the sent
+test email (in ahp@'s Sent Items), Ask conversations 13–15, audit/task history rows.
 
 ## Agreements, billing, compose, calendar billing run — 2026-10-08 (UAT option A, nothing sent)
 Result: all 4 changes **PASS**; 3 bugs (A–C) found, all FIXED and re-tested PASS on UAT. Memory file:

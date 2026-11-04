@@ -3,7 +3,7 @@
    Tailwind's preflight strips heading/list/table styling, so the document's own look is defined
    here, kept close to a Word default (Arial 11pt). Rules for editor-only UI (field chips, table
    selection, resize handles, the page-break marker) simply don't match anything in the PDF. */
-.report-doc { font-family: Arial, Helvetica, sans-serif; font-size: 11pt; line-height: 1.5; color: #111; min-height: 600px; }
+.report-doc { font-family: Arial, Helvetica, sans-serif; font-size: 11pt; line-height: 1.5; color: #111; min-height: 600px; tab-size: 1.27cm; }
 .report-doc > * + * { margin-top: 0.6em; }
 .report-doc h1 { font-size: 18pt; font-weight: 700; line-height: 1.25; margin-top: 1em; }
 .report-doc h2 { font-size: 14pt; font-weight: 700; line-height: 1.3; margin-top: 0.9em; }
@@ -16,6 +16,14 @@
 .report-doc blockquote { border-left: 3px solid #d1d5db; padding-left: 1em; color: #4b5563; }
 .report-doc hr { border: none; border-top: 1px solid #d1d5db; margin: 1.2em 0; }
 .report-doc mark { padding: 0 1px; border-radius: 1px; }
+.report-doc sub, .report-doc sup { font-size: 75%; line-height: 0; position: relative; vertical-align: baseline; }
+.report-doc sub { bottom: -0.25em; }
+.report-doc sup { top: -0.5em; }
+/* Format painter on (Toolbar): a brush cursor over the text. */
+.report-doc.format-painting { cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23111' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m14.622 17.897-10.68-2.913'/%3E%3Cpath d='M18.376 2.622a1 1 0 1 1 3.002 3.002L17.36 9.643a.5.5 0 0 0 0 .707l.944.944a2.41 2.41 0 0 1 0 3.408l-.944.944a.5.5 0 0 1-.707 0L8.354 7.348a.5.5 0 0 1 0-.707l.944-.944a2.41 2.41 0 0 1 3.408 0l.944.944a.5.5 0 0 0 .707 0z'/%3E%3Cpath d='M9 8c-1.804 2.71-3.97 3.46-6.583 3.948a.507.507 0 0 0-.302.819l7.32 8.883a1 1 0 0 0 1.185.204C12.735 20.405 16 16.792 16 15'/%3E%3C/svg%3E") 2 18, text; }
+/* A blank line in a saved note/template (an empty <p>) keeps its height when shown or printed — in
+   the editor it holds a <br>, and reports print one (reportHtml.js). */
+.report-doc p:empty::before { content: '\00a0'; }
 .report-doc p.is-editor-empty:first-child::before { content: attr(data-placeholder); color: #9ca3af; float: left; height: 0; pointer-events: none; }
 
 .report-doc table { border-collapse: collapse; width: 100%; table-layout: fixed; margin: 0.8em 0; overflow: hidden; }
@@ -26,12 +34,24 @@
 .report-doc .column-resize-handle { position: absolute; right: -2px; top: 0; bottom: -2px; width: 4px; background: #6366f1; pointer-events: none; }
 .report-doc.resize-cursor { cursor: col-resize; }
 .report-doc .tableWrapper { overflow-x: auto; }
+/* The editor wraps each table in a scrolling .tableWrapper, which keeps the table's own margins
+   from collapsing with the text around it — so the wrapper carries them instead, and the table
+   sits exactly where the PDF (no wrapper) puts it. */
+.report-doc .tableWrapper { margin: 0.8em 0; }
+.report-doc .tableWrapper > table { margin: 0; }
 
 .report-doc img { max-width: 100%; height: auto; display: inline-block; }
 .report-doc img.ProseMirror-selectednode { outline: 2px solid #6366f1; }
 /* The resize wrapper is a full-width flex row — outline the picture itself, not the whole row. */
 .report-doc [data-resize-container].ProseMirror-selectednode { outline: none; }
 .report-doc [data-resize-container].ProseMirror-selectednode img { outline: 2px solid #6366f1; }
+/* Picture placement (images.js): own-line pictures left/centre/right; in-text pictures sit on the
+   line or centred against the text. Dragging a picture moves it. */
+.report-doc [data-resize-container][data-align="center"] { justify-content: center; }
+.report-doc [data-resize-container][data-align="right"] { justify-content: flex-end; }
+.report-doc [data-resize-container][data-node="inlineImage"] { vertical-align: baseline; }
+.report-doc [data-resize-container][data-valign="middle"] { vertical-align: middle; }
+.report-doc [data-resize-container][draggable="true"] img { cursor: grab; }
 .report-doc [data-resize-handle] { width: 10px; height: 10px; background: #6366f1; border: 1px solid #fff; border-radius: 2px; }
 
 .report-doc .client-field { background: #eef2ff; color: #3730a3; border-radius: 3px; padding: 0 3px; box-shadow: inset 0 -1px 0 #c7d2fe; white-space: nowrap; }
@@ -55,6 +75,11 @@
 .pg-on .report-doc .pg-gap-line { display: block; }
 .pg-on .report-doc .pg-gap-row { display: table-row; }
 .report-doc .pg-gap-row > td { border: none !important; padding: 0 !important; background: transparent !important; }
+/* A cell split across pages (pagination.js step 3): left open at the page end and the next page's
+   top, as in the PDF; the gap between is hidden under the page margins (PagedSheet). */
+.report-doc .pg-gap-cell { box-sizing: border-box; }
+/* The grey between pages, drawn over the text — the same grey as behind the pages. */
+.pg-gap-cover { background: var(--pg-gap-bg, #f3f4f6); }
 .pg-on .report-doc .pg-break-block { margin-top: var(--pg-mt) !important; }
 .pg-stack .report-doc { min-height: 0; overflow-anchor: none; }
 .pg-stack .report-doc .page-break { margin: 0.6em 0 0; }

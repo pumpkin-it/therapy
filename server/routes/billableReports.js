@@ -9,7 +9,7 @@ const { graphSend } = require('../services/mailer');
 const { roundQty, computeAppointmentTotal } = require('../lib/billing');
 const { buildAppointmentsMyobCsv, markAppointmentsExported } = require('../lib/myobExport');
 const { createReportShare, ShareError, SHAREABLE_MIME_TYPES, UPLOAD_DIR } = require('../services/reportShare');
-const { getReportInstalments, releaseBlocker, releaseReport, releasePaidReportsInBackground } = require('../services/reportRelease');
+const { getReportInstalments, releaseBlocker, releaseReport, releasePaidReportsInBackground, sendReleasedEmail } = require('../services/reportRelease');
 const { acceptImage, discardUpload } = require('./reportImages');
 const { renderReportPdf } = require('../services/docPdf');
 const crypto = require('crypto');
@@ -776,6 +776,79 @@ router.post('/:id/unlock', auth, (req, res) => {
   if (latest) db.prepare('UPDATE report_versions SET unlocked_by = ?, unlocked_at = ?, unlock_reason = ? WHERE id = ?').run(req.user.id, new Date().toISOString(), reason, latest.id);
   audit.log('billable_report', report.id, 'updated', `Unlocked version ${latest?.version ?? '?'} of "${report.title}" to revise it: ${reason}`);
   res.json(reportWithDetails(getReport(report.id)));
+});
+
+// ─── Attachments: documents sent with the report when it's released ──────────────────────────
+// Each is a file in the client's Files tab (uploaded there first, or picked from what's already
+// there); the report only points at it. They go out with the release email (reportRelease.js).
+
+const attachmentList = reportId => db.prepare(`
+  SELECT cf.id, cf.label, cf.original_name, cf.size, cf.mime_type, cf.folder_id, cff.name AS folder_name, a.created_at AS attached_at
+  FROM billable_report_attachments a
+  JOIN client_files cf ON cf.id = a.client_file_id
+  LEFT JOIN client_file_folders cff ON cff.id = cf.folder_id
+  WHERE a.billable_report_id = ? ORDER BY a.id
+`).all(reportId);
+
+// Attachments can change at any time — after release, a document added later goes out by sending
+// the release email again (POST /:id/resend-release).
+const canAttach = (user, report) => report.status !== 'deleted' && canManage(user, report);
+const parseJsonList = v => { try { const a = JSON.parse(v || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } };
+
+router.get('/:id/attachments', auth, (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+  res.json({
+    attachments: attachmentList(report.id), can_change: canAttach(req.user, report),
+    released: report.status === 'released', notify_to: parseJsonList(report.notify_to), notify_cc: parseJsonList(report.notify_cc),
+  });
+});
+
+// Re-release: sends the release email again (with the report's current attachments) to the same
+// To/Cc it went to — e.g. after a quote was added once the report was already out.
+router.post('/:id/resend-release', auth, async (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+  if (!canManage(req.user, report)) return res.status(403).json({ error: 'You can’t send this report.' });
+  if (report.status !== 'released') return res.status(400).json({ error: 'The report hasn’t been released yet — attachments go out when it is.' });
+  if (!parseJsonList(report.notify_to).length) return res.status(400).json({ error: 'This report has no email contacts. Use Notify on the report in the Files tab to choose who to send it to.' });
+  try {
+    const sent = await sendReleasedEmail(report);
+    audit.log('billable_report', report.id, 'updated', `Release email sent again to ${parseJsonList(report.notify_to).join(', ')}`
+      + (sent.attached.length ? `, with ${sent.attached.map(n => `"${n}"`).join(', ')} attached` : '')
+      + (sent.linked.length ? `; too large to attach (on the report page): ${sent.linked.map(n => `"${n}"`).join(', ')}` : ''));
+    res.json({ ok: true, ...sent });
+  } catch (e) {
+    res.status(400).json({ error: e.message || 'Failed to send the email' });
+  }
+});
+
+router.post('/:id/attachments', auth, (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+  if (!canAttach(req.user, report)) return res.status(403).json({ error: 'You can’t change this report.' });
+  const ids = [].concat(req.body.client_file_ids || req.body.client_file_id || []).map(Number).filter(Boolean);
+  if (!ids.length) return res.status(400).json({ error: 'Choose a file' });
+  const added = [];
+  for (const id of ids) {
+    const file = db.prepare('SELECT * FROM client_files WHERE id = ? AND client_id = ?').get(id, report.client_id);
+    if (!file) return res.status(400).json({ error: 'That file isn’t in this client’s Files.' });
+    if (file.id === report.client_file_id) return res.status(400).json({ error: 'That’s the report itself.' });
+    const r = db.prepare('INSERT OR IGNORE INTO billable_report_attachments (billable_report_id, client_file_id, added_by) VALUES (?, ?, ?)').run(report.id, file.id, req.user.id);
+    if (r.changes) added.push(file.label || file.original_name);
+  }
+  if (added.length) audit.log('billable_report', report.id, 'updated', `Attached ${added.map(n => `"${n}"`).join(', ')} to report "${report.title}"${report.status === 'released' ? ' (already released — send the release email again to send it)' : ' (sent when it\'s released)'}`);
+  res.json({ attachments: attachmentList(report.id), can_change: true, released: report.status === 'released', notify_to: parseJsonList(report.notify_to), notify_cc: parseJsonList(report.notify_cc) });
+});
+
+router.delete('/:id/attachments/:fileId', auth, (req, res) => {
+  const report = getReport(req.params.id);
+  if (!report) return res.status(404).json({ error: 'Not found' });
+  if (!canAttach(req.user, report)) return res.status(403).json({ error: 'You can’t change this report.' });
+  const file = db.prepare('SELECT label, original_name FROM client_files WHERE id = ?').get(req.params.fileId);
+  const r = db.prepare('DELETE FROM billable_report_attachments WHERE billable_report_id = ? AND client_file_id = ?').run(report.id, req.params.fileId);
+  if (r.changes) audit.log('billable_report', report.id, 'updated', `Removed attachment "${file?.label || file?.original_name || req.params.fileId}" from report "${report.title}" (still in Files)`);
+  res.json({ attachments: attachmentList(report.id), can_change: true, released: report.status === 'released', notify_to: parseJsonList(report.notify_to), notify_cc: parseJsonList(report.notify_cc) });
 });
 
 module.exports = router;

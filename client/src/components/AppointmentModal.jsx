@@ -89,6 +89,7 @@ function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChan
   const [pendingFile, setPendingFile] = useState(null); // { file, noteId }
   const [fileLabelDraft, setFileLabelDraft] = useState('');
   const [uploadingFile, setUploadingFile] = useState(false);
+  const [multiUploadError, setMultiUploadError] = useState('');
   const [fileError, setFileError] = useState('');
   const [editingFileLabelId, setEditingFileLabelId] = useState(null);
   const [editFileLabelDraft, setEditFileLabelDraft] = useState('');
@@ -100,12 +101,18 @@ function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChan
   const [stagedLabelDraft, setStagedLabelDraft] = useState('');
   const stagedInputRef = useRef();
 
+  // One file asks for a name; several are added at once, each named after its file.
   const pickStagedFile = e => {
-    const file = e.target.files[0];
+    const files = [...e.target.files];
+    e.target.value = '';
+    if (files.length > 1) {
+      setStagedFiles(fs => [...fs, ...files.map(file => ({ key: `${Date.now()}-${Math.random()}`, file, label: file.name.replace(/\.[^.]+$/, '') }))]);
+      return;
+    }
+    const file = files[0];
     if (!file) return;
     setPendingStagedFile(file);
     setStagedLabelDraft(file.name.replace(/\.[^.]+$/, ''));
-    e.target.value = '';
   };
   const confirmStageFile = () => {
     if (!pendingStagedFile) return;
@@ -119,13 +126,35 @@ function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChan
   const loadNoteFiles = id => api.get(`/session-note-files?session_note_id=${id}`).then(r => setFilesByNote(f => ({ ...f, [id]: r.data })));
   const loadAllFiles = noteList => (noteList || []).forEach(n => loadNoteFiles(n.id));
 
+  // One file asks for a name; several are uploaded at once, each named after its file.
   const pickFile = (noteId, e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const files = [...e.target.files];
+    e.target.value = '';
     setFileError('');
+    setMultiUploadError('');
+    if (files.length > 1) return uploadNoteFiles(noteId, files);
+    const file = files[0];
+    if (!file) return;
     setPendingFile({ file, noteId });
     setFileLabelDraft(file.name.replace(/\.[^.]+$/, ''));
-    e.target.value = '';
+  };
+  const uploadNoteFiles = async (noteId, files) => {
+    setUploadingFile(true);
+    const failed = [];
+    for (const file of files) {
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('session_note_id', noteId);
+        fd.append('label', file.name.replace(/\.[^.]+$/, ''));
+        await api.post('/session-note-files', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      } catch (err) {
+        failed.push(`${file.name}: ${err.response?.data?.error || 'failed to upload'}`);
+      }
+    }
+    setUploadingFile(false);
+    setMultiUploadError(failed.join('; '));
+    loadNoteFiles(noteId);
   };
 
   const confirmUploadFile = async () => {
@@ -251,11 +280,14 @@ function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChan
         </div>
       )}
 
+      {!pendingFile && (uploadingFile || multiUploadError) && (
+        <p className={`text-xs ${uploadingFile ? 'text-gray-500' : 'text-red-600'}`}>{uploadingFile ? 'Uploading files…' : `Some files didn't upload — ${multiUploadError}`}</p>
+      )}
       {notes.map(n => (
         <div key={n.id} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
           {editingId === n.id ? (
             <div className="space-y-2">
-              <DocEditor value={editText} onChange={setEditText} uploadUrl="/session-notes/images" placeholder="Write the session note…" />
+              <DocEditor value={editText} onChange={setEditText} uploadUrl="/session-notes/images" placeholder="Write the session note…" saveAction={{ label: 'Save', onClick: () => saveEdit(n.id) }} />
               <div className="flex gap-2 justify-end">
                 <Button variant="secondary" size="sm" onClick={() => setEditingId(null)}>Cancel</Button>
                 <Button size="sm" onClick={() => saveEdit(n.id)}>Save</Button>
@@ -271,7 +303,7 @@ function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChan
                   <p className="text-xs text-gray-400 mt-1">{n.practitioner_name && <span>{n.practitioner_name} · </span>}{fmtDateTime(n.created_at, timezone)}</p>
                 </div>
                 <div className="flex gap-1 shrink-0">
-                  <input ref={el => (fileInputRefs.current[n.id] = el)} type="file" className="hidden" onChange={e => pickFile(n.id, e)} />
+                  <input ref={el => (fileInputRefs.current[n.id] = el)} type="file" multiple className="hidden" onChange={e => pickFile(n.id, e)} />
                   <button onClick={() => fileInputRefs.current[n.id]?.click()} className="text-gray-400 hover:text-indigo-600" title="Attach file"><Paperclip className="h-3.5 w-3.5" /></button>
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onClick={() => { setEditingId(n.id); setEditText(noteHtml(n.note)); }} className="text-gray-400 hover:text-gray-600"><Pencil className="h-3.5 w-3.5" /></button>
@@ -341,7 +373,8 @@ function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChan
             ))}
           </div>
         )}
-        <DocEditor value={draft} onChange={setDraftPersist} htmlRef={draftHtmlRef} uploadUrl="/session-notes/images" placeholder="Write the session note…" maxHeight={400} />
+        <DocEditor value={draft} onChange={setDraftPersist} htmlRef={draftHtmlRef} uploadUrl="/session-notes/images" placeholder="Write the session note…" maxHeight={400}
+          saveAction={{ label: saving ? 'Saving…' : 'Add note', onClick: addNote, disabled: saving || !draft.trim() }} />
         {stagedFiles.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {stagedFiles.map(sf => (
@@ -353,7 +386,7 @@ function SessionNotesSection({ appointmentId, clientId, appointment, onNotesChan
           </div>
         )}
         <div className="flex justify-between items-center">
-          <input ref={stagedInputRef} type="file" className="hidden" onChange={pickStagedFile} />
+          <input ref={stagedInputRef} type="file" multiple className="hidden" onChange={pickStagedFile} />
           <button type="button" onClick={() => stagedInputRef.current.click()} className="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
             <Paperclip className="h-3.5 w-3.5" /> Attach file
           </button>

@@ -37,6 +37,7 @@ CMD_ID=$($AWS ssm send-command \
     \"echo '--- Extracting new code (database and uploads excluded) ---'\",
     \"rm -rf /opt/therapy-uat/client/dist\",
     \"tar -xzf /tmp/therapy-uat-deploy.tar.gz -C /opt/therapy-uat --exclude='server/pm.db' --exclude='server/pm.db-shm' --exclude='server/pm.db-wal' --exclude='server/._pm*' --exclude='uploads' 2>/dev/null || true\",
+    \"if [ -x /opt/node24/bin/node ] && grep -q /opt/node24 /etc/systemd/system/therapy-uat.service.d/*.conf 2>/dev/null; then export PATH=/opt/node24/bin:\$PATH; fi; node -v\",
     \"cd /opt/therapy-uat/server && npm install --production\",
     \"node /opt/therapy-uat/server/scripts/verify-deps.js || (cd /opt/therapy-uat/server && npm install --production --force && node /opt/therapy-uat/server/scripts/verify-deps.js)\",
     \"rm -rf /opt/therapy-uat/frontend/assets && cp -r /opt/therapy-uat/client/dist/. /opt/therapy-uat/frontend/\",

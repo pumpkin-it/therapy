@@ -2,8 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { EditorContent } from '@tiptap/react';
 import { Maximize2, Minimize2 } from 'lucide-react';
 import Toolbar from './Toolbar';
-import PageGuides from './PageGuides';
-import ScaledSheet from './ScaledSheet';
+import PagedSheet from './PagedSheet';
 import useDocEditor from './useDocEditor';
 import { toEditorHtml, fromEditor } from './docHtml';
 import { loadContent } from './reveal';
@@ -14,13 +13,15 @@ import { loadContent } from './reveal';
 //   value      — the stored HTML to start from (read once, like a defaultValue; remount with a
 //                `key` to load something else, or use apiRef.current.setHTML)
 //   onChange   — called with the HTML on every change ('' when empty)
-//   layout     — 'page': an A4 sheet with page guides and a page count, shrunk to fit the space
-//                available, with an Expand button to write full size. 'plain': a box (emails).
+//   layout     — 'page': Word-style A4 pages like the report editor (PagedSheet), shrunk to fit the
+//                space available, with an Expand button to write full size. 'plain': a box (emails).
 //   vars       — template variable keys for the Insert field menu (templates only)
 //   uploadUrl  — where pictures are uploaded; without one, pictures can't be added
 //   apiRef     — gets { setHTML(html), focus() }
 //   htmlRef    — gets setHTML itself (the old RichEditor's htmlRef, used to apply a template or clear)
-export default function DocEditor({ value, onChange, layout = 'page', vars = null, uploadUrl = null, placeholder, apiRef, htmlRef, maxHeight = 520 }) {
+//   saveAction — { label, onClick, disabled }: the caller's save button (e.g. "Add note"), repeated
+//                next to Done when expanded so you can save without shrinking the editor first
+export default function DocEditor({ value, onChange, layout = 'page', vars = null, uploadUrl = null, placeholder, apiRef, htmlRef, maxHeight = 520, saveAction = null }) {
   const isPage = layout === 'page';
   const [notice, setNotice] = useState('');
   const [pages, setPages] = useState(1);
@@ -30,12 +31,11 @@ export default function DocEditor({ value, onChange, layout = 'page', vars = nul
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const fileInputRef = useRef();
-  const sheetRef = useRef();
 
   const onUpdate = useCallback(ed => { if (loadedRef.current) onChangeRef.current?.(fromEditor(ed)); }, []);
   const { editor, uploadImages } = useDocEditor({
     uploadUrl, onUpdate, onNotice: setNotice, placeholder: placeholder || 'Start writing…',
-    templateVars: !!vars, editable: true, pageBreaks: isPage,
+    templateVars: !!vars, editable: true, pageBreaks: isPage, paged: isPage,
   });
 
   useEffect(() => {
@@ -91,17 +91,23 @@ export default function DocEditor({ value, onChange, layout = 'page', vars = nul
       {fileInput}
       {/* The appointment window is narrower than a page, so the page is usually shown scaled down. */}
       <div className={`overflow-y-auto px-4 py-4 ${expanded ? 'flex-1' : ''}`} style={expanded ? undefined : { maxHeight }}>
-        <ScaledSheet sheetRef={sheetRef} onScale={setScale}>
-          <PageGuides editor={editor} sheetRef={sheetRef} onPageCount={setPages} />
-          <div className="relative"><EditorContent editor={editor} /></div>
-        </ScaledSheet>
+        <PagedSheet editor={editor} onPageCount={setPages} onScale={setScale}>
+          <EditorContent editor={editor} />
+        </PagedSheet>
       </div>
       <div className="flex items-center justify-between border-t border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-500">
         <span>{pages} page{pages === 1 ? '' : 's'}{scale < 0.99 ? ` · shown at ${Math.round(scale * 100)}%` : ''}</span>
-        <button type="button" className="inline-flex items-center gap-1 rounded px-2 py-1 font-medium text-gray-700 hover:bg-gray-100"
-          onMouseDown={e => e.preventDefault()} onClick={() => setExpanded(x => !x)}>
-          {expanded ? <><Minimize2 className="h-3.5 w-3.5" /> Done</> : <><Maximize2 className="h-3.5 w-3.5" /> Expand</>}
-        </button>
+        <div className="flex items-center gap-2">
+          <button type="button" className="inline-flex items-center gap-1 rounded px-2 py-1 font-medium text-gray-700 hover:bg-gray-100"
+            onMouseDown={e => e.preventDefault()} onClick={() => setExpanded(x => !x)}>
+            {expanded ? <><Minimize2 className="h-3.5 w-3.5" /> Done</> : <><Maximize2 className="h-3.5 w-3.5" /> Expand</>}
+          </button>
+          {expanded && saveAction && (
+            <button type="button" disabled={saveAction.disabled} onMouseDown={e => e.preventDefault()}
+              onClick={() => { setExpanded(false); saveAction.onClick(); }}
+              className="rounded-md bg-indigo-600 px-3 py-1 font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{saveAction.label}</button>
+          )}
+        </div>
       </div>
     </div>
   );

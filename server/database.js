@@ -639,7 +639,7 @@ const emailSeeds = [
     code: 'report_released',
     name: 'Report Released (Final)',
     subject: 'Your {{report_title}} is ready to download',
-    body: '<p>Hi {{client_first_name}},</p><p>Your <strong>{{report_title}}</strong> is now finalised and ready to download using the link below.</p><p><a href="{{report_link}}">{{report_link}}</a></p><p>Regards,<br>{{practitioner_name}}</p>',
+    body: '<p>Hi {{client_first_name}},</p><p>Your <strong>{{report_title}}</strong> is now finalised and ready to download using the link below.</p><p><a href="{{report_link}}">{{report_link}}</a></p><p><span data-var="attachments">{{attachments}}</span></p><p>Regards,<br>{{practitioner_name}}</p>',
   },
 ];
 const seedStmt = db.prepare(`
@@ -1535,6 +1535,20 @@ for (const sql of [
 // voided entries keep their billable_report_id (routes/billableReports.js DELETE /:id).
 try { db.exec(`ALTER TABLE billable_reports ADD COLUMN deleted_at TEXT`); } catch {}
 
+// Documents (quotes, doctors' reports…) to send with a report when it's released. The document
+// itself lives in the client's Files tab; this only points at it, so removing it from the report
+// leaves the file, and deleting the file takes it off the report.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS billable_report_attachments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    billable_report_id INTEGER NOT NULL REFERENCES billable_reports(id) ON DELETE CASCADE,
+    client_file_id INTEGER NOT NULL REFERENCES client_files(id) ON DELETE CASCADE,
+    added_by INTEGER REFERENCES practitioners(id),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (billable_report_id, client_file_id)
+  )
+`); } catch {}
+
 // Password reset tokens are stored hashed since 2026-09-29 (routes/auth.js). Hash any links issued
 // before that once, so they keep working until they expire.
 if (!db.prepare("SELECT 1 FROM settings WHERE key = 'password_resets_hashed'").get()) {
@@ -1545,6 +1559,23 @@ if (!db.prepare("SELECT 1 FROM settings WHERE key = 'password_resets_hashed'").g
       upd.run(crypto.createHash('sha256').update(r.token).digest('hex'), r.id);
     }
     db.prepare("INSERT INTO settings (key, value) VALUES ('password_resets_hashed', '1')").run();
+  })();
+}
+
+// Report attachments (2026-10-28): the "Report Released (Final)" email lists the documents sent with
+// the report. Add the {{attachments}} field to the existing template once — just before the
+// sign-off ("Regards…" / "Kind regards…") if there is one, else at the end. Left alone if someone
+// has already placed it.
+if (!db.prepare("SELECT 1 FROM settings WHERE key = 'report_released_attachments_field'").get()) {
+  db.transaction(() => {
+    const t = db.prepare("SELECT id, body FROM templates WHERE code = 'report_released'").get();
+    if (t && !/\{\{attachments\}\}/.test(t.body || '')) {
+      const field = '<p><span data-var="attachments">{{attachments}}</span></p>';
+      const body = t.body || '';
+      const at = body.search(/<p[^>]*>\s*(kind\s+)?regards\b/i);
+      db.prepare('UPDATE templates SET body = ? WHERE id = ?').run(at >= 0 ? body.slice(0, at) + field + body.slice(at) : body + field, t.id);
+    }
+    db.prepare("INSERT INTO settings (key, value) VALUES ('report_released_attachments_field', '1')").run();
   })();
 }
 

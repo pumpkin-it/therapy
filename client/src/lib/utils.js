@@ -72,6 +72,22 @@ export const notePlainText = note => {
     .replace(/\n{3,}/g, '\n\n').trim();
 };
 
+// An email template as editable plain text (the report-notify and session-notes email popups):
+// paragraphs are separated by a blank line, and each empty paragraph in the template (a deliberate
+// blank line) adds one more — the server's plainTextToHtml turns it back the same way.
+export const templateText = html => {
+  const decode = s => s.replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+  const paras = String(html || '').replace(/<br\s*\/?>/gi, '\n').split(/<\/(?:p|h[1-6]|li|div)>/i)
+    .map(s => decode(s.replace(/<[^>]+>/g, '')).replace(/^\s+|\s+$/g, ''));
+  let out = '', extra = 0;
+  for (const p of paras) {
+    if (!p) { if (out) extra++; continue; }
+    out += out ? `\n\n${'\n'.repeat(extra)}${p}` : p;
+    extra = 0;
+  }
+  return out;
+};
+
 export const localToday = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;

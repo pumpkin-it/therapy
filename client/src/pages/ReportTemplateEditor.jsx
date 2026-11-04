@@ -117,7 +117,7 @@ export default function ReportTemplateEditor() {
           </span>
           {tpl?.can_edit && <Button size="sm" onClick={save} disabled={saving || !unsaved}>Save</Button>}
         </div>
-        {editor && tpl?.can_edit && <Toolbar editor={editor} onPickImage={() => fileInputRef.current.click()} />}
+        {editor && tpl?.can_edit && <Toolbar editor={editor} pageSetup onPickImage={() => fileInputRef.current.click()} />}
       </div>
       <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple className="hidden"
         onChange={e => { const files = [...e.target.files]; e.target.value = ''; uploadImages(files); }} />
@@ -134,7 +134,7 @@ export default function ReportTemplateEditor() {
       </div>
 
       <div className="px-4 py-6">
-        <PagedSheet editor={editor} onPageCount={setPages} onScale={setScale} footer={{ left: 'Client name · Report title' }}>
+        <PagedSheet editor={editor} onPageCount={setPages} onScale={setScale} pageSetup fields={{ client: 'Client name', title: 'Report title' }}>
           <EditorContent editor={editor} />
         </PagedSheet>
         <p className="mx-auto mt-3 text-right text-xs text-gray-500" style={{ maxWidth: PAGE.width }}>

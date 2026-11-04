@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import api from '../lib/api';
-import { substituteVars } from '../lib/utils';
+import { substituteVars, templateText } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import Button from './ui/Button';
@@ -103,8 +103,7 @@ export default function SessionNoteEmailModal({ clientId, client, noteIds, notes
         date_range: dateRangeLabel(notes || [], timezone),
         note_count: (notes || []).length,
       };
-      const plain = (tpl?.body || '<p>Hi {{recipient_name}},</p><p>Please find attached the session notes for {{client_name}} covering {{date_range}}.</p><p>Regards,<br>{{practitioner_name}}</p>')
-        .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n').replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim();
+      const plain = templateText(tpl?.body || '<p>Hi {{recipient_name}},</p><p>Please find attached the session notes for {{client_name}} covering {{date_range}}.</p><p>Regards,<br>{{practitioner_name}}</p>');
       setSubject(substituteVars(tpl?.subject || `Session notes for ${clientName}`, vars));
       setBody(substituteVars(plain, vars));
     };

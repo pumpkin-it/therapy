@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import api from '../lib/api';
-import { substituteVars } from '../lib/utils';
+import { substituteVars, templateText } from '../lib/utils';
 import { useAuth } from '../context/AuthContext';
 import Button from './ui/Button';
 import Modal from './ui/Modal';
@@ -79,8 +79,7 @@ export default function ReportNotifyModal({ client, file, onClose, onSent }) {
       const fallbackBody = isReleased
         ? `<p>Hi {{client_first_name}},</p><p>Your <strong>${reportTitle}</strong> is now finalised and ready to download using the link below.</p><p><a href="{{report_link}}">{{report_link}}</a></p><p>Regards,<br>{{practitioner_name}}</p>`
         : `<p>Hi {{client_first_name}},</p><p>A draft of your <strong>${reportTitle}</strong> is ready for you to look over. You can preview it using the link below — this is a preview version, and the same link will automatically show the finished report once it's released.</p><p><a href="{{report_link}}">{{report_link}}</a></p><p>Regards,<br>{{practitioner_name}}</p>`;
-      const plain = (tpl?.body || fallbackBody)
-        .replace(/<br\s*\/?>/gi, '\n').replace(/<\/p>/gi, '\n\n').replace(/<[^>]+>/g, '').replace(/\n{3,}/g, '\n\n').trim();
+      const plain = templateText(tpl?.body || fallbackBody);
       setSubject(substituteVars(tpl?.subject || fallbackSubject, vars));
       setBody(substituteVars(plain, vars));
     };
@@ -120,6 +119,9 @@ export default function ReportNotifyModal({ client, file, onClose, onSent }) {
           <label className="block text-sm font-medium text-gray-700">Message</label>
           <textarea rows={6} className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm resize-y focus:border-indigo-500 focus:outline-none"
             value={body} onChange={e => setBody(e.target.value)} />
+          {isReleased && file.billable_report_id && (
+            <p className="mt-1 text-xs text-gray-500">{'{{attachments}}'} becomes the list of documents attached to this report (they’re attached to the email). Without it, the list goes at the end.</p>
+          )}
         </div>
 
         <div className="flex gap-2 justify-end pt-1">

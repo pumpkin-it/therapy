@@ -2,9 +2,7 @@
 // comes out double-spaced. Outlook writes its own email paragraphs with no margin and uses an empty
 // paragraph for a blank line; this does the same to HTML written in Therapy's editor before sending.
 function tightParagraphs(html) {
-  return String(html || '')
-    // An empty paragraph is a deliberate blank line: keep it visible.
-    .replace(/<p([^>]*)>\s*(<br\s*\/?>)?\s*<\/p>/gi, '<p$1>&nbsp;</p>')
+  return keepBlankLines(html)
     // No gap around paragraphs (an existing style is kept; its own margin wins if it sets one).
     .replace(/<p(\s[^>]*)?>/gi, (tag, attrs = '') => {
       if (/\bstyle\s*=\s*["'][^"']*\bmargin\b/i.test(attrs)) return tag;
@@ -13,4 +11,10 @@ function tightParagraphs(html) {
     });
 }
 
-module.exports = { tightParagraphs };
+// An empty paragraph is a deliberate blank line, but email programs (and browsers) show it with no
+// height at all — give it a space so it keeps one line, as it does in the editor.
+function keepBlankLines(html) {
+  return String(html || '').replace(/<p([^>]*)>\s*(<br\s*\/?>)?\s*<\/p>/gi, '<p$1>&nbsp;</p>');
+}
+
+module.exports = { tightParagraphs, keepBlankLines };

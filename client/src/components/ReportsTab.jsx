@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext';
 import { currency, localToday, downloadFile } from '../lib/utils';
 import { useConfirm } from './ui/ConfirmDialog';
 import MyobInvoiceModal from './MyobInvoiceModal';
+import ReportAttachments from './reportEditor/ReportAttachments';
 
 // Client → Reports tab: bill a report in chunks while writing it, upload the finished copy, and
 // let the system hold it back (blurred draft) until every invoice for it is paid.
@@ -597,6 +598,7 @@ function ReportCard({ report, client, onChanged, onDeleted, justCommitted }) {
         {mine && !released && (
           <Button size="sm" variant="secondary" onClick={() => setLinking(true)}><Link2 className="h-3.5 w-3.5" /> Add calendar billing</Button>
         )}
+        <ReportAttachments reportId={report.id} clientId={report.client_id} labelled />
         {mine && !released && (
           <Button size="sm" variant="secondary" onClick={() => fileRef.current.click()} disabled={busy === 'upload'}>
             <Upload className="h-3.5 w-3.5" /> {busy === 'upload' ? 'Uploading…' : report.file ? 'Replace report' : 'Upload final report'}

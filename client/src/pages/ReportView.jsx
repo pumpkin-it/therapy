@@ -35,6 +35,17 @@ export default function ReportView() {
         </div>
       )}
 
+      {report.attachments?.length > 0 && (
+        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3 shadow-sm">
+          <p className="mb-1.5 text-sm font-medium text-gray-900">Documents sent with this report</p>
+          <ul className="space-y-1 text-sm">
+            {report.attachments.map(a => (
+              <li key={a.id}><a className="text-indigo-600 underline hover:text-indigo-800" href={`/api/report-view/${token}/attachments/${a.id}`}>{a.name}</a></li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {report.mime_type?.startsWith('image/') ? (
         <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden flex justify-center">
           <img src={fileUrl} alt={report.title} className="max-w-full" />

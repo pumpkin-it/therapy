@@ -70,6 +70,30 @@ router.get('/:token.ics', (req, res) => {
     ].filter(Boolean).join('\r\n');
   });
 
+  // Blocked time made in Therapy (leave, admin, …), shown with its reason. Blocks that came in
+  // from the practitioner's own calendar (services/calendarSync.js) are left out — they're
+  // already in that calendar, and sending them back would show them twice.
+  const blocks = db.prepare(`
+    SELECT id, start_time, end_time, reason
+    FROM practitioner_time_blocks
+    WHERE practitioner_id = ? AND source IS NULL
+      AND DATE(start_time) >= ? AND DATE(start_time) <= ?
+    ORDER BY start_time
+  `).all(prac.id, fromStr, toStr);
+
+  for (const b of blocks) {
+    events.push([
+      'BEGIN:VEVENT',
+      `UID:block-${b.id}@therapy.pumpkinit.com.au`,
+      `DTSTART;TZID=Australia/Sydney:${toICalDate(b.start_time)}`,
+      `DTEND;TZID=Australia/Sydney:${toICalDate(b.end_time)}`,
+      `SUMMARY:${icalEscape(b.reason || 'Blocked time')}`,
+      'TRANSP:OPAQUE',
+      'STATUS:CONFIRMED',
+      'END:VEVENT',
+    ].join('\r\n'));
+  }
+
   const cal = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',

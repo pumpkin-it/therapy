@@ -4,6 +4,7 @@ export function loadContent(editor, content) {
   return editor.chain()
     .command(({ tr }) => { tr.setMeta('addToHistory', false); return true; })
     .setContent(content, { emitUpdate: false })
+    .command(({ commands }) => (commands.setDocAttrsFrom ? commands.setDocAttrsFrom(content) : true))
     .run();
 }
 

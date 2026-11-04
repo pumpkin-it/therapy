@@ -2,17 +2,21 @@ import { useCallback, useRef } from 'react';
 import { useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { TableKit } from '@tiptap/extension-table';
-import Image from '@tiptap/extension-image';
 import TextAlign from '@tiptap/extension-text-align';
 import { TextStyle, Color, FontFamily, FontSize } from '@tiptap/extension-text-style';
 import Highlight from '@tiptap/extension-highlight';
 import { Placeholder, CharacterCount } from '@tiptap/extensions';
+import Subscript from '@tiptap/extension-subscript';
+import Superscript from '@tiptap/extension-superscript';
 import api from '../../lib/api';
 import { ClientField, PracticeLogo, PageBreak, TemplateVar, stripUnloadableImages, prepareImage } from './extensions';
 import { installReportFonts } from './fonts';
 import { Pagination } from './pagination';
 import { ResizableTable, ShadedCell, ShadedHeader, SizedRow, RowResize } from './tables';
 import { Search } from './search';
+import { BlockImage, InlineImage } from './images';
+import { ParagraphFormat, WordKeys } from './wordFormat';
+import { PagedDocument } from './pageSetup';
 import './report-doc.css';
 
 installReportFonts();
@@ -49,14 +53,16 @@ export default function useDocEditor({ uploadUrl, getFields = () => ({}), showLa
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ link: { openOnClick: false, autolink: true } }),
+      StarterKit.configure({ document: false, link: { openOnClick: false, autolink: true } }),
+      PagedDocument,
       // Cells, header cells and rows replaced by versions that keep shading and row height.
       TableKit.configure({ table: false, tableCell: false, tableHeader: false, tableRow: false }),
       ResizableTable.configure({ resizable: true, cellMinWidth: 24 }),
       ShadedCell, ShadedHeader, SizedRow, RowResize,
-      Image.configure({ resize: { enabled: true, directions: ['bottom-right', 'bottom-left'], minWidth: 40, alwaysPreserveAspectRatio: true } }),
+      BlockImage, InlineImage,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
-      TextStyle, Color, FontFamily, FontSize,
+      TextStyle, Color, FontFamily, FontSize, Subscript, Superscript,
+      ParagraphFormat, WordKeys,
       Highlight.configure({ multicolor: true }),
       Placeholder.configure({ placeholder: placeholder || 'Start writing your report…' }),
       CharacterCount,

@@ -23,6 +23,9 @@ const EMAIL_VARS = {
   invoice_email:             ['invoice_number', 'client_name'],
   payment_reminder:          ['invoice_number', 'invoice_total', 'due_date'],
   session_note_email:        ['client_name', 'client_first_name', 'practitioner_name', 'practice_name', 'date_range', 'note_count', 'recipient_name'],
+  report_shared_draft:       ['client_first_name', 'client_name', 'practitioner_name', 'report_title', 'report_link'],
+  // attachments: the note naming documents attached to the released report (added at the end if left out)
+  report_released:           ['client_first_name', 'client_name', 'practitioner_name', 'report_title', 'report_link', 'attachments'],
 };
 
 const NOTE_VARS = ['client_name', 'client_first_name', 'practitioner_name', 'date', 'next_appointment', 'practice_name'];

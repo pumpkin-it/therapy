@@ -114,18 +114,30 @@ function renderTemplate(text, vars) {
   return unwrapVarChips(text).replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] !== undefined ? vars[k] : `{{${k}}}`);
 }
 
+// An email template's body, filled in, with its blank lines kept (keepBlankLines) — so an empty
+// line in the template is still there in the inbox. Paragraph gaps are left as the email program
+// shows them, as the template editor shows a gap too. Use renderTemplate for subjects and for
+// agreement documents.
+const renderEmailBody = (text, vars) => require('../lib/emailHtml').keepBlankLines(renderTemplate(text, vars));
+
 // The "email preview" popups (report notify, session notes) show the template as plain text in a
 // textarea so it's easy to edit, and send back exactly what was typed. Sent as-is into an HTML
 // email body, every line break collapses into one run-on paragraph — so rebuild the HTML here:
 // blank lines become paragraphs, single line breaks become <br>, and bare URLs become links.
 // Anything that already contains HTML tags (a template fallback) is passed through untouched.
+// One blank line between paragraphs is the normal paragraph gap; each extra blank line is kept as
+// an empty line (as the template's own empty paragraphs are — client templateText()).
 function plainTextToHtml(text) {
   if (!text) return '';
   if (/<(p|br|div|a|strong|table)\b/i.test(text)) return text;
   const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return text.replace(/\r\n/g, '\n').trim().split(/\n{2,}/).map(para =>
-    `<p>${esc(para).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>').replace(/\n/g, '<br>')}</p>`
-  ).join('');
+  const para = p => `<p>${esc(p).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>').replace(/\n/g, '<br>')}</p>`;
+  const out = [];
+  for (const [i, chunk] of text.replace(/\r\n/g, '\n').trim().split(/(\n{2,})/).entries()) {
+    if (i % 2) for (let k = 2; k < chunk.length; k++) out.push('<p>&nbsp;</p>');
+    else out.push(para(chunk));
+  }
+  return out.join('');
 }
 
 function getTemplate(code) {
@@ -155,7 +167,7 @@ async function sendInvoiceEmail(toEmail, invoiceNumber, pdfBuffer) {
   const vars = { invoice_number: invoiceNumber };
   const subject = tpl ? renderTemplate(tpl.subject, vars) : `Invoice ${invoiceNumber}`;
   const html = tpl
-    ? renderTemplate(tpl.body, vars)
+    ? renderEmailBody(tpl.body, vars)
     : `<p>Please find your invoice <strong>${invoiceNumber}</strong> attached.</p><p>Thank you.</p>`;
   await graphSend({
     to: toEmail, subject, html,
@@ -287,7 +299,7 @@ async function sendAppointmentNotification(apptId, eventType, { throwOnError = f
   const buildHtml = (code, fallbackHtml, table) => {
     const tpl = getTemplate(code);
     if (!tpl) return fallbackHtml;
-    return renderTemplate(tpl.body, { ...baseVars, appointment_details: table });
+    return renderEmailBody(tpl.body, { ...baseVars, appointment_details: table });
   };
 
   const buildSubject = (code, fallback) => {
@@ -392,9 +404,9 @@ async function sendReminderEmail(toEmail, invoiceNumber, total, dueDate) {
   const vars = { invoice_number: invoiceNumber, invoice_total: Number(total).toFixed(2), due_date: dueDate };
   const subject = tpl ? renderTemplate(tpl.subject, vars) : `Payment Reminder — Invoice ${invoiceNumber}`;
   const html = tpl
-    ? renderTemplate(tpl.body, vars)
+    ? renderEmailBody(tpl.body, vars)
     : `<p>This is a friendly reminder that invoice <strong>${invoiceNumber}</strong> for <strong>$${Number(total).toFixed(2)}</strong> was due on <strong>${dueDate}</strong> and remains unpaid.</p><p>Please arrange payment at your earliest convenience.</p><p>Thank you.</p>`;
   await graphSend({ to: toEmail, subject, html });
 }
 
-module.exports = { getGraphToken, sendInvoiceEmail, sendAppointmentNotification, sendTestEmail, sendReminderEmail, sendSetPasswordEmail, graphSend, renderTemplate, getTemplate, plainTextToHtml };
+module.exports = { getGraphToken, sendInvoiceEmail, sendAppointmentNotification, sendTestEmail, sendReminderEmail, sendSetPasswordEmail, graphSend, renderTemplate, renderEmailBody, getTemplate, plainTextToHtml };

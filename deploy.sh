@@ -64,6 +64,6 @@ echo "=== Syncing to GitHub ==="
 git add -A
 git diff --cached --stat
 git commit -m "Deploy $TIMESTAMP" \
-  -m "Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>" 2>/dev/null || echo "(nothing new to commit)"
+  -m "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>" 2>/dev/null || echo "(nothing new to commit)"
 git push origin main
 echo "=== Deploy complete ==="
