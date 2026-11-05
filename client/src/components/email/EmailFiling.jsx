@@ -1,3 +1,4 @@
+import { isModalOpen } from '../ui/Modal';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, X, FolderInput, Plus, Sparkles } from 'lucide-react';
 import api from '../../lib/api';
@@ -80,6 +81,7 @@ export default function EmailFiling({ message, clients, allTags, onTagCreated, o
 
   useEffect(() => {
     const onKey = e => {
+      if (isModalOpen()) return; // e.g. Cmd+Enter in the compose window sends that email, not this filing
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !saving) { e.preventDefault(); if (ticked.length) fileToClients(); else fileNoClient(); }
     };
     window.addEventListener('keydown', onKey);

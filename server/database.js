@@ -164,6 +164,20 @@ try { db.exec(`
 `); } catch {}
 // Who made the change (NULL for automatic changes, the client, or entries from before 2026-10-02).
 try { db.exec('ALTER TABLE audit_logs ADD COLUMN user_id INTEGER'); } catch {}
+// Who is using Therapy, per person per active minute (services/activity.js). Times are UTC.
+try { db.exec(`
+  CREATE TABLE IF NOT EXISTS user_activity (
+    user_id INTEGER NOT NULL,
+    minute TEXT NOT NULL,
+    ip TEXT,
+    page TEXT,
+    client_id INTEGER,
+    requests INTEGER NOT NULL DEFAULT 1,
+    writes INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, minute)
+  ) WITHOUT ROWID
+`); } catch (e) { console.error('user_activity table failed:', e.message); }
+try { db.exec('CREATE INDEX IF NOT EXISTS idx_user_activity_minute ON user_activity(minute)'); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN service_date TEXT`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN gst_rate REAL DEFAULT 0`); } catch {}
 try { db.exec(`ALTER TABLE invoice_items ADD COLUMN gst_amount REAL DEFAULT 0`); } catch {}

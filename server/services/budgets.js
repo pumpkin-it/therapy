@@ -267,7 +267,12 @@ function getAgreementSpend(agreementId) {
   const agreement = db.prepare('SELECT * FROM agreements WHERE id = ?').get(agreementId);
   if (!agreement) return null;
   const spend = computeSpend(agreement.client_id, agreement.start_date, agreement.end_date, null, { forBudget: true });
-  const budget = agreement.budget_amount || null;
+  // Linked budgets are the real figure. budget_amount is only what was typed on older agreements
+  // and goes stale once a budget is linked or revised.
+  const linked = db.prepare(`SELECT COALESCE(SUM(COALESCE(b.current_total_amount, b.total_amount)), 0) AS total, COUNT(*) AS n
+    FROM agreement_budgets ab JOIN budgets b ON b.id = ab.budget_id
+    WHERE ab.agreement_id = ? AND ab.superseded_at IS NULL`).get(agreementId);
+  const budget = (linked.n ? linked.total : agreement.budget_amount) || null;
   return {
     ...spend,
     budget_amount: budget,

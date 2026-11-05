@@ -6,6 +6,8 @@ const db = require('../database');
 const JWT_SECRET = require('../lib/jwtSecret');
 const { rateLimiter } = require('../lib/rateLimit');
 const { MIN_PASSWORD } = require('../lib/passwordPolicy');
+const audit = require('../services/audit');
+const clientIp = require('../lib/clientIp');
 // Reset tokens are stored as a SHA-256 hash, so a copy of the database can't be used to reset passwords.
 const hashToken = t => crypto.createHash('sha256').update(String(t)).digest('hex');
 
@@ -23,11 +25,13 @@ router.post('/login', (req, res) => {
   if (locked) return tooMany(res, locked);
   const user = db.prepare('SELECT * FROM practitioners WHERE email = ? AND active = 1').get(email?.toLowerCase());
   if (!user || !user.password_hash || !password || !bcrypt.compareSync(String(password), user.password_hash)) {
+    audit.log('user', user?.id, 'login_failed', `Failed sign-in as ${String(email || '(no email)').slice(0, 200)} from ${clientIp(req)}`);
     const wait = loginLimit.hit(key);
     if (wait) return tooMany(res, wait);
     return res.status(401).json({ error: 'Invalid email or password' });
   }
   loginLimit.reset(key);
+  audit.log('user', user.id, 'login', `Signed in from ${clientIp(req)}`, { userId: user.id });
   const token = jwt.sign({ id: user.id, email: user.email, role: user.role || 'practitioner' }, JWT_SECRET, { expiresIn: '8h' });
 
   const permsRow = db.prepare("SELECT value FROM settings WHERE key='role_permissions'").get();

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search, Paperclip, ArrowUpRight, Inbox, X, PenSquare, CheckCircle2 } from 'lucide-react';
+import { isModalOpen } from '../components/ui/Modal';
 import { useCompose } from '../context/ComposeContext';
 import api from '../lib/api';
 import { refreshEmailCounts } from '../lib/useUnfiledEmailCount';
@@ -148,6 +149,7 @@ export default function Email() {
   // j / k (or arrow keys) move through the list when not typing.
   useEffect(() => {
     const onKey = e => {
+      if (isModalOpen() || document.activeElement?.isContentEditable) return;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || e.metaKey || e.ctrlKey || e.altKey) return;
       const idx = list.rows.findIndex(x => x.id === openId);
       if (e.key === 'j' || e.key === 'ArrowDown') { const n = list.rows[idx + 1] || (idx < 0 && list.rows[0]); if (n) { e.preventDefault(); open(n.id); } }

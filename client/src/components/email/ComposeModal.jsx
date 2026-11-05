@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Paperclip, X, Send, Search, Trash2, PenLine, ChevronDown, ChevronRight, Clock } from 'lucide-react';
+import { Paperclip, X, Send, Search, Trash2, PenLine, ChevronDown, ChevronRight, Clock, ExternalLink } from 'lucide-react';
 import api from '../../lib/api';
 import Modal from '../ui/Modal';
 import Button from '../ui/Button';
 import DocEditor from '../reportEditor/DocEditor';
+import EmailBody from './EmailBody';
 import RecipientInput, { EMAIL_RE } from './RecipientInput';
 import { preTicked, tagChipClass, fmtBytes, personLabel, INACTIVE_SUFFIX } from '../../lib/email';
 import { fmtDateTime } from '../../lib/utils';
@@ -60,7 +61,7 @@ export default function ComposeModal({ options, onClose, onQueued }) {
   const [uploading, setUploading] = useState(0);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
-  const [showOriginal, setShowOriginal] = useState(false);
+  const [showOriginal, setShowOriginal] = useState(true);
   const [clientQuery, setClientQuery] = useState('');
   const [editingSignature, setEditingSignature] = useState(null);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -131,7 +132,7 @@ export default function ComposeModal({ options, onClose, onQueued }) {
   const clientName = id => { const c = clients.find(x => x.id === id); return c ? `${c.first_name} ${c.last_name}${c.active === 0 ? INACTIVE_SUFFIX : ''}` : `Client ${id}`; };
 
   if (!state) {
-    return <Modal title={TITLES[mode]} size="xl" onClose={onClose}><p className="py-10 text-center text-sm text-gray-400">Loading…</p></Modal>;
+    return <Modal title={TITLES[mode]} size="xl" fullPage={options.windowed} onClose={onClose}><p className="py-10 text-center text-sm text-gray-400">Loading…</p></Modal>;
   }
 
   const upload = async files => {
@@ -168,11 +169,21 @@ export default function ComposeModal({ options, onClose, onQueued }) {
         replaces_outbox_id: options.replacesOutboxId || undefined,
       });
       storage.remove(key);
-      onQueued(r.data, { subject: state.subject, restore: { mode, sourceId, source, clientIds: options.clientIds, state }, onSent: options.onSent });
+      onQueued(r.data, { subject: state.subject, restore: { mode, sourceId, source, clientIds: options.clientIds, state, windowed: options.windowed }, onSent: options.onSent });
     } catch (e) {
       setError(e.response?.data?.error || 'Could not send');
       setSending(false);
     }
+  };
+
+  // Carries on in its own browser window (pages/ComposeWindow.jsx), with what's been written so far.
+  const popOut = () => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const handoff = `therapy-compose-popout:${id}`;
+    storage.set(handoff, { mode, sourceId, clientIds: options.clientIds, to: options.to, replacesOutboxId: options.replacesOutboxId, state });
+    const win = window.open(`/compose-window?id=${id}`, `compose-${id}`, 'popup=yes,width=960,height=860');
+    if (!win) { storage.remove(handoff); setError('Your browser blocked the new window. Allow pop-ups for Therapy, then try again.'); return; }
+    onClose();
   };
 
   const saveSignature = async () => {
@@ -181,7 +192,9 @@ export default function ComposeModal({ options, onClose, onQueued }) {
   };
 
   return (
-    <Modal title={TITLES[mode]} size="xl" onClose={onClose}>
+    <Modal title={TITLES[mode]} size="xl" fullPage={options.windowed} onClose={onClose} headerExtra={!options.windowed && (
+      <button type="button" onClick={popOut} title="Open in a new window" aria-label="Open in a new window" className="text-gray-400 hover:text-gray-600"><ExternalLink className="h-4 w-4" /></button>
+    )}>
       <div className="space-y-3"
         onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); } }}
         onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); upload([...e.dataTransfer.files]); }}>
@@ -239,7 +252,7 @@ export default function ComposeModal({ options, onClose, onQueued }) {
               {showOriginal ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
               Original email from {personLabel({ name: source.from_name, address: source.from_address })}, {fmtDateTime(source.received_at)} — included below your text
             </button>
-            {showOriginal && <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap border-t border-gray-100 px-3 py-2 font-sans text-xs text-gray-600">{source.body_text}</pre>}
+            {showOriginal && <div className="max-h-96 overflow-y-auto border-t border-gray-100 px-3 py-2"><EmailBody message={source} /></div>}
           </div>
         )}
 

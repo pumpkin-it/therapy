@@ -47,6 +47,7 @@ app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/auth') || req.path.startsWith('/cal') || req.path.startsWith('/sign') || req.path.startsWith('/report-view') || req.path.startsWith('/portal') || req.path.startsWith('/report-images') || req.path === '/health') return next();
   auth(req, res, next);
 });
+app.use('/api', require('./services/activity').middleware);
 
 app.use('/api/settings',        require('./routes/settings')); // perm applied per-route inside
 app.use('/api/practitioners',   require('./routes/practitioners')); // perm applied per-route inside
@@ -117,6 +118,7 @@ app.listen(PORT, () => {
     try { await sendAgreementReminders(); } catch (e) { console.error('Agreement reminder error:', e.message); }
     try { refreshBudgetCurrentTotals(); } catch (e) { console.error('Budget rate refresh error:', e.message); }
     try { await sendBudgetAlerts(); } catch (e) { console.error('Budget alert error:', e.message); }
+    try { require('./services/activity').prune(); } catch (e) { console.error('Activity prune error:', e.message); }
   };
   runDaily();
   setInterval(runDaily, 24 * 60 * 60 * 1000);

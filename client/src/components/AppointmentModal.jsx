@@ -1067,7 +1067,7 @@ export default function AppointmentModal({ appointment, defaultDate, defaultTime
     if (!form.client_id || !startDate) { setBudgetWarnings([]); return; }
     api.get(`/agreements?client_id=${form.client_id}`).then(async r => {
       const covering = (r.data || []).filter(a =>
-        a.budget_amount && a.start_date && startDate >= a.start_date && (!a.end_date || startDate <= a.end_date)
+        a.start_date && startDate >= a.start_date && (!a.end_date || startDate <= a.end_date)
       );
       const spends = await Promise.all(covering.map(a => api.get(`/agreements/${a.id}/spend`).then(sr => ({ title: a.title, ...sr.data })).catch(() => null)));
       setBudgetWarnings(spends.filter(s => s && s.pct_used >= 80));

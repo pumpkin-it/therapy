@@ -82,7 +82,7 @@ export function ComposeProvider({ enabled, children }) {
   const openFailed = f => setCompose({ key: Date.now(), fromOutbox: f.payload, mode: f.payload.mode, sourceId: f.payload.source_id });
 
   return (
-    <ComposeContext.Provider value={{ openCompose, enabled }}>
+    <ComposeContext.Provider value={{ openCompose, enabled, composeOpen: !!compose, busy: pending.length > 0 || !!toast || failed.length > 0 }}>
       {children}
       {enabled && compose && <ComposeModal key={compose.key} options={compose} onClose={() => setCompose(null)} onQueued={onQueued} />}
       {enabled && (pending.length > 0 || failed.length > 0 || toast) && (

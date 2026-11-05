@@ -438,10 +438,10 @@ function AgreementsTab({ clientId }) {
                 <Button size="sm" variant="secondary" onClick={saveMeta} disabled={savingMeta}>{savingMeta ? 'Saving…' : 'Save dates'}</Button>
               </div>
             </div>
-          ) : (active.start_date || active.end_date || active.budget_amount) && (
+          ) : (active.start_date || active.end_date || spend?.budget_amount) && (
             <p className="text-sm text-gray-500">
               {active.start_date || '…'} – {active.end_date || 'ongoing'}
-              {active.budget_amount ? ` · Budget ${currency(active.budget_amount)}` : ''}
+              {spend?.budget_amount ? ` · Budget ${currency(spend.budget_amount)}` : ''}
             </p>
           )}
 

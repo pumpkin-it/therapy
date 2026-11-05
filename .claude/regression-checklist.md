@@ -1062,10 +1062,29 @@ with a live link that can't be deleted/unshared (409 "billed report"). **Fixed o
 Cleanup gaps (app cannot hard-delete): QA client 87 + filler clients 88–90 still active, form
 response 16, funding period 65, billed report 7 (file 203), two /api/report-images uploads.
 
-## Fixes on UAT 2026-11-04 (re-test these)
+## Fixes released to production 2026-11-04 (re-test these)
 - Item 15/17, **Undo filing and tasks:** file an unfiled email that has a task to a client, then Undo: the client
   comes off the task, and task history says "Client removed: <name>". A client already on the task before the
   filing stays, as does a client another email on that task still links to. Filings made before this release
   undo as before and leave the task alone.
 - Clients > Funding, **deleting a period in use:** delete a period used by appointments or reports: a "Can't
   delete funding period" window gives the counts, and the period stays. An unused period still deletes.
+
+## Fixes on UAT 2026-11-04 (evening; re-test these)
+- Item 16, **keys while composing:** with a reply open, arrow keys and j/k must not change the email behind it,
+  and Cmd+Enter must send only (the email behind must not get filed). With the window closed, arrows still move
+  through the list.
+- Item 16, **original email in reply/forward:** shows open under the editor with its formatting (HTML email, not
+  only plain text). Remote pictures stay blocked. Sent copy still has the original below the reply text.
+- Item 18, **agreement budget:** a signed agreement with a linked budget shows that budget's figure in the header
+  and the bar (C0006: $11,490.14, 104%, not $3,879.80, 308%). Older agreements with no linked budget keep their
+  typed figure. The appointment window's budget warning uses the same figure.
+- Item 16, **compose in a new window:** the arrow icon in the compose header opens the email in its own browser
+  window with the draft and original email; the first window's compose closes. Refresh keeps it. Send shows the
+  countdown and Undo there, then the window closes itself; Undo brings the draft back in that window. Blocked
+  pop-ups show a message and the draft stays. A failed send keeps the window open.
+- Item 13, **Who's on:** Audit Log has a Who's on panel: names, Active now, first/last times, active minutes, IP;
+  click a name for minute-by-minute pages and clients; pick an earlier day. Real client IPs should show (not
+  127.0.0.1). An open idle tab must not count as active. **login** and **login_failed** rows appear in the log
+  with name and IP. Practitioners get 403 on /api/audit-logs/activity.
+

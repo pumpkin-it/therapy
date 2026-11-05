@@ -36,6 +36,7 @@ const ReportTemplateEditor = lazyEditor(() => import('./pages/ReportTemplateEdit
 import Settings from './pages/Settings';
 import FundingTypeRates from './pages/FundingTypeRates';
 import AuditLog from './pages/AuditLog';
+import ComposeWindow from './pages/ComposeWindow';
 import RecurringSeries from './pages/RecurringSeries';
 import RecurringSeriesDetail from './pages/RecurringSeriesDetail';
 import Templates from './pages/Templates';
@@ -111,6 +112,11 @@ function AuthenticatedApp() {
   const canAuditLog = isAdmin || user.role === 'finance';
   const canTemplates = user.role === 'owner' || !!p.templates;
   const home = p.calendar ? '/calendar' : p.clients ? '/clients' : p.invoices ? '/invoices' : p.reports ? '/reports' : canAuditLog ? '/audit-log' : null;
+
+  // Compose in its own browser window: just the email, no sidebar.
+  if (window.location.pathname === '/compose-window') {
+    return <ComposeProvider enabled={!!p.email}><ComposeWindow /></ComposeProvider>;
+  }
 
   return (
     <ComposeProvider enabled={!!p.email}>

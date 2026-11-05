@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
-import { fmtDateTime } from '../lib/utils';
+import { fmtDateTime, localToday } from '../lib/utils';
 import { useSettings } from '../context/SettingsContext';
 
 const TYPE_STYLE = {
@@ -23,7 +23,77 @@ const ACTION_STYLE = {
   sent:           'text-indigo-600',
   paid:           'text-green-700',
   status_changed: 'text-amber-600',
+  login:          'text-green-700',
+  login_failed:   'text-red-600',
 };
+
+const ON_NOW_MINUTES = 5;
+const PAGE_NAMES = [
+  [/^\/calendar/, 'Calendar'], [/^\/appointments/, 'Appointment'], [/^\/clients\/?$/, 'Clients list'], [/^\/email/, 'Email'],
+  [/^\/tasks/, 'Tasks'], [/^\/invoices/, 'Invoices'], [/^\/reports/, 'Reports'], [/^\/audit-log/, 'Audit Log'],
+  [/^\/ask/, 'Ask'], [/^\/settings/, 'Settings'], [/^\/templates/, 'Templates'],
+];
+const pageName = row => {
+  if (row.client_id) return row.client_name || `Client ${row.client_id}`;
+  return PAGE_NAMES.find(([re]) => re.test(row.page || ''))?.[1] || row.page || '—';
+};
+
+// Who was signed in and active on a chosen day. Changes they made are in the log below.
+function WhosOn({ timezone }) {
+  const [date, setDate] = useState(localToday());
+  const [rows, setRows] = useState(null);
+  const [open, setOpen] = useState(null);
+  const [minutes, setMinutes] = useState([]);
+  const period = () => {
+    const from = new Date(`${date}T00:00:00`);
+    const to = new Date(from); to.setDate(to.getDate() + 1);
+    return { from: from.toISOString(), to: to.toISOString() };
+  };
+  const stamp = m => fmtDateTime(`${m.replace(' ', 'T')}:00`, timezone);
+  useEffect(() => {
+    setOpen(null); setRows(null);
+    api.get('/audit-logs/activity', { params: period() }).then(r => setRows(r.data)).catch(() => setRows([]));
+  }, [date]); // eslint-disable-line react-hooks/exhaustive-deps
+  const toggle = async id => {
+    if (open === id) { setOpen(null); return; }
+    setOpen(id); setMinutes([]);
+    setMinutes((await api.get(`/audit-logs/activity/${id}`, { params: period() })).data);
+  };
+  const onNow = r => Date.now() - new Date(`${r.last_minute.replace(' ', 'T')}:00Z`).getTime() < ON_NOW_MINUTES * 60 * 1000;
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+        <h2 className="text-sm font-semibold text-gray-800">Who's on</h2>
+        <input type="date" value={date} max={localToday()} onChange={e => e.target.value && setDate(e.target.value)} className="rounded-lg border border-gray-300 px-2 py-1 text-sm text-gray-700" />
+      </div>
+      {rows === null ? <p className="px-4 py-6 text-center text-sm text-gray-400">Loading…</p>
+        : rows.length === 0 ? <p className="px-4 py-6 text-center text-sm text-gray-400">Nobody active on this day.</p>
+        : <div className="divide-y divide-gray-50">{rows.map(r => (
+          <div key={r.user_id}>
+            <button type="button" onClick={() => toggle(r.user_id)} className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 text-left text-sm hover:bg-gray-50">
+              <span className="font-medium text-gray-800">{r.user_name || `User ${r.user_id}`}</span>
+              {onNow(r) ? <span className="rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">Active now</span>
+                : <span className="text-xs text-gray-500">Last active {stamp(r.last_minute)}</span>}
+              <span className="text-xs text-gray-500">First {stamp(r.first_minute)} · {r.active_minutes} active min · {r.writes} change{r.writes === 1 ? '' : 's'}</span>
+              <span className="ml-auto text-xs text-gray-400">{(r.ips || '').split(',').join(', ')}</span>
+            </button>
+            {open === r.user_id && (
+              <div className="max-h-64 overflow-y-auto bg-gray-50 px-4 py-2">
+                {minutes.map(m => (
+                  <p key={m.minute} className="flex gap-3 py-0.5 text-xs text-gray-600">
+                    <span className="w-40 shrink-0 text-gray-500">{stamp(m.minute)}</span>
+                    <span className="min-w-0 flex-1 truncate">{pageName(m)}{m.writes > 0 ? ` · ${m.writes} change${m.writes === 1 ? '' : 's'}` : ''}</span>
+                    <span className="shrink-0 text-gray-400">{m.ip}</span>
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}</div>}
+    </div>
+  );
+}
 
 export default function AuditLog() {
   const { timezone } = useSettings();
@@ -72,6 +142,8 @@ export default function AuditLog() {
           <option value="settings">Settings</option>
         </select>
       </div>
+
+      <WhosOn timezone={timezone} />
 
       <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
         <div className="divide-y divide-gray-50 max-h-[75vh] overflow-y-auto">

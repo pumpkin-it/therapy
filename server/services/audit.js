@@ -6,9 +6,10 @@ const insert = db.prepare(`
   VALUES (?, ?, ?, ?, ?, ?, ?)
 `);
 
-function log(entityType, entityId, action, details, { ref, snapshot } = {}) {
-  // The signed-in person making the change; none for automatic jobs and public links.
-  insert.run(entityType, entityId || null, ref || null, action, details || null, snapshot ? JSON.stringify(snapshot) : null, currentUserId());
+function log(entityType, entityId, action, details, { ref, snapshot, userId } = {}) {
+  // The signed-in person making the change; none for automatic jobs and public links. userId is
+  // for sign-ins, where nobody is signed in yet.
+  insert.run(entityType, entityId || null, ref || null, action, details || null, snapshot ? JSON.stringify(snapshot) : null, userId ?? currentUserId());
 }
 
 function diff(oldObj, newObj, fields) {
