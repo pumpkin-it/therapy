@@ -19,7 +19,7 @@ const { getPermissions } = require('../middleware/requirePermission');
 // Report billing: a practitioner bills a report in chunks as they write it ("5 hrs today, the
 // report is now 50% done"). Each chunk is a real completed appointment linked by
 // appointments.billable_report_id, emailed to accounts as a MYOB import CSV the moment it's saved,
-// then locked. Once the final report is uploaded and the client has the blurred draft link,
+// then locked. Once the final report is uploaded and the client has the “DRAFT ONLY” draft link,
 // reportRelease.js releases it automatically when every linked MYOB invoice is paid.
 
 const upload = multer({
@@ -405,18 +405,18 @@ router.post('/:id/entries/:apptId/void', auth, (req, res) => {
   res.json(reportWithDetails(getReport(report.id)));
 });
 
-// Uploads the finished report into the client's Files and shares it as a blurred draft. Replacing
+// Uploads the finished report into the client's Files and shares it as a “DRAFT ONLY” draft. Replacing
 // an earlier upload keeps the old file in Files but stops sharing it, so the client's new link is
 // the only live one. The client isn't emailed here — the practitioner reviews that email first.
-// Makes `file` the report's current file: shares it as a blurred draft, stops sharing the file it
+// Makes `file` the report's current file: shares it as a “DRAFT ONLY” draft, stops sharing the file it
 // replaces (which stays in the client's Files), and puts the report back to "client not emailed
 // yet" — the client needs the new link. Used by both a manual upload and committing a written
 // version. Throws ShareError for anything the user should see.
 // The client keeps ONE link for the life of the report: a new version takes over the previous
 // version's link (view_token), so the link in an earlier email always shows the latest committed
-// version — blurred draft or, once released, the full report — instead of going dead.
-async function attachReportFile(report, file, visiblePages, how) {
-  await createReportShare(file, visiblePages);
+// version — “DRAFT ONLY” draft or, once released, the full report — instead of going dead.
+async function attachReportFile(report, file, how) {
+  await createReportShare(file);
   if (report.client_file_id && report.client_file_id !== file.id) {
     const old = db.prepare('SELECT * FROM client_file_reports WHERE client_file_id = ?').get(report.client_file_id);
     if (old) {
@@ -428,7 +428,7 @@ async function attachReportFile(report, file, visiblePages, how) {
       audit.log('client_file', report.client_file_id, 'updated', `Replaced by a newer version of report "${report.title}" — the client's link now shows the new version`);
     }
   }
-  // A revision of a report already released goes back to a blurred draft until it's released
+  // A revision of a report already released goes back to a “DRAFT ONLY” draft until it's released
   // again (decided 2026-09-25) — the same state as any new file.
   db.prepare("UPDATE billable_reports SET client_file_id = ?, status = 'uploaded', released_at = NULL WHERE id = ?").run(file.id, report.id);
   audit.log('billable_report', report.id, 'updated', how);
@@ -455,8 +455,7 @@ router.post('/:id/upload', auth, (req, res, next) => {
   `).run(report.client_id, req.file.filename, req.file.originalname, req.file.size, req.file.mimetype, report.title);
   const file = db.prepare('SELECT * FROM client_files WHERE id = ?').get(ins.lastInsertRowid);
   try {
-    // Same 0–10 "pages shown in full" choice as sharing from the Files tab; defaults to 1.
-    await attachReportFile(report, file, req.body.visible_pages ?? 1, `${report.client_file_id ? 'Replaced' : 'Uploaded'} the report file`);
+    await attachReportFile(report, file, `${report.client_file_id ? 'Replaced' : 'Uploaded'} the report file`);
   } catch (e) {
     db.prepare('DELETE FROM client_files WHERE id = ?').run(file.id);
     cleanup();
@@ -486,7 +485,7 @@ const SNAPSHOT_EVERY_MS = 10 * 60 * 1000;
 const SNAPSHOTS_KEPT = 30;
 // Written reports are locked once committed; unlocking (author or owner/admin, with a reason) is
 // what re-opens them — including a report already released, whose revision goes back to a
-// blurred draft when it's committed again.
+// “DRAFT ONLY” draft when it's committed again.
 const canEditDraft = (user, report) => canManage(user, report) && !report.doc_locked;
 const fmtDMY = d => (d ? String(d).slice(0, 10).split('-').reverse().join('/') : '');
 
@@ -741,14 +740,8 @@ router.post('/:id/commit', auth, async (req, res) => {
   `).run(report.client_id, filename, `${safeTitle} v${version}.pdf`, pdf.length, `${report.title} (version ${version})`);
   const file = db.prepare('SELECT * FROM client_files WHERE id = ?').get(ins.lastInsertRowid);
 
-  // Pages shown in full: chosen in the commit dialog, else what the previous version used, else 1
-  // (capped at half the pages when the preview is made — reportRedact.js).
-  const prevPages = report.client_file_id
-    ? db.prepare('SELECT visible_pages FROM client_file_reports WHERE client_file_id = ?').get(report.client_file_id)?.visible_pages
-    : null;
-  const visiblePages = req.body.visible_pages ?? prevPages ?? 1;
   try {
-    await attachReportFile(report, file, visiblePages, `Committed version ${version} (${pageCount} pages)`);
+    await attachReportFile(report, file, `Committed version ${version} (${pageCount} pages)`);
   } catch (e) {
     db.prepare('DELETE FROM client_files WHERE id = ?').run(file.id);
     try { fs.unlinkSync(path.join(UPLOAD_DIR, filename)); } catch {}

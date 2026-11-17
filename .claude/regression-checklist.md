@@ -158,7 +158,7 @@ sufficient.
 
 ## 7b. Client files — share a report and notify the client
 Added 2026-09-14. Client → Files → upload a PDF/JPG/PNG → "Share file" → a "Draft shared" badge
-appears with Copy link / Notify client / Edit pages shown / Mark as released / Stop sharing
+appears with Copy link / Notify client / Mark as released / Stop sharing
 controls.
 
 Click **Notify client** while still in draft → modal title reads "Notify client (draft shared)"
@@ -261,8 +261,8 @@ shows the right hours × rate amount and does NOT appear on the calendar. On UAT
 redirected to the test mailbox, so billing a real entry is safe there — check the accounts email
 arrived with a MYOB CSV whose line note reads "Report: <title> — 50% complete". Confirm a lower
 % than the current total is rejected. Upload a PDF, confirm the Files tab shows it as a billed
-report with no "Mark as released"/delete controls, and that the client link shows the blurred
-draft. As owner/admin/finance, click the entry's invoice number ("Add inv #") → the MYOB invoice
+report with no "Mark as released"/delete controls, and that the client link shows the draft
+watermarked “DRAFT ONLY” on every page. As owner/admin/finance, click the entry's invoice number ("Add inv #") → the MYOB invoice
 window opens (invoice number + payment); set a number and Part paid → the entry's status updates
 (in production since 2026-09-29). Void the entry (admin/finance) and delete the QA report data afterwards.
 
@@ -283,13 +283,13 @@ seconds after typing stops. **Insert field mid-sentence and keep typing** — th
 land AFTER the inserted field (found broken 2026-09-25: the field menu stole focus). History opens
 and lists saved copies. Page guides ("Page 2" etc.) appear when the text passes an A4 page.
 
-**Commit / lock / versions** (added 2026-09-26): click Commit → the dialog offers "pages shown in
-full" (max half the pages) → Commit → lands on the client's Reports tab with the draft email open
+**Commit / lock / versions** (added 2026-09-26): click Commit → the dialog has no "pages shown"
+choice (removed 2026-11-17) → Commit → lands on the client's Reports tab with the draft email open
 (don't send unless asked). The card shows "version 1 committed, locked"; Files has "<title>
-(version 1)"; the client link shows the blurred draft. Open the report → "Locked" banner, no
+(version 1)"; the client link shows the “DRAFT ONLY” draft. Open the report → "Locked" banner, no
 toolbar. Unlock to revise → a reason is required → edit → Commit again → version 2. The client
 keeps **the same link for the whole report** (since 2026-09-26): the link from the version 1 email
-still works and now shows version 2 as a blurred draft. History → version 2 → Changes
+still works and now shows version 2 as a “DRAFT ONLY” draft. History → version 2 → Changes
 shows the edit (added green/underlined, removed red/struck through); PDF buttons download each
 version.
 
@@ -570,6 +570,8 @@ option A, or skip it and say so.
   didn't fully match "what still works" above with enough detail to reproduce.
 
 ## Changed since the last full run (check these first)
+
+- **Report drafts watermarked “DRAFT ONLY”, not blurred (2026-11-17, on UAT)** — Share a PDF report (Files → Share file, a report Upload, or a report Commit) and open the client link: (a) EVERY page is readable, with “DRAFT ONLY” in faint red repeated across it; nothing is blurred; (b) the text can't be selected or copied (it's a picture of each page); (c) no "pages shown in full" choice anywhere (Share, Upload, Commit, Files tab); (d) a JPG/PNG share is watermarked too, including a small image; (e) mark the report released → the same link gives the original, no watermark; revert to draft → watermark again; (f) links sent before this change still work and now show the watermarked copy (UAT mirrored from prod 2026-11-17 00:42 UTC, backup `/opt/therapy-uat/server/pm.db.pre-mirror-20261117`; all 10 real previews, 4 pending and 6 released, 210 pages, were remade in about a minute at start-up: "Report previews: 10 of 10 remade"). Live drafts to check: Kristian Saburido (Home and Living v2, FCA v1) and Alan Ping Fang (Home and Living v1, FCA_PingF v2); (g) a 30+ page report shares in a reasonable time. (h) Reports tab: the download icon next to Copy link gives "<name> (DRAFT ONLY).pdf", the watermarked copy, while unreleased, and the original once released (the Files tab download still gives the original).
 
 - **Report page count: editor vs PDF (2026-11-02, on UAT for testing)** — Open a report from the FCA template and from the OT Report template. For each Layout > Margins preset and Landscape, wait a few seconds, then compare "Page N of X" with the PDF ("Check PDF" or draft PDF): (a) X matches the PDF's page count (Wide on FCA is now about 40 pages, not 28: the PDF used to shrink all the text to fit one wide table, so check the PDF's text is the same size at every margin); (b) page by page the same content starts each page, or within a row or a few lines (a small difference can still appear on some margin settings); (c) no text is hidden at the bottom of a page; (d) on Wide, no table runs off the page and every column is readable; (e) Undo after changing margins restores the margins and the column widths; (f) a table dragged or pasted wider than the page shrinks to fit; (g) a heading stays with the table or text after it; rows with merged cells break sensibly over pages.
 
@@ -1070,7 +1072,7 @@ response 16, funding period 65, billed report 7 (file 203), two /api/report-imag
 - Clients > Funding, **deleting a period in use:** delete a period used by appointments or reports: a "Can't
   delete funding period" window gives the counts, and the period stays. An unused period still deletes.
 
-## Fixes on UAT 2026-11-04 (evening; re-test these)
+## Released to production 2026-11-05 (re-test these)
 - Item 16, **keys while composing:** with a reply open, arrow keys and j/k must not change the email behind it,
   and Cmd+Enter must send only (the email behind must not get filed). With the window closed, arrows still move
   through the list.

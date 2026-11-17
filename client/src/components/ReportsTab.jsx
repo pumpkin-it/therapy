@@ -14,20 +14,11 @@ import MyobInvoiceModal from './MyobInvoiceModal';
 import ReportAttachments from './reportEditor/ReportAttachments';
 
 // Client → Reports tab: bill a report in chunks while writing it, upload the finished copy, and
-// let the system hold it back (blurred draft) until every invoice for it is paid.
+// let the system hold it back (a watermarked “DRAFT ONLY” copy) until every invoice for it is paid.
 // Server side: server/routes/billableReports.js + server/services/reportRelease.js.
 
 const fmtDMY = d => (d ? d.slice(0, 10).split('-').reverse().join('/') : '');
 const isAdmin = user => ['owner', 'admin'].includes(user?.role);
-// Same cap as the server (reportRedact.js maxVisiblePages): half the pages, rounded down, max 10.
-const maxShownPages = pageCount => (pageCount == null ? 10 : Math.min(10, Math.floor(pageCount / 2)));
-const pagesLabel = n => `${n} page${n === 1 ? '' : 's'}`;
-
-async function countPdfPages(file) {
-  const { PDFDocument } = await import('pdf-lib'); // only loaded when someone uploads a PDF
-  const doc = await PDFDocument.load(await file.arrayBuffer(), { ignoreEncryption: true, updateMetadata: false });
-  return doc.getPageCount();
-}
 
 const isAccounts = user => ['owner', 'admin', 'finance'].includes(user?.role);
 
@@ -334,16 +325,12 @@ function ReportCard({ report, client, onChanged, onDeleted, justCommitted }) {
   // Arriving from the editor right after a commit: the client needs the new version's link.
   useEffect(() => {
     if (!justCommitted || !report.file) return;
-    setMessage({ type: 'ok', text: `Version ${justCommitted} committed and shared as a blurred draft. Email the client the link.` });
+    setMessage({ type: 'ok', text: `Version ${justCommitted} committed and shared as a “DRAFT ONLY” copy. Email the client the link.` });
     setNotifying(true);
   }, [justCommitted]);
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState(null); // { type: 'error'|'warn'|'ok', text }
   const fileRef = useRef();
-  const [pendingFile, setPendingFile] = useState(null); // picked, waiting for the pages-shown choice
-  const [pagesDraft, setPagesDraft] = useState(1);
-  const [pendingPageCount, setPendingPageCount] = useState(null); // null = counting/unknown
-  const [editingPages, setEditingPages] = useState(false);
   const [copied, setCopied] = useState(false);
   const mine = isAdmin(user) || report.practitioner_id === user?.id;
   const released = report.status === 'released';
@@ -360,51 +347,29 @@ function ReportCard({ report, client, onChanged, onDeleted, justCommitted }) {
     if (fresh) onChanged(fresh);
   };
 
-  // Same "pages shown in full" choice as sharing from the Files tab — asked before uploading a
-  // PDF; images have no pages, so they upload straight away.
   const pickFile = e => {
     const f = e.target.files[0];
     e.target.value = '';
-    if (!f) return;
-    if (f.type !== 'application/pdf') return uploadFile(f, 0);
-    setPendingPageCount(null);
-    setPagesDraft(report.file?.report_visible_pages ?? 1);
-    setPendingFile(f);
-    // Counted in the browser before uploading, so the choice can't exceed what the PDF has. If it
-    // can't be read here (e.g. an unusual PDF), the server still caps it when making the preview.
-    countPdfPages(f).then(n => {
-      setPendingPageCount(n);
-      setPagesDraft(d => Math.min(d, maxShownPages(n)));
-    }).catch(() => {});
+    if (f) uploadFile(f);
   };
 
-  const uploadFile = (f, visiblePages) => {
-    setPendingFile(null);
+  const uploadFile = f => {
     act('upload', async () => {
       const fd = new FormData();
       fd.append('file', f);
-      fd.append('visible_pages', String(visiblePages));
       const { data } = await api.post(`/billable-reports/${report.id}/upload`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
       onChanged(data);
       setNotifying(true);
     });
   };
 
-  const saveVisiblePages = () => act('pages', async () => {
-    await api.patch(`/client-files/${report.file.id}/report-visible-pages`, { visible_pages: pagesDraft });
-    setEditingPages(false);
-    await reload();
-    setMessage({ type: 'ok', text: `The client's preview now shows ${pagesDraft} page${pagesDraft === 1 ? '' : 's'} in full.` });
-  });
 
-  // The client's link — shows the blurred draft until release, then the real report, same URL.
+  // The client's link — shows the “DRAFT ONLY” copy until release, then the real report, same URL.
   const copyLink = () => {
     navigator.clipboard.writeText(`${window.location.origin}/report/${report.file.report_view_token}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
-
-  const clampPages = (v, pageCount) => Math.max(0, Math.min(maxShownPages(pageCount), parseInt(v, 10) || 0));
 
   const resend = entry => act(`resend-${entry.id}`, async () => {
     const { data } = await api.post(`/billable-reports/${report.id}/entries/${entry.id}/resend`);
@@ -531,41 +496,24 @@ function ReportCard({ report, client, onChanged, onDeleted, justCommitted }) {
           <div className="min-w-0 flex-1">
             <p className="truncate text-gray-800">{report.file.original_name}</p>
             <p className="text-xs text-gray-500">
-              {released ? `Released ${fmtDMY(report.released_at)}` : report.status === 'draft_sent' ? `Blurred draft sent to ${report.notify_to.join(', ')}` : 'Uploaded — the client hasn’t been emailed the draft yet'}
-              {!released && report.file.mime_type === 'application/pdf' && (report.file.report_page_count
-                ? ` · ${report.file.report_visible_pages ?? 0} of ${pagesLabel(report.file.report_page_count)} shown in full`
-                : ` · ${pagesLabel(report.file.report_visible_pages ?? 0)} shown in full`)}
+              {released ? `Released ${fmtDMY(report.released_at)}` : report.status === 'draft_sent' ? `Draft sent to ${report.notify_to.join(', ')}` : 'Uploaded — the client hasn’t been emailed the draft yet'}
+              {!released && ' · the client sees every page watermarked “DRAFT ONLY” until it’s released'}
             </p>
           </div>
-          {mine && !released && report.file.mime_type === 'application/pdf' && !editingPages && (
-            <button className="text-xs text-indigo-600 hover:text-indigo-800 whitespace-nowrap"
-              onClick={() => { setPagesDraft(report.file.report_visible_pages ?? 1); setEditingPages(true); }}>
-              Edit pages shown
-            </button>
-          )}
           {report.file.report_view_token && (
             <button className={`inline-flex items-center gap-1 text-xs whitespace-nowrap ${copied ? 'text-green-600' : 'text-indigo-600 hover:text-indigo-800'}`}
               title="Copy the client's preview link" onClick={copyLink}>
               {copied ? <Check className="h-3.5 w-3.5" /> : <Link2 className="h-3.5 w-3.5" />} {copied ? 'Copied' : 'Copy link'}
             </button>
           )}
-          <button className="text-gray-400 hover:text-gray-700" title="Download" onClick={() => downloadFile(api, `/client-files/${report.file.id}/download`, report.file.original_name)}>
+          <button className="text-gray-400 hover:text-gray-700" title={released ? 'Download the report' : 'Download the “DRAFT ONLY” copy the client sees'}
+            onClick={() => downloadFile(api, `/client-files/${report.file.id}/report-copy`, released ? report.file.original_name : report.file.original_name.replace(/(\.[^.]+)?$/, ' (DRAFT ONLY)$1'))}>
             <Download className="h-4 w-4" />
           </button>
         </div>
       )}
 
-      {editingPages && report.file && (
-        <div className="flex items-center gap-2 rounded-lg bg-gray-50 border border-gray-200 p-2">
-          <label className="text-xs font-medium text-gray-600">Pages to show in full</label>
-          <input type="number" min={0} max={maxShownPages(report.file.report_page_count)} value={pagesDraft}
-            onChange={e => setPagesDraft(clampPages(e.target.value, report.file.report_page_count))}
-            className="w-20 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none" />
-          {report.file.report_page_count && <span className="text-xs text-gray-500">of {pagesLabel(report.file.report_page_count)} (up to {maxShownPages(report.file.report_page_count)})</span>}
-          <Button size="sm" variant="ghost" onClick={() => setEditingPages(false)}>Cancel</Button>
-          <Button size="sm" onClick={saveVisiblePages} disabled={busy === 'pages'}>{busy === 'pages' ? 'Saving…' : 'Save'}</Button>
-        </div>
-      )}
+
 
       {report.draft && (
         <button onClick={() => navigate(`/clients/${report.client_id}/reports/${report.id}/write`)}
@@ -618,29 +566,6 @@ function ReportCard({ report, client, onChanged, onDeleted, justCommitted }) {
         <input ref={fileRef} type="file" accept="application/pdf,image/jpeg,image/png" className="hidden" onChange={pickFile} />
       </div>
 
-      {pendingFile && (
-        <Modal title={report.file ? 'Replace report' : 'Upload final report'} onClose={() => setPendingFile(null)}>
-          <div className="space-y-4">
-            <p className="text-sm text-gray-600 truncate">{pendingFile.name}</p>
-            <div className="space-y-1">
-              <label className="block text-sm font-medium text-gray-700">Pages to show in full</label>
-              <div className="flex items-center gap-2">
-                <input type="number" min={0} max={maxShownPages(pendingPageCount)} value={pagesDraft} autoFocus
-                  onChange={e => setPagesDraft(clampPages(e.target.value, pendingPageCount))}
-                  className="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none" />
-                <span className="text-sm text-gray-600">
-                  {pendingPageCount == null ? 'Counting pages…' : `of ${pagesLabel(pendingPageCount)} — up to ${maxShownPages(pendingPageCount)} (half) can be shown`}
-                </span>
-              </div>
-              <p className="text-xs text-gray-500">The client sees these first pages clearly (still watermarked “draft”) so they know the report is theirs and finished. Every other page stays blurred until it’s released.</p>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setPendingFile(null)}>Cancel</Button>
-              <Button size="sm" onClick={() => uploadFile(pendingFile, pagesDraft)}>Upload</Button>
-            </div>
-          </div>
-        </Modal>
-      )}
       {linking && (
         <LinkBillingModal report={report} onClose={() => setLinking(false)} onSaved={(data, appt) => {
           setLinking(false);
@@ -690,7 +615,7 @@ export default function ReportsTab({ clientId, client }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-500">Bill report writing as you go. The finished report stays blurred for the client until every invoice for it is paid.</p>
+        <p className="text-sm text-gray-500">Bill report writing as you go. The client can read the finished report watermarked “DRAFT ONLY” until every invoice for it is paid.</p>
         <Button size="sm" onClick={() => setCreating(true)}><Plus className="h-3.5 w-3.5" /> Start report</Button>
       </div>
       {reports === null ? (

@@ -1109,15 +1109,13 @@ try { db.exec(`ALTER TABLE appointment_items ADD COLUMN billed_km_rate REAL`); }
 // Client file reports — reports (finished clinical/assessment PDFs, authored externally in
 // Word, uploaded as-is) live as ordinary client_files rows rather than a separate upload flow,
 // so a document is never in two places at once. This side table adds only the report-specific
-// fields onto an existing client_files row, 1:1. A blurred/watermarked preview_filename is
+// fields onto an existing client_files row, 1:1. A preview_filename watermarked "DRAFT ONLY" is
 // rendered server-side when a file is "shared as a draft report" — see
 // server/services/reportRedact.js. status stays 'pending' until finance manually flips it to
 // 'released' (no in-app payment tracking — MYOB reconciliation is external) — the public
 // view_token link automatically starts serving the real client_files original once released,
-// same link throughout. visible_pages: how many leading pages the pending preview shows in
-// full (still watermarked) rather than blurred, so a client can confirm the report is genuinely
-// theirs before it's blurred from there on — set per report since only the practitioner knows
-// which pages of their own template are identifying vs substantive.
+// same link throughout. visible_pages: no longer used — since 2026-11-17 every page of the
+// preview is readable, with "DRAFT ONLY" across it (it used to be how many pages weren't blurred).
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS client_file_reports (
     client_file_id INTEGER PRIMARY KEY REFERENCES client_files(id) ON DELETE CASCADE,
@@ -1349,6 +1347,9 @@ try {
 // choice can be capped at what the document actually has. NULL for images and for shares made
 // before this existed (filled in the next time their visible pages are edited).
 try { db.exec(`ALTER TABLE client_file_reports ADD COLUMN page_count INTEGER`); } catch {}
+// 'watermark' = the preview is the "DRAFT ONLY" copy; NULL = an older blurred preview not yet remade
+// (services/reportShare.js upgradeOldPreviews); 'error' = the remake failed.
+try { db.exec(`ALTER TABLE client_file_reports ADD COLUMN preview_style TEXT`); } catch {}
 
 // Report billing — a report the practitioner bills progressively while writing it. Each "log
 // hours" entry is a real completed appointment (appointments.billable_report_id) so the existing
@@ -1356,7 +1357,7 @@ try { db.exec(`ALTER TABLE client_file_reports ADD COLUMN page_count INTEGER`); 
 // special cases; this table only holds what's report-level. Named billable_reports because
 // client_reports is already taken by the old, unmounted clinical-report-writer tables above.
 // status: in_progress → uploaded (file attached, client not yet emailed) → draft_sent (client has
-// the blurred preview link) → released. notify_to/notify_cc (JSON arrays) remember who the draft
+// the “DRAFT ONLY” preview link) → released. notify_to/notify_cc (JSON arrays) remember who the draft
 // email went to, so the automatic release email goes to the same people.
 try { db.exec(`
   CREATE TABLE IF NOT EXISTS billable_reports (

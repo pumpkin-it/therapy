@@ -5,7 +5,6 @@ const audit = require('../services/audit');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { generateReportPreview } = require('../services/reportRedact');
 const { createReportShare, ShareError } = require('../services/reportShare');
 const { releasePaidReportsInBackground, attachmentEmailParts, withAttachmentsNote } = require('../services/reportRelease');
 
@@ -111,6 +110,17 @@ router.get('/:id/download', auth, (req, res) => {
   res.download(path.join(UPLOAD_DIR, file.filename), file.original_name);
 });
 
+// The copy the client currently sees at their link: the "DRAFT ONLY" watermarked preview until
+// the report is released, then the original. Used by the download button on the Reports tab.
+router.get('/:id/report-copy', auth, (req, res) => {
+  const file = db.prepare('SELECT * FROM client_files WHERE id = ?').get(req.params.id);
+  if (!file) return res.status(404).json({ error: 'Not found' });
+  const share = db.prepare('SELECT status, preview_filename FROM client_file_reports WHERE client_file_id = ?').get(file.id);
+  if (!share || share.status === 'released') return res.download(path.join(UPLOAD_DIR, file.filename), file.original_name);
+  const ext = path.extname(file.original_name);
+  res.download(path.join(UPLOAD_DIR, share.preview_filename), `${path.basename(file.original_name, ext)} (DRAFT ONLY)${ext}`);
+});
+
 // Turns an existing file already in Files into a shareable draft — no separate upload, the
 // original stays exactly where the practitioner put it. Generates the redacted preview and a
 // public view_token (server/routes/reportView.js serves the preview or, once released, the
@@ -121,7 +131,7 @@ router.post('/:id/share-report', auth, async (req, res) => {
   const file = db.prepare('SELECT * FROM client_files WHERE id = ?').get(req.params.id);
   if (!file) return res.status(404).json({ error: 'Not found' });
   try {
-    await createReportShare(file, req.body.visible_pages);
+    await createReportShare(file);
   } catch (e) {
     if (e instanceof ShareError) return res.status(e.status).json({ error: e.message });
     throw e;
@@ -133,7 +143,7 @@ router.post('/:id/share-report', auth, async (req, res) => {
 
 // Removes report sharing entirely (the file itself, and its download, are untouched) — distinct
 // from setting status back to 'pending', which keeps it shared but reverts the client's link to
-// the blurred preview.
+// the “DRAFT ONLY” preview.
 router.delete('/:id/share-report', auth, (req, res) => {
   const report = db.prepare('SELECT * FROM client_file_reports WHERE client_file_id = ?').get(req.params.id);
   if (!report) return res.status(404).json({ error: 'Not found' });
@@ -221,27 +231,6 @@ router.post('/:id/notify-report', auth, async (req, res) => {
     releasePaidReportsInBackground([billable.id]);
   }
   res.json({ ok: true });
-});
-
-router.patch('/:id/report-visible-pages', auth, async (req, res) => {
-  const file = db.prepare('SELECT * FROM client_files WHERE id = ?').get(req.params.id);
-  if (!file) return res.status(404).json({ error: 'Not found' });
-  const report = db.prepare('SELECT * FROM client_file_reports WHERE client_file_id = ?').get(req.params.id);
-  if (!report) return res.status(404).json({ error: 'Not found' });
-  if (file.mime_type !== 'application/pdf') return res.status(400).json({ error: 'Visible pages only applies to PDF reports.' });
-  let previewBuffer, visiblePages, pageCount;
-  try {
-    const original = fs.readFileSync(path.join(UPLOAD_DIR, file.filename));
-    ({ buffer: previewBuffer, visiblePages, pageCount } = await generateReportPreview(original, req.body.visible_pages));
-  } catch (e) {
-    console.error('Report preview regeneration failed:', e);
-    return res.status(400).json({ error: 'Could not regenerate the preview for this report.' });
-  }
-  fs.writeFileSync(path.join(UPLOAD_DIR, report.preview_filename), previewBuffer);
-
-  db.prepare('UPDATE client_file_reports SET visible_pages = ?, page_count = ? WHERE client_file_id = ?').run(visiblePages, pageCount, req.params.id);
-  audit.log('client_file', file.id, 'updated', `Changed visible pages to ${visiblePages} for "${file.label || file.original_name}"`);
-  res.json(db.prepare(`${FILE_WITH_REPORT_SELECT} WHERE cf.id = ?`).get(req.params.id));
 });
 
 router.delete('/:id', auth, (req, res) => {

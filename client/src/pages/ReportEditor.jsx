@@ -338,10 +338,10 @@ export default function ReportEditor() {
   };
 
   // Commit: save whatever's on screen, then ask the server to freeze exactly that revision.
-  const commit = async visiblePages => {
+  const commit = async () => {
     const saved = await save({ force: true });
     if (!saved || status.kind === 'conflict') throw new Error('The latest changes haven’t been saved, so nothing was committed. Check the message at the top of the page.');
-    const { data } = await api.post(`/billable-reports/${reportId}/commit`, { base_revision: revisionRef.current, visible_pages: visiblePages });
+    const { data } = await api.post(`/billable-reports/${reportId}/commit`, { base_revision: revisionRef.current });
     for (const c of readAllLocal(reportId)) removeKey(c.key);
     dirtyRef.current = false;
     // Straight to the report card with the draft email open — the client's link (the same one for
@@ -500,7 +500,7 @@ export default function ReportEditor() {
       </div>
 
       {commitOpen && (
-        <CommitModal nextVersion={(meta?.versions?.[0]?.version || 0) + 1} pages={pages} revising={!!meta?.versions?.length} defaultShown={meta?.visible_pages ?? 1}
+        <CommitModal nextVersion={(meta?.versions?.[0]?.version || 0) + 1} pages={pages} revising={!!meta?.versions?.length}
           onClose={() => setCommitOpen(false)} onCommit={commit} />
       )}
       {unlockOpen && <UnlockModal version={meta?.versions?.[0]?.version} onClose={() => setUnlockOpen(false)} onUnlock={unlock} />}
@@ -520,16 +520,12 @@ export default function ReportEditor() {
   );
 }
 
-function CommitModal({ nextVersion, pages, revising, defaultShown, onClose, onCommit }) {
+function CommitModal({ nextVersion, pages, revising, onClose, onCommit }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  // Same rule as sharing any report: at most half the pages (rounded down), never more than 10.
-  // `pages` is the editor's estimate; the server re-checks against the real PDF.
-  const maxShown = Math.min(10, Math.floor(pages / 2));
-  const [shown, setShown] = useState(Math.min(defaultShown, maxShown));
   const go = async () => {
     setBusy(true); setError('');
-    try { await onCommit(shown); } catch (e) { setError(e.response?.data?.error || e.message || 'Commit failed'); setBusy(false); }
+    try { await onCommit(); } catch (e) { setError(e.response?.data?.error || e.message || 'Commit failed'); setBusy(false); }
   };
   return (
     <Modal title={`Commit version ${nextVersion}`} onClose={() => !busy && onClose()}>
@@ -538,16 +534,9 @@ function CommitModal({ nextVersion, pages, revising, defaultShown, onClose, onCo
         <ul className="list-disc space-y-1 pl-5">
           <li>make the PDF (about {pages} page{pages === 1 ? '' : 's'}) with the report’s page layout, header and footer;</li>
           <li>freeze the client details shown in the report as they are now;</li>
-          <li>{revising ? 'show this version at the client’s existing link, as a blurred draft — links already sent keep working, and it releases again once all invoices for the report are paid;' : 'share it with the client as a blurred draft — it’s released once all invoices for the report are paid;'}</li>
+          <li>{revising ? 'show this version at the client’s existing link, as a draft watermarked “DRAFT ONLY” on every page — links already sent keep working, and it releases again once all invoices for the report are paid;' : 'share it with the client as a draft watermarked “DRAFT ONLY” on every page — it’s released once all invoices for the report are paid;'}</li>
           <li>lock the report. You or an admin can unlock it later to make changes (with a reason).</li>
         </ul>
-        <div className="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2">
-          <label className="text-gray-700">Pages the client sees in full in the draft</label>
-          <input type="number" min={0} max={maxShown} value={shown}
-            onChange={e => setShown(Math.max(0, Math.min(maxShown, parseInt(e.target.value, 10) || 0)))}
-            className="w-16 rounded border border-gray-300 px-2 py-1" />
-          <span className="text-xs text-gray-500">of about {pages} — up to {maxShown} (half)</span>
-        </div>
         <p>{revising ? 'Next you can let the client know there’s a revised version (optional — their link already shows it).' : 'Next you’ll be asked to email the draft link to the client.'}</p>
         {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-red-700">{error}</p>}
         <div className="flex justify-end gap-2 pt-1">

@@ -156,6 +156,9 @@ app.listen(PORT, () => {
   mailSend.recoverInterrupted();
   setInterval(() => mailSend.processOutbox().catch(e => console.error('Mail send error:', e.message)), 5 * 1000);
 
+  // Remake any old blurred report previews as "DRAFT ONLY" watermarked ones (one-off, then no-op).
+  setTimeout(() => require('./services/reportShare').upgradeOldPreviews().catch(e => console.error('Report preview upgrade error:', e.message)), 60 * 1000);
+
   // Background AI and document jobs (services/ai/jobs.js).
   try { require('./services/ai/setup').start(); } catch (e) { console.error('Job queue start error:', e.message); }
 

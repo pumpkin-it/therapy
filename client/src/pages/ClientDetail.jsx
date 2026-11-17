@@ -1231,8 +1231,8 @@ function BillingSummaryTab({ clientId }) {
 }
 
 // Reports are authored externally in Word and shared here as a finished PDF already in Files —
-// never a separate upload. A blurred/watermarked preview is rendered server-side when a file is
-// shared, so a client can be sent proof the report is done without reading/extracting it before
+// never a separate upload. A preview watermarked “DRAFT ONLY” on every page is rendered server-side
+// when a file is shared, so a client can review the whole report but not take a clean copy before
 // release. Release is a manual finance/admin toggle (this practice has no in-app payment
 // tracking). See FilesTab below — reports live as ordinary files, not a separate tab.
 const REPORT_STATUS_COLOR = { pending: 'bg-amber-100 text-amber-700', released: 'bg-green-100 text-green-700' };
@@ -1241,10 +1241,6 @@ const REPORT_STATUS_COLOR = { pending: 'bg-amber-100 text-amber-700', released: 
 const SHAREABLE_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
 
 // ─── Files tab ────────────────────────────────────────────────────────────────
-// Same cap the server applies when generating the preview: half the pages, rounded down, max 10.
-// report_page_count is NULL for shares made before page counts were stored — fall back to 10.
-const maxShownPages = pageCount => (pageCount == null ? 10 : Math.min(10, Math.floor(pageCount / 2)));
-
 function FilesTab({ clientId, client }) {
   const confirm = useConfirm();
   const { timezone } = useSettings();
@@ -1263,9 +1259,6 @@ function FilesTab({ clientId, client }) {
   const [editLabelDraft, setEditLabelDraft] = useState('');
   const [blockedFolder, setBlockedFolder] = useState(null); // { name, usage }
   const [copiedId, setCopiedId] = useState(null);
-  const [editingPagesId, setEditingPagesId] = useState(null);
-  const [editVisiblePages, setEditVisiblePages] = useState(1);
-  const [savingPages, setSavingPages] = useState(false);
   const [reportError, setReportError] = useState('');
   const [sharingId, setSharingId] = useState(null);
   const [notifyingFile, setNotifyingFile] = useState(null);
@@ -1388,7 +1381,7 @@ function FilesTab({ clientId, client }) {
     setReportError('');
     setSharingId(f.id);
     try {
-      await api.post(`/client-files/${f.id}/share-report`, { visible_pages: 1 });
+      await api.post(`/client-files/${f.id}/share-report`);
       refreshCurrentView();
     } catch (e) {
       setReportError(e.response?.data?.error || 'Failed to share file');
@@ -1405,29 +1398,11 @@ function FilesTab({ clientId, client }) {
 
   const toggleReportStatus = async f => {
     const next = f.report_status === 'released' ? 'pending' : 'released';
-    if (next === 'pending' && !await confirm({ title: 'Revert to draft', message: 'Revert this report to draft? The client\'s link will show the blurred preview again.', confirmLabel: 'Revert to draft' })) return;
+    if (next === 'pending' && !await confirm({ title: 'Revert to draft', message: 'Revert this report to draft? The client\'s link will show the “DRAFT ONLY” copy again.', confirmLabel: 'Revert to draft' })) return;
     await api.patch(`/client-files/${f.id}/report-status`, { status: next });
     refreshCurrentView();
   };
 
-  const startEditPages = f => {
-    setEditingPagesId(f.id);
-    setEditVisiblePages(f.report_visible_pages ?? 1);
-  };
-
-  const saveVisiblePages = async f => {
-    setSavingPages(true);
-    setReportError('');
-    try {
-      await api.patch(`/client-files/${f.id}/report-visible-pages`, { visible_pages: editVisiblePages });
-      setEditingPagesId(null);
-      refreshCurrentView();
-    } catch (e) {
-      setReportError(e.response?.data?.error || 'Failed to update visible pages');
-    } finally {
-      setSavingPages(false);
-    }
-  };
 
   const copyReportLink = f => {
     navigator.clipboard.writeText(`${window.location.origin}/report/${f.report_view_token}`);
@@ -1535,7 +1510,6 @@ function FilesTab({ clientId, client }) {
               <p className="text-xs text-gray-400 truncate">
                 {view === 'shared' && `in ${f.folder_name || 'Files (root)'} · `}
                 {f.label ? `${f.original_name} · ` : ''}{fmt(f.size)} · {fmtDateOnly(f.created_at, timezone)}
-                {f.report_status && f.mime_type === 'application/pdf' && ` · ${f.report_visible_pages || 0}${f.report_page_count ? ` of ${f.report_page_count}` : ''} page${(f.report_page_count || f.report_visible_pages) === 1 ? '' : 's'} shown in full`}
               </p>
             </div>
             {f.report_status && (
@@ -1567,9 +1541,6 @@ function FilesTab({ clientId, client }) {
               <Button size="sm" variant="ghost" onClick={() => setNotifyingFile(f)}>
                 {notifySent === f.id ? 'Sent!' : 'Notify client'}
               </Button>
-              {f.mime_type === 'application/pdf' && (
-                <Button size="sm" variant="ghost" onClick={() => startEditPages(f)}>Edit pages shown</Button>
-              )}
               {f.billable_report_id ? (
                 // Held back until its invoices are paid — released from the Reports tab, not here.
                 <span className="ml-auto text-xs text-gray-400">Billed report · released from the Reports tab once paid</span>
@@ -1584,17 +1555,6 @@ function FilesTab({ clientId, client }) {
             </div>
           )}
 
-          {editingPagesId === f.id && (
-            <div className="flex items-center gap-2 rounded-lg bg-gray-50 border border-gray-200 p-2">
-              <label className="text-xs font-medium text-gray-600">Pages to show in full</label>
-              <input type="number" min={0} max={maxShownPages(f.report_page_count)} value={editVisiblePages}
-                onChange={e => setEditVisiblePages(Math.max(0, Math.min(maxShownPages(f.report_page_count), parseInt(e.target.value, 10) || 0)))}
-                className="w-20 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500" />
-              {f.report_page_count && <span className="text-xs text-gray-500">of {f.report_page_count} (up to {maxShownPages(f.report_page_count)})</span>}
-              <Button size="sm" variant="ghost" onClick={() => setEditingPagesId(null)}>Cancel</Button>
-              <Button size="sm" onClick={() => saveVisiblePages(f)} disabled={savingPages}>{savingPages ? 'Saving…' : 'Save'}</Button>
-            </div>
-          )}
         </div>
       ))}
 

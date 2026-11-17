@@ -12,11 +12,11 @@ class ShareError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
-// Turns an existing client_files row into a shareable draft: generates the redacted preview and
+// Turns an existing client_files row into a shareable draft: generates the "DRAFT ONLY" preview and
 // a public view_token (server/routes/reportView.js serves the preview or, once released, the real
 // original at that same link). Shared by the Files tab's "Share" button and report billing's
 // upload. Throws ShareError with an HTTP status for anything the caller should show the user.
-async function createReportShare(file, requestedVisiblePages) {
+async function createReportShare(file) {
   if (!SHAREABLE_MIME_TYPES.includes(file.mime_type)) {
     throw new ShareError(400, 'Only PDF and image (JPG/PNG) files can be shared.');
   }
@@ -29,7 +29,7 @@ async function createReportShare(file, requestedVisiblePages) {
   try {
     const original = fs.readFileSync(path.join(UPLOAD_DIR, file.filename));
     if (isPdf) {
-      ({ buffer: previewBuffer, visiblePages, pageCount } = await generateReportPreview(original, requestedVisiblePages));
+      ({ buffer: previewBuffer, visiblePages, pageCount } = await generateReportPreview(original));
     } else {
       previewBuffer = await generateImagePreview(original, file.mime_type);
     }
@@ -43,8 +43,8 @@ async function createReportShare(file, requestedVisiblePages) {
   const viewToken = crypto.randomBytes(24).toString('hex');
   try {
     db.prepare(`
-      INSERT INTO client_file_reports (client_file_id, view_token, preview_filename, visible_pages, page_count)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO client_file_reports (client_file_id, view_token, preview_filename, visible_pages, page_count, preview_style)
+      VALUES (?, ?, ?, ?, ?, 'watermark')
     `).run(file.id, viewToken, previewFilename, visiblePages, pageCount);
   } catch (e) {
     // Preview generation isn't instant — a double-click can fire this twice before the first
@@ -55,4 +55,37 @@ async function createReportShare(file, requestedVisiblePages) {
   }
 }
 
-module.exports = { createReportShare, ShareError, SHAREABLE_MIME_TYPES, UPLOAD_DIR };
+// Previews made before 2026-11-17 blurred most pages (preview_style NULL). Remakes each one as the
+// "DRAFT ONLY" watermark, one at a time in the background, writing over the same preview file so
+// links already sent keep working. Drafts still waiting for payment go first; released ones are
+// done too in case one is set back to a draft. A file that can't be read is marked 'error'.
+async function upgradeOldPreviews() {
+  const rows = db.prepare(`
+    SELECT r.client_file_id, r.preview_filename, f.filename, f.mime_type
+    FROM client_file_reports r JOIN client_files f ON f.id = r.client_file_id
+    WHERE r.preview_style IS NULL
+    ORDER BY CASE r.status WHEN 'pending' THEN 0 ELSE 1 END, r.client_file_id
+  `).all();
+  if (!rows.length) return;
+  let done = 0;
+  for (const row of rows) {
+    try {
+      const original = fs.readFileSync(path.join(UPLOAD_DIR, row.filename));
+      let buffer, pageCount = null, visiblePages = 0;
+      if (row.mime_type === 'application/pdf') ({ buffer, pageCount, visiblePages } = await generateReportPreview(original));
+      else buffer = await generateImagePreview(original, row.mime_type);
+      const dest = path.join(UPLOAD_DIR, row.preview_filename);
+      fs.writeFileSync(dest + '.tmp', buffer);
+      fs.renameSync(dest + '.tmp', dest);
+      db.prepare("UPDATE client_file_reports SET preview_style = 'watermark', page_count = COALESCE(?, page_count), visible_pages = ? WHERE client_file_id = ?")
+        .run(pageCount, visiblePages, row.client_file_id);
+      done++;
+    } catch (e) {
+      console.error(`Report preview upgrade failed for file ${row.client_file_id}:`, e.message);
+      db.prepare("UPDATE client_file_reports SET preview_style = 'error' WHERE client_file_id = ?").run(row.client_file_id);
+    }
+  }
+  console.log(`Report previews: ${done} of ${rows.length} remade with the DRAFT ONLY watermark`);
+}
+
+module.exports = { createReportShare, upgradeOldPreviews, ShareError, SHAREABLE_MIME_TYPES, UPLOAD_DIR };
